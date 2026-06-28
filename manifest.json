@@ -2,7 +2,7 @@
   "name": "MedConnect - Platform Kesehatan Digital",
   "short_name": "MedConnect",
   "description": "Platform kesehatan digital terintegrasi untuk dokter, pasien, dan apotek mitra",
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#0d9488",
