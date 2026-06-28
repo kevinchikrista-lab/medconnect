@@ -209,25 +209,22 @@ export function adminUsersData() {
       this.resetting = true;
       if (!CONFIG.DEMO_MODE) {
         try {
-          // Login sebagai user tersebut dulu untuk dapat token, lalu update password
-          // Alternatif: langsung update di store (demo mode fallback)
-          const loginRes = await fetch(CONFIG.SUPABASE_URL + '/auth/v1/token?grant_type=password', {
-            method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: this.resetUser.email, password: this.resetUser.password || 'old' })
-          }).then(r => r.json());
-          // If we can't login (don't know old password), update in local store
-          // For full production, this needs service_role key
-          const user = store.data.users.find(u => u.id === this.resetUser.id);
-          if (user) { user.password = this.resetNewPass; store._save(store.data); }
-          this.resetMsg = 'Password berhasil diubah!';
-          this.resetting = false;
-        } catch(e) { this.resetMsg = 'Error: ' + e.message; this.resetting = false; }
+          const res = await supabase.rpc('admin_reset_password', {
+            target_email: this.resetUser.email,
+            new_password: this.resetNewPass
+          });
+          if (res.success) {
+            this.resetMsg = 'Password berhasil diubah di cloud!';
+          } else {
+            this.resetMsg = res.error || 'Gagal reset password';
+          }
+        } catch(e) { this.resetMsg = 'Error: ' + e.message; }
       } else {
         const user = store.data.users.find(u => u.id === this.resetUser.id);
         if (user) { user.password = this.resetNewPass; store._save(store.data); }
         this.resetMsg = 'Password berhasil diubah!';
-        this.resetting = false;
       }
+      this.resetting = false;
     }
   };
 }
