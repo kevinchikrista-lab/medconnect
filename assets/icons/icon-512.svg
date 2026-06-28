@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d9488"/>
+      <stop offset="100%" style="stop-color:#0891b2"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="100" fill="url(#bg)"/>
+  <path d="M256 96c-88.37 0-160 71.63-160 160s71.63 160 160 160 160-71.63 160-160S344.37 96 256 96zm0 24c75.11 0 136 60.89 136 136s-60.89 136-136 136-136-60.89-136-136S180.89 120 256 120z" fill="white" opacity="0.3"/>
+  <path d="M280 244h-12v-32a12 12 0 0 0-24 0v32h-32a12 12 0 0 0 0 24h32v32a12 12 0 0 0 24 0v-32h32a12 12 0 0 0 0-24h-20z" fill="white"/>
+  <text x="256" y="400" text-anchor="middle" fill="white" font-family="Arial,sans-serif" font-size="48" font-weight="bold">MedConnect</text>
+</svg>
