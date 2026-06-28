@@ -7,7 +7,8 @@ export const CONFIG = {
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZubnZpYWlicW5kdWN6cnJnY2ZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NDAzMzIsImV4cCI6MjA5ODIxNjMzMn0.mBGLVHpMp2Cqji8h94jjgT-Xigr93z0gCPDRGZ0_ug0',
 
   // Mode: true = localStorage (demo), false = Supabase (production)
-  DEMO_MODE: false,
+  // Supabase Auth sudah siap, flip ke false setelah auth fully tested
+  DEMO_MODE: true,
 
   ROLES: {
     SUPERADMIN: 'superadmin',
