@@ -1,19 +1,19 @@
 const CACHE_NAME = 'medconnect-v1';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/js/config.js',
-  '/js/store.js',
-  '/js/router.js',
-  '/js/app.js',
-  '/js/pages/auth.js',
-  '/js/pages/admin.js',
-  '/js/pages/doctor.js',
-  '/js/pages/patient.js',
-  '/js/pages/pharmacy.js',
-  '/assets/icons/icon-192.svg',
-  '/assets/icons/icon-512.svg',
+  './',
+  'index.html',
+  'manifest.json',
+  'js/config.js',
+  'js/store.js',
+  'js/router.js',
+  'js/app.js',
+  'js/pages/auth.js',
+  'js/pages/admin.js',
+  'js/pages/doctor.js',
+  'js/pages/patient.js',
+  'js/pages/pharmacy.js',
+  'assets/icons/icon-192.svg',
+  'assets/icons/icon-512.svg',
 ];
 
 self.addEventListener('install', event => {
