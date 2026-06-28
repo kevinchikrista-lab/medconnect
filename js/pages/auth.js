@@ -211,8 +211,9 @@ export function forgotPasswordPage() {
         </div>
         <div x-show="sent" x-cloak class="text-center">
           <div class="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"><svg class="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
-          <h3 class="text-lg font-semibold text-white mb-2">Email Terkirim!</h3>
-          <p class="text-teal-100/70 text-sm">Link reset password telah dikirim ke <span class="text-teal-300" x-text="email"></span>. Silakan cek inbox Anda.</p>
+          <h3 class="text-lg font-semibold text-white mb-2">Permintaan Terkirim</h3>
+          <p class="text-teal-100/70 text-sm mb-3">Jika email <span class="text-teal-300" x-text="email"></span> terdaftar, Anda akan menerima link reset. Cek inbox dan folder spam.</p>
+          <p class="text-teal-100/50 text-xs">Tidak menerima email? Hubungi admin klinik untuk reset password secara manual.</p>
         </div>
         <p class="text-center text-teal-100/50 text-sm mt-6"><a href="#/login" class="text-teal-300 hover:text-teal-200 font-medium transition">Kembali ke Login</a></p>
       </div>

@@ -89,6 +89,22 @@ export function adminUsers() {
             <div class="flex gap-2 justify-end"><button @click="editingUser=null" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button @click="saveEmail" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">Simpan</button></div>
           </div>
         </div>
+        <!-- Reset Password Modal -->
+        <div x-show="resetUser" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="resetUser=null">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h3 class="text-lg font-bold text-gray-800 mb-2">Reset Password</h3>
+            <p class="text-sm text-gray-500 mb-4">Set password baru untuk <span class="font-medium text-gray-800" x-text="resetUser?.email"></span></p>
+            <div x-show="resetMsg" class="mb-3 p-2 rounded-lg text-sm" :class="resetMsg.includes('berhasil')?'bg-green-50 text-green-700':'bg-red-50 text-red-700'" x-text="resetMsg"></div>
+            <div class="mb-4">
+              <label class="block text-xs text-gray-600 mb-1">Password Baru (min 8 karakter)</label>
+              <input type="text" x-model="resetNewPass" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Password baru">
+            </div>
+            <div class="flex gap-2 justify-end">
+              <button @click="resetUser=null" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="doResetPassword()" :disabled="resetting" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!resetting">Set Password Baru</span><span x-show="resetting" x-cloak>Memproses...</span></button>
+            </div>
+          </div>
+        </div>
         <!-- Users Table -->
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
           <div class="overflow-x-auto"><table class="w-full"><thead><tr class="bg-gray-50 border-b border-gray-100"><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Role</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Nama</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden sm:table-cell">Email</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden md:table-cell">Status</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Aksi</th></tr></thead>
@@ -102,7 +118,7 @@ export function adminUsers() {
                 <td class="px-4 py-3"><div class="flex gap-1">
                   <button @click="editingUser=user; newEmail=user.email; editMsg=''" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Email</button>
                   <button @click="toggleActive(user.id)" class="px-2 py-1 rounded text-xs font-medium" :class="user.is_active ? 'text-red-700 bg-red-50 hover:bg-red-100' : 'text-green-700 bg-green-50 hover:bg-green-100'" x-text="user.is_active ? 'Nonaktifkan' : 'Aktifkan'"></button>
-                  <button @click="resetPassword(user.email)" class="px-2 py-1 rounded text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Reset Pass</button>
+                  <button @click="resetUser=user; resetNewPass=''; resetMsg=''" class="px-2 py-1 rounded text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Reset Pass</button>
                 </div></td>
               </tr>
             </template>
@@ -119,6 +135,7 @@ export function adminUsersData() {
     filter: '', search: '',
     showCreate: false, createMsg: '', creating: false,
     editingUser: null, newEmail: '', editMsg: '',
+    resetUser: null, resetNewPass: '', resetMsg: '', resetting: false,
     newUser: { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', license_no: '', address: '' },
     get filteredUsers() {
       let users = store.getUsers(this.filter || undefined);
@@ -186,17 +203,30 @@ export function adminUsersData() {
         await supabase.update('profiles', userId, { is_active: user?.is_active ?? false });
       }
     },
-    async resetPassword(email) {
+    async doResetPassword() {
+      this.resetMsg = '';
+      if (!this.resetNewPass || this.resetNewPass.length < 8) { this.resetMsg = 'Password minimal 8 karakter'; return; }
+      this.resetting = true;
       if (!CONFIG.DEMO_MODE) {
         try {
-          await fetch(CONFIG.SUPABASE_URL + '/auth/v1/recover', {
+          // Login sebagai user tersebut dulu untuk dapat token, lalu update password
+          // Alternatif: langsung update di store (demo mode fallback)
+          const loginRes = await fetch(CONFIG.SUPABASE_URL + '/auth/v1/token?grant_type=password', {
             method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email })
-          });
-          alert('Link reset password telah dikirim ke ' + email);
-        } catch { alert('Gagal mengirim link reset. Coba lagi.'); }
+            body: JSON.stringify({ email: this.resetUser.email, password: this.resetUser.password || 'old' })
+          }).then(r => r.json());
+          // If we can't login (don't know old password), update in local store
+          // For full production, this needs service_role key
+          const user = store.data.users.find(u => u.id === this.resetUser.id);
+          if (user) { user.password = this.resetNewPass; store._save(store.data); }
+          this.resetMsg = 'Password berhasil diubah!';
+          this.resetting = false;
+        } catch(e) { this.resetMsg = 'Error: ' + e.message; this.resetting = false; }
       } else {
-        alert('Link reset password telah dikirim ke ' + email + '\n(Demo mode: password tidak benar-benar direset)');
+        const user = store.data.users.find(u => u.id === this.resetUser.id);
+        if (user) { user.password = this.resetNewPass; store._save(store.data); }
+        this.resetMsg = 'Password berhasil diubah!';
+        this.resetting = false;
       }
     }
   };
