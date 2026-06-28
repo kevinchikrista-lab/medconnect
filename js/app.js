@@ -1,6 +1,6 @@
 import { router } from './router.js';
 import { store } from './store.js';
-import { loginPage, registerPage, forgotPasswordPage } from './pages/auth.js';
+import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
 import { adminDashboard, adminUsers, adminUsersData, adminServices, adminBookings } from './pages/admin.js';
 import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile } from './pages/patient.js';
@@ -33,7 +33,7 @@ function getUser() {
 
 router.beforeEach = (path, meta) => {
   const user = getUser();
-  const publicPaths = ['/login', '/register', '/forgot-password'];
+  const publicPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
 
   if (publicPaths.some(p => path.startsWith(p))) {
     if (user) {
@@ -61,6 +61,7 @@ router.beforeEach = (path, meta) => {
 router.add('/login', () => render(loginPage));
 router.add('/register', () => render(registerPage));
 router.add('/forgot-password', () => render(forgotPasswordPage));
+router.add('/reset-password', () => render(resetPasswordPage));
 
 // Admin
 router.add('/admin/dashboard', () => render(adminDashboard));
@@ -216,6 +217,17 @@ if ('serviceWorker' in navigator) {
 
 // Wait for Alpine to be ready, then start the router
 async function startApp() {
+  // Check for password recovery token from Supabase email link
+  const fullHash = window.location.hash;
+  if (fullHash.includes('access_token=') && fullHash.includes('type=recovery')) {
+    const params = new URLSearchParams(fullHash.replace('#', '?'));
+    const token = params.get('access_token');
+    if (token) {
+      sessionStorage.setItem('sb_recovery_token', token);
+      window.location.hash = '#/reset-password';
+    }
+  }
+
   // Load data from Supabase if not in demo mode
   if (!store.data._supabaseLoaded) {
     store.loadFromSupabase().then(() => { store.data._supabaseLoaded = true; }).catch(() => {});

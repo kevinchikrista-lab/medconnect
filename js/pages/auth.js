@@ -220,3 +220,63 @@ export function forgotPasswordPage() {
     </div>
   </div>`;
 }
+
+export function resetPasswordPage() {
+  return `
+  <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #0d3b66 50%, #0d9488 100%);">
+    <div class="relative w-full max-w-md" x-data="{
+      newPass: '', confirmPass: '', loading: false, error: '', success: false,
+      async handleReset() {
+        this.error = '';
+        if (this.newPass.length < 8) { this.error = 'Password minimal 8 karakter'; return; }
+        if (this.newPass !== this.confirmPass) { this.error = 'Password tidak cocok'; return; }
+        this.loading = true;
+        const token = sessionStorage.getItem('sb_recovery_token');
+        if (!token) { this.error = 'Token reset tidak valid. Silakan minta link reset baru.'; this.loading = false; return; }
+        try {
+          const res = await fetch('${CONFIG.SUPABASE_URL}/auth/v1/user', {
+            method: 'PUT',
+            headers: { 'apikey': '${CONFIG.SUPABASE_ANON_KEY}', 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: this.newPass })
+          });
+          const data = await res.json();
+          if (data.error) { this.error = data.error.message || data.msg || 'Gagal reset password'; this.loading = false; return; }
+          sessionStorage.removeItem('sb_recovery_token');
+          this.loading = false;
+          this.success = true;
+        } catch(e) { this.error = 'Gagal terhubung ke server'; this.loading = false; }
+      }
+    }">
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 mb-4">
+          <svg class="w-8 h-8 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+        </div>
+        <h1 class="text-2xl font-bold text-white">Set Password Baru</h1>
+        <p class="text-teal-200/70 mt-1">Masukkan password baru untuk akun Anda</p>
+      </div>
+      <div class="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-8 shadow-2xl">
+        <div x-show="error" x-cloak class="mb-4 p-3 rounded-lg bg-red-500/20 border border-red-400/30 text-red-200 text-sm" x-text="error"></div>
+        <div x-show="!success">
+          <div class="mb-4">
+            <label class="block text-teal-100 text-sm font-medium mb-2">Password Baru</label>
+            <input type="password" x-model="newPass" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-teal-400/50 transition" placeholder="Minimal 8 karakter">
+          </div>
+          <div class="mb-6">
+            <label class="block text-teal-100 text-sm font-medium mb-2">Konfirmasi Password</label>
+            <input type="password" x-model="confirmPass" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-teal-400/50 transition" placeholder="Ulangi password baru">
+          </div>
+          <button @click="handleReset()" :disabled="loading" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50" style="background: linear-gradient(135deg, #0d9488, #0891b2); box-shadow: 0 4px 15px rgba(13,148,136,0.4);">
+            <span x-show="!loading">Simpan Password Baru</span>
+            <span x-show="loading" x-cloak>Memproses...</span>
+          </button>
+        </div>
+        <div x-show="success" x-cloak class="text-center">
+          <div class="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"><svg class="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
+          <h3 class="text-lg font-semibold text-white mb-2">Password Berhasil Diubah!</h3>
+          <p class="text-teal-100/70 text-sm mb-4">Silakan login dengan password baru Anda.</p>
+          <a href="#/login" class="inline-block py-2 px-6 rounded-xl font-medium text-white" style="background: linear-gradient(135deg, #0d9488, #0891b2);">Login Sekarang</a>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
