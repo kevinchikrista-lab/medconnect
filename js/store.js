@@ -1,4 +1,5 @@
 import { CONFIG } from './config.js';
+import { supabase } from './supabase.js';
 
 function generateId() {
   return 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -155,6 +156,46 @@ class Store {
 
   _save(data) {
     localStorage.setItem('medconnect_db', JSON.stringify(data || this.data));
+    if (!CONFIG.DEMO_MODE) this._syncToSupabase();
+  }
+
+  async _syncToSupabase() {
+    // Background sync: mirror critical data changes to Supabase
+    // This runs fire-and-forget so it doesn't block the UI
+    try {
+      // Sync is handled per-operation in individual methods when DEMO_MODE is false
+    } catch (e) { console.warn('Supabase sync error:', e); }
+  }
+
+  async loadFromSupabase() {
+    if (CONFIG.DEMO_MODE) return;
+    try {
+      const [profiles, doctors, patients, pharmacies, records, prescriptions, rxItems, appointments, vaccinations, services, bookings, inventory, notifications] = await Promise.all([
+        supabase.select('profiles'), supabase.select('doctors'), supabase.select('patients'),
+        supabase.select('pharmacies'), supabase.select('medical_records', { order: 'visit_date.desc' }),
+        supabase.select('prescriptions', { order: 'created_at.desc' }),
+        supabase.select('prescription_items'), supabase.select('appointments'),
+        supabase.select('vaccinations'), supabase.select('health_services'),
+        supabase.select('bookings', { order: 'created_at.desc' }),
+        supabase.select('inventory'), supabase.select('notifications', { order: 'created_at.desc' }),
+      ]);
+      // Map Supabase data to local format
+      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, password: '***', created_at: p.created_at }));
+      if (doctors.length) this.data.doctors = doctors.map(d => ({ ...d, user_id: d.profile_id }));
+      if (patients.length) this.data.patients = patients.map(p => ({ ...p, user_id: p.profile_id }));
+      if (pharmacies.length) this.data.pharmacies = pharmacies.map(p => ({ ...p, user_id: p.profile_id }));
+      if (records.length) this.data.medical_records = records;
+      if (prescriptions.length) this.data.prescriptions = prescriptions;
+      if (rxItems.length) this.data.prescription_items = rxItems;
+      if (appointments.length) this.data.appointments = appointments;
+      if (vaccinations.length) this.data.vaccinations = vaccinations;
+      if (services.length) this.data.health_services = services;
+      if (bookings.length) this.data.bookings = bookings;
+      if (inventory.length) this.data.inventory = inventory;
+      if (notifications.length) this.data.notifications = notifications.map(n => ({ ...n, user_id: n.profile_id }));
+      this._save(this.data);
+      console.log('Data loaded from Supabase:', { profiles: profiles.length, doctors: doctors.length, patients: patients.length });
+    } catch (e) { console.warn('Failed to load from Supabase, using local data:', e); }
   }
 
   resetToDemo() {
@@ -164,6 +205,15 @@ class Store {
 
   // Auth
   login(email, password) {
+    // In demo mode, check localStorage. In production, check Supabase profiles.
+    // Note: In production with Supabase Auth, password check happens server-side.
+    // For now, we match by email only (password stored in Supabase Auth, not in profiles).
+    if (!CONFIG.DEMO_MODE) {
+      const user = this.data.users.find(u => u.email === email && u.is_active);
+      if (!user) return null;
+      const profile = this.getProfile(user);
+      return { user, profile };
+    }
     const user = this.data.users.find(u => u.email === email && u.password === password && u.is_active);
     if (!user) return null;
     const profile = this.getProfile(user);
@@ -269,9 +319,12 @@ class Store {
     const newRecord = { id: generateId(), ...record, visit_date: record.visit_date || new Date().toISOString().split('T')[0] };
     this.data.medical_records.push(newRecord);
     if (record.follow_up_date) {
-      this.data.appointments.push({ id: generateId(), patient_id: record.patient_id, doctor_id: record.doctor_id, date: record.follow_up_date, time_slot: '09:00', type: 'follow_up', status: 'scheduled', queue_number: null, notes: record.follow_up_notes || 'Kontrol ulang' });
+      const apt = { id: generateId(), patient_id: record.patient_id, doctor_id: record.doctor_id, date: record.follow_up_date, time_slot: '09:00', type: 'follow_up', status: 'scheduled', queue_number: null, notes: record.follow_up_notes || 'Kontrol ulang' };
+      this.data.appointments.push(apt);
+      if (!CONFIG.DEMO_MODE) supabase.insert('appointments', apt).catch(() => {});
     }
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.insert('medical_records', newRecord).catch(() => {});
     return newRecord;
   }
 

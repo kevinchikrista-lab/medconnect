@@ -215,7 +215,11 @@ if ('serviceWorker' in navigator) {
 }
 
 // Wait for Alpine to be ready, then start the router
-function startApp() {
+async function startApp() {
+  // Load data from Supabase if not in demo mode
+  if (!store.data._supabaseLoaded) {
+    store.loadFromSupabase().then(() => { store.data._supabaseLoaded = true; }).catch(() => {});
+  }
   if (window.Alpine) {
     router.init();
   } else {
