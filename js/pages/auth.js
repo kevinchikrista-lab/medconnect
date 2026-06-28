@@ -1,5 +1,6 @@
 import { store } from '../store.js';
 import { CONFIG } from '../config.js';
+import { supabase } from '../supabase.js';
 
 export function loginPage() {
   return `
@@ -7,9 +8,30 @@ export function loginPage() {
     <div class="absolute inset-0 opacity-10" style="background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2260%22><circle cx=%2230%22 cy=%2230%22 r=%221%22 fill=%22white%22/></svg>');"></div>
     <div class="relative w-full max-w-md" x-data="{ email: '', password: '', showPass: false, loading: false, error: '',
       fillDemo(e, p) { this.email = e; this.password = p; this.error = ''; },
-      handleLogin() {
+      async handleLogin() {
         this.loading = true; this.error = '';
         const self = this;
+        const demoMode = ${CONFIG.DEMO_MODE};
+        if (!demoMode) {
+          try {
+            const authResult = await fetch('${CONFIG.SUPABASE_URL}/auth/v1/token?grant_type=password', {
+              method: 'POST',
+              headers: { 'apikey': '${CONFIG.SUPABASE_ANON_KEY}', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: self.email, password: self.password })
+            }).then(r => r.json());
+            if (authResult.error) { self.error = authResult.error_description || 'Email atau password salah.'; self.loading = false; return; }
+            sessionStorage.setItem('sb_token', authResult.access_token);
+            await window.__store.loadFromSupabase();
+            const result = window.__store.login(self.email, self.password);
+            if (!result) { self.error = 'Akun tidak ditemukan atau tidak aktif.'; self.loading = false; return; }
+            sessionStorage.setItem('medconnect_user', JSON.stringify(result.user));
+            sessionStorage.setItem('medconnect_profile', JSON.stringify(result.profile));
+            self.loading = false;
+            const routes = { superadmin: '#/admin/dashboard', doctor: '#/doctor/dashboard', patient: '#/patient/dashboard', pharmacy: '#/pharmacy/dashboard' };
+            window.location.hash = routes[result.user.role] || '#/login';
+          } catch(e) { self.error = 'Gagal terhubung ke server. Coba lagi.'; self.loading = false; }
+          return;
+        }
         setTimeout(function() {
           const result = window.__store.login(self.email, self.password);
           if (!result) { self.error = 'Email atau password salah, atau akun tidak aktif.'; self.loading = false; return; }
@@ -88,13 +110,38 @@ export function registerPage() {
     <div class="relative w-full max-w-lg" x-data="{
       form: { full_name: '', nik: '', birth_date: '', gender: '', phone: '', address: '', blood_type: '', allergies: '', email: '', password: '' },
       confirmPass: '', agreed: false, loading: false, error: '', success: false,
-      handleRegister() {
+      async handleRegister() {
         this.error = '';
         if (this.form.password !== this.confirmPass) { this.error = 'Password tidak cocok'; return; }
         if (this.form.password.length < 8) { this.error = 'Password minimal 8 karakter'; return; }
         if (this.form.nik.length !== 16) { this.error = 'NIK harus 16 digit'; return; }
         this.loading = true;
         const self = this;
+        const demoMode = ${CONFIG.DEMO_MODE};
+        if (!demoMode) {
+          try {
+            const authResult = await fetch('${CONFIG.SUPABASE_URL}/auth/v1/signup', {
+              method: 'POST',
+              headers: { 'apikey': '${CONFIG.SUPABASE_ANON_KEY}', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: self.form.email, password: self.form.password })
+            }).then(r => r.json());
+            if (authResult.error) { self.error = authResult.error.message || authResult.msg || 'Registrasi gagal'; self.loading = false; return; }
+            // Create profile + patient in Supabase
+            const profileRes = await fetch('${CONFIG.SUPABASE_URL}/rest/v1/profiles', {
+              method: 'POST', headers: { 'apikey': '${CONFIG.SUPABASE_ANON_KEY}', 'Authorization': 'Bearer ${CONFIG.SUPABASE_ANON_KEY}', 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+              body: JSON.stringify({ auth_id: authResult.user?.id || null, email: self.form.email, role: 'patient', is_active: true })
+            }).then(r => r.json());
+            const profileId = profileRes[0]?.id || profileRes?.id;
+            if (profileId) {
+              await fetch('${CONFIG.SUPABASE_URL}/rest/v1/patients', {
+                method: 'POST', headers: { 'apikey': '${CONFIG.SUPABASE_ANON_KEY}', 'Authorization': 'Bearer ${CONFIG.SUPABASE_ANON_KEY}', 'Content-Type': 'application/json' },
+                body: JSON.stringify({ profile_id: profileId, full_name: self.form.full_name, nik: self.form.nik, birth_date: self.form.birth_date, gender: self.form.gender, phone: self.form.phone, address: self.form.address, blood_type: self.form.blood_type, allergies: self.form.allergies || '-' })
+              });
+            }
+            self.loading = false; self.success = true;
+          } catch(e) { self.error = 'Gagal terhubung ke server.'; self.loading = false; }
+          return;
+        }
         setTimeout(function() {
           const result = window.__store.register(self.form);
           if (result.error) { self.error = result.error; self.loading = false; return; }
@@ -160,7 +207,7 @@ export function forgotPasswordPage() {
             <label class="block text-teal-100 text-sm font-medium mb-2">Alamat Email</label>
             <input type="email" x-model="email" required class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-teal-400/50 transition" placeholder="email@contoh.com">
           </div>
-          <button @click="sent = true" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]" style="background: linear-gradient(135deg, #0d9488, #0891b2); box-shadow: 0 4px 15px rgba(13,148,136,0.4);">Kirim Link Reset</button>
+          <button @click="fetch('${CONFIG.SUPABASE_URL}/auth/v1/recover', { method:'POST', headers:{'apikey':'${CONFIG.SUPABASE_ANON_KEY}','Content-Type':'application/json'}, body:JSON.stringify({email:email}) }).catch(()=>{}); sent=true" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]" style="background: linear-gradient(135deg, #0d9488, #0891b2); box-shadow: 0 4px 15px rgba(13,148,136,0.4);">Kirim Link Reset</button>
         </div>
         <div x-show="sent" x-cloak class="text-center">
           <div class="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"><svg class="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
