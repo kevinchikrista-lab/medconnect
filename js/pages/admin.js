@@ -1,5 +1,6 @@
 import { store } from '../store.js';
 import { CONFIG } from '../config.js';
+import { supabase } from '../supabase.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -75,7 +76,7 @@ export function adminUsers() {
                 <template x-if="newUser.role==='pharmacy'"><div><label class="block text-xs text-gray-600 mb-1">No. SIPA</label><input type="text" x-model="newUser.license_no" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
                 <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newUser.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
-              <div class="flex gap-2 justify-end"><button type="button" @click="showCreate=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button type="submit" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">Buat Akun</button></div>
+              <div class="flex gap-2 justify-end"><button type="button" @click="showCreate=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button type="submit" :disabled="creating" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!creating">Buat Akun</span><span x-show="creating" x-cloak>Memproses...</span></button></div>
             </form>
           </div>
         </div>
@@ -116,7 +117,7 @@ export function adminUsersData() {
   return {
     sideOpen: window.innerWidth > 1024,
     filter: '', search: '',
-    showCreate: false, createMsg: '',
+    showCreate: false, createMsg: '', creating: false,
     editingUser: null, newEmail: '', editMsg: '',
     newUser: { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', license_no: '', address: '' },
     get filteredUsers() {
@@ -127,27 +128,76 @@ export function adminUsersData() {
       }
       return users;
     },
-    createUser() {
-      this.createMsg = '';
-      if (!this.newUser.role || !this.newUser.full_name || !this.newUser.email) { this.createMsg = 'Lengkapi data wajib'; return; }
-      const result = store.createUser({ ...this.newUser, name: this.newUser.full_name });
-      if (result.error) { this.createMsg = result.error; return; }
-      this.createMsg = 'User berhasil dibuat!';
+    async createUser() {
+      this.createMsg = ''; this.creating = true;
+      if (!this.newUser.role || !this.newUser.full_name || !this.newUser.email) { this.createMsg = 'Lengkapi data wajib'; this.creating = false; return; }
+      if (!CONFIG.DEMO_MODE) {
+        try {
+          const authRes = await fetch(CONFIG.SUPABASE_URL + '/auth/v1/signup', {
+            method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: this.newUser.email, password: this.newUser.password })
+          }).then(r => r.json());
+          const authId = authRes.user?.id || null;
+          if (authRes.error) { this.createMsg = authRes.error.message || authRes.msg || 'Gagal buat auth user'; this.creating = false; return; }
+          const profileData = { email: this.newUser.email, role: this.newUser.role, is_active: true };
+          if (authId) profileData.auth_id = authId;
+          const profileRes = await supabase.insert('profiles', profileData);
+          if (profileRes.error) { this.createMsg = profileRes.error; this.creating = false; return; }
+          const profileId = profileRes.id;
+          if (this.newUser.role === 'doctor') {
+            await supabase.insert('doctors', { profile_id: profileId, full_name: this.newUser.full_name, sip_number: this.newUser.sip_number || '', specialization: this.newUser.specialization || '', phone: this.newUser.phone || '', is_available: true });
+          } else if (this.newUser.role === 'patient') {
+            await supabase.insert('patients', { profile_id: profileId, full_name: this.newUser.full_name, nik: this.newUser.nik || '', phone: this.newUser.phone || '', address: this.newUser.address || '', allergies: '-', emergency_contact: '' });
+          } else if (this.newUser.role === 'pharmacy') {
+            await supabase.insert('pharmacies', { profile_id: profileId, name: this.newUser.full_name, phone: this.newUser.phone || '', address: this.newUser.address || '', license_no: this.newUser.license_no || '', operating_hours: '' });
+          }
+          await window.__store.loadFromSupabase();
+          this.createMsg = 'User berhasil dibuat! (tersimpan di cloud)';
+        } catch(e) { this.createMsg = 'Error: ' + e.message; }
+      } else {
+        const result = store.createUser({ ...this.newUser, name: this.newUser.full_name });
+        if (result.error) { this.createMsg = result.error; this.creating = false; return; }
+        this.createMsg = 'User berhasil dibuat!';
+      }
+      this.creating = false;
       this.newUser = { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', license_no: '', address: '' };
     },
-    saveEmail() {
+    async saveEmail() {
       this.editMsg = '';
       if (!this.newEmail) { this.editMsg = 'Email tidak boleh kosong'; return; }
-      const result = store.updateUserEmail(this.editingUser.id, this.newEmail);
-      if (result.error) { this.editMsg = result.error; return; }
-      this.editMsg = 'Email berhasil diubah!';
-      this.editingUser.email = this.newEmail;
+      if (!CONFIG.DEMO_MODE) {
+        try {
+          await supabase.update('profiles', this.editingUser.id, { email: this.newEmail });
+          await window.__store.loadFromSupabase();
+          this.editMsg = 'Email berhasil diubah! (tersimpan di cloud)';
+          this.editingUser.email = this.newEmail;
+        } catch(e) { this.editMsg = 'Error: ' + e.message; }
+      } else {
+        const result = store.updateUserEmail(this.editingUser.id, this.newEmail);
+        if (result.error) { this.editMsg = result.error; return; }
+        this.editMsg = 'Email berhasil diubah!';
+        this.editingUser.email = this.newEmail;
+      }
     },
-    toggleActive(userId) {
+    async toggleActive(userId) {
       store.toggleUserActive(userId);
+      if (!CONFIG.DEMO_MODE) {
+        const user = store.data.users.find(u => u.id === userId);
+        await supabase.update('profiles', userId, { is_active: user?.is_active ?? false });
+      }
     },
-    resetPassword(email) {
-      alert('Link reset password telah dikirim ke ' + email + '\n(Demo mode: password tidak benar-benar direset)');
+    async resetPassword(email) {
+      if (!CONFIG.DEMO_MODE) {
+        try {
+          await fetch(CONFIG.SUPABASE_URL + '/auth/v1/recover', {
+            method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+          });
+          alert('Link reset password telah dikirim ke ' + email);
+        } catch { alert('Gagal mengirim link reset. Coba lagi.'); }
+      } else {
+        alert('Link reset password telah dikirim ke ' + email + '\n(Demo mode: password tidak benar-benar direset)');
+      }
     }
   };
 }
