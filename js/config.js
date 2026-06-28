@@ -6,8 +6,8 @@ export const CONFIG = {
   SUPABASE_URL: 'https://fnnviaibqnduczrrgcfa.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZubnZpYWlicW5kdWN6cnJnY2ZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2NDAzMzIsImV4cCI6MjA5ODIxNjMzMn0.mBGLVHpMp2Cqji8h94jjgT-Xigr93z0gCPDRGZ0_ug0',
 
-  // Mode demo: true = localStorage, false = Supabase
-  DEMO_MODE: true,
+  // Mode: true = localStorage (demo), false = Supabase (production)
+  DEMO_MODE: false,
 
   ROLES: {
     SUPERADMIN: 'superadmin',
