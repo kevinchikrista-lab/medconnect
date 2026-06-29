@@ -101,7 +101,7 @@ export function doctorPatients() {
         <div x-show="showNewForm" x-cloak x-data="{ saving: false, msg: '' }" class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
           <h3 class="font-semibold text-gray-800 mb-4">Registrasi Pasien Baru</h3>
           <div x-show="msg" class="mb-3 p-2 rounded-lg bg-green-50 text-green-700 text-sm" x-text="msg"></div>
-          <form @submit.prevent="saving=true; setTimeout(()=>{const r=window.__store.register({...newPatient}); if(r.error){msg=r.error}else{msg='Pasien berhasil didaftarkan!'; newPatient={full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123'}}; saving=false},300)">
+          <form @submit.prevent="async function doReg(){saving=true; const r=await window.__store.register({...newPatient}); if(r.error){msg=r.error}else{msg='Pasien berhasil didaftarkan! (tersimpan di cloud)'; newPatient={full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123'}}; saving=false}; doReg()">
             <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
               <div><label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label><input type="text" x-model="newPatient.full_name" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">NIK *</label><input type="text" x-model="newPatient.nik" maxlength="16" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>

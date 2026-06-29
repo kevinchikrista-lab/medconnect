@@ -220,9 +220,45 @@ class Store {
     return { user, profile };
   }
 
-  register(userData) {
+  async register(userData) {
     const exists = this.data.users.find(u => u.email === userData.email);
     if (exists) return { error: 'Email sudah terdaftar' };
+
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        // 1. Create auth user di Supabase
+        const authRes = await fetch(CONFIG.SUPABASE_URL + '/auth/v1/signup', {
+          method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userData.email, password: userData.password || 'default123' })
+        }).then(r => r.json());
+        const authId = authRes.user?.id || null;
+
+        // 2. Create profile di Supabase
+        const profileRes = await supabase.insert('profiles', {
+          email: userData.email, role: 'patient', is_active: true, auth_id: authId
+        });
+        if (profileRes.error) return { error: profileRes.error };
+        const profileId = profileRes.id;
+
+        // 3. Create patient di Supabase
+        await supabase.insert('patients', {
+          profile_id: profileId, full_name: userData.full_name, nik: userData.nik || '',
+          birth_date: userData.birth_date || null, gender: userData.gender || '',
+          phone: userData.phone || '', address: userData.address || '',
+          blood_type: userData.blood_type || '', allergies: userData.allergies || '-',
+          emergency_contact: userData.emergency_contact || ''
+        });
+
+        // 4. Reload data dari Supabase
+        await this.loadFromSupabase();
+
+        const user = this.data.users.find(u => u.email === userData.email);
+        const patient = this.data.patients.find(p => p.user_id === profileId);
+        return { user: user || { id: profileId, email: userData.email, role: 'patient' }, profile: patient };
+      } catch(e) { return { error: 'Gagal menyimpan ke server: ' + e.message }; }
+    }
+
+    // Demo mode: localStorage only
     const userId = generateId();
     const user = { id: userId, email: userData.email, password: userData.password, role: 'patient', is_active: true, created_at: new Date().toISOString().split('T')[0] };
     this.data.users.push(user);
@@ -348,14 +384,21 @@ class Store {
   createPrescription(rx, items) {
     const newRx = { id: generateId(), ...rx, status: 'sent', created_at: new Date().toISOString(), rx_number: 'R-' + new Date().getFullYear() + '-' + String(this.data.prescriptions.length + 1).padStart(4, '0') };
     this.data.prescriptions.push(newRx);
+    const savedItems = [];
     items.forEach(item => {
-      this.data.prescription_items.push({ id: generateId(), prescription_id: newRx.id, ...item });
+      const newItem = { id: generateId(), prescription_id: newRx.id, ...item };
+      this.data.prescription_items.push(newItem);
+      savedItems.push(newItem);
     });
     const patient = this.getPatient(rx.patient_id);
     this.addNotification(this.data.pharmacies.find(ph => ph.id === rx.pharmacy_id)?.user_id, 'E-Resep Baru', `Resep baru ${newRx.rx_number} untuk ${patient?.full_name || 'pasien'}.`, 'prescription');
     const patientUser = this.data.patients.find(p => p.id === rx.patient_id);
     if (patientUser) this.addNotification(patientUser.user_id, 'Resep Dikirim', `Resep ${newRx.rx_number} telah dikirim ke apotek.`, 'prescription');
     this._save();
+    if (!CONFIG.DEMO_MODE) {
+      supabase.insert('prescriptions', newRx).catch(() => {});
+      savedItems.forEach(si => supabase.insert('prescription_items', si).catch(() => {}));
+    }
     return newRx;
   }
 
@@ -367,6 +410,7 @@ class Store {
     const statusLabel = CONFIG.PRESCRIPTION_STATUS_LABELS[status] || status;
     if (patient) this.addNotification(patient.user_id, `Resep ${statusLabel}`, `Resep ${rx.rx_number} status: ${statusLabel}.`, 'prescription');
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.update('prescriptions', rxId, { status }).catch(() => {});
   }
 
   updatePrescription(rxId, updates) {
@@ -375,13 +419,17 @@ class Store {
     if (!['sent','rejected'].includes(rx.status)) return { error: 'Resep sudah diproses apotek, tidak bisa diedit' };
     Object.assign(rx, updates);
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.update('prescriptions', rxId, updates).catch(() => {});
     return { success: true, rx };
   }
 
   updatePrescriptionItems(rxId, newItems) {
     this.data.prescription_items = this.data.prescription_items.filter(i => i.prescription_id !== rxId);
+    if (!CONFIG.DEMO_MODE) supabase.deleteWhere('prescription_items', { prescription_id: rxId }).catch(() => {});
     newItems.forEach(item => {
-      this.data.prescription_items.push({ id: generateId(), prescription_id: rxId, ...item });
+      const newItem = { id: generateId(), prescription_id: rxId, ...item };
+      this.data.prescription_items.push(newItem);
+      if (!CONFIG.DEMO_MODE) supabase.insert('prescription_items', newItem).catch(() => {});
     });
     this._save();
   }
@@ -396,6 +444,7 @@ class Store {
     const pharmacy = this.getPharmacy(rx.pharmacy_id);
     if (pharmacy) this.addNotification(pharmacy.user_id, 'Resep Dibatalkan', `Resep ${rx.rx_number} dibatalkan oleh dokter. Alasan: ${reason || '-'}`, 'prescription');
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.update('prescriptions', rxId, { status: 'cancelled', cancel_reason: reason || '' }).catch(() => {});
   }
 
   updateRecord(recordId, updates) {
@@ -403,6 +452,7 @@ class Store {
     if (!r) return { error: 'Rekam medis tidak ditemukan' };
     Object.assign(r, updates);
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.update('medical_records', recordId, updates).catch(() => {});
     return { success: true };
   }
 
@@ -431,6 +481,7 @@ class Store {
     const newVax = { id: generateId(), ...vax };
     this.data.vaccinations.push(newVax);
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.insert('vaccinations', newVax).catch(() => {});
     return newVax;
   }
 
@@ -439,21 +490,23 @@ class Store {
     if (!v) return { error: 'Data vaksinasi tidak ditemukan' };
     Object.assign(v, updates);
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.update('vaccinations', vaxId, updates).catch(() => {});
     return { success: true };
   }
 
   deleteVaccination(vaxId) {
     this.data.vaccinations = this.data.vaccinations.filter(x => x.id !== vaxId);
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.delete('vaccinations', vaxId).catch(() => {});
   }
 
   // Health Services
   getServices() { return this.data.health_services.filter(s => s.is_active); }
   getAllServices() { return this.data.health_services; }
-  createService(svc) { const s = { id: generateId(), ...svc, is_active: true }; this.data.health_services.push(s); this._save(); return s; }
-  updateService(id, updates) { const s = this.data.health_services.find(x => x.id === id); if (s) { Object.assign(s, updates); this._save(); } return s; }
-  toggleServiceActive(id) { const s = this.data.health_services.find(x => x.id === id); if (s) { s.is_active = !s.is_active; this._save(); } }
-  deleteService(id) { this.data.health_services = this.data.health_services.filter(x => x.id !== id); this._save(); }
+  createService(svc) { const s = { id: generateId(), ...svc, is_active: true }; this.data.health_services.push(s); this._save(); if (!CONFIG.DEMO_MODE) supabase.insert('health_services', s).catch(() => {}); return s; }
+  updateService(id, updates) { const s = this.data.health_services.find(x => x.id === id); if (s) { Object.assign(s, updates); this._save(); if (!CONFIG.DEMO_MODE) supabase.update('health_services', id, updates).catch(() => {}); } return s; }
+  toggleServiceActive(id) { const s = this.data.health_services.find(x => x.id === id); if (s) { s.is_active = !s.is_active; this._save(); if (!CONFIG.DEMO_MODE) supabase.update('health_services', id, { is_active: s.is_active }).catch(() => {}); } }
+  deleteService(id) { this.data.health_services = this.data.health_services.filter(x => x.id !== id); this._save(); if (!CONFIG.DEMO_MODE) supabase.delete('health_services', id).catch(() => {}); }
 
   // Bookings
   createBooking(booking) {
@@ -463,12 +516,13 @@ class Store {
     const adminUser = this.data.users.find(u => u.role === 'superadmin');
     if (adminUser) this.addNotification(adminUser.id, 'Pendaftaran Layanan Baru', `${booking.patient_name || 'Pasien'} mendaftar: ${booking.item_name || booking.service_name}. Tanggal: ${booking.preferred_date}`, 'system');
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.insert('bookings', b).catch(() => {});
     return b;
   }
 
   getBookings() { return (this.data.bookings || []).sort((a,b) => b.created_at.localeCompare(a.created_at)); }
   getBookingsByPatient(patientId) { return (this.data.bookings || []).filter(b => b.patient_id === patientId).sort((a,b) => b.created_at.localeCompare(a.created_at)); }
-  updateBookingStatus(bookingId, status) { const b = (this.data.bookings || []).find(x => x.id === bookingId); if (b) { b.status = status; this._save(); } }
+  updateBookingStatus(bookingId, status) { const b = (this.data.bookings || []).find(x => x.id === bookingId); if (b) { b.status = status; this._save(); if (!CONFIG.DEMO_MODE) supabase.update('bookings', bookingId, { status }).catch(() => {}); } }
 
   // Inventory
   getInventory(pharmacyId) {
@@ -501,8 +555,10 @@ class Store {
 
   addNotification(userId, title, message, type) {
     if (!userId) return;
-    this.data.notifications.push({ id: generateId(), user_id: userId, title, message, type, is_read: false, created_at: new Date().toISOString() });
+    const notif = { id: generateId(), user_id: userId, title, message, type, is_read: false, created_at: new Date().toISOString() };
+    this.data.notifications.push(notif);
     this._save();
+    if (!CONFIG.DEMO_MODE) supabase.insert('notifications', { ...notif, profile_id: userId }).catch(() => {});
   }
 
   // Doctors list
