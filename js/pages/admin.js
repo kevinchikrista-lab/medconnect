@@ -119,6 +119,7 @@ export function adminUsers() {
                   <button @click="editingUser=user; newEmail=user.email; editMsg=''" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Email</button>
                   <button @click="toggleActive(user.id)" class="px-2 py-1 rounded text-xs font-medium" :class="user.is_active ? 'text-red-700 bg-red-50 hover:bg-red-100' : 'text-green-700 bg-green-50 hover:bg-green-100'" x-text="user.is_active ? 'Nonaktifkan' : 'Aktifkan'"></button>
                   <button @click="resetUser=user; resetNewPass=''; resetMsg=''" class="px-2 py-1 rounded text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Reset Pass</button>
+                  <button @click="deleteUser(user)" class="px-2 py-1 rounded text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Hapus</button>
                 </div></td>
               </tr>
             </template>
@@ -225,6 +226,42 @@ export function adminUsersData() {
         this.resetMsg = 'Password berhasil diubah!';
       }
       this.resetting = false;
+    },
+    async deleteUser(user) {
+      const name = user.profile?.full_name || user.profile?.name || user.email;
+      if (!confirm('Hapus user "' + name + '" (' + user.email + ')?\n\nSemua data terkait (rekam medis, resep, vaksinasi) juga akan terhapus. Tindakan ini TIDAK bisa dibatalkan.')) return;
+      if (!confirm('Anda YAKIN ingin menghapus "' + name + '"? Ketik OK untuk konfirmasi.')) return;
+
+      if (!CONFIG.DEMO_MODE) {
+        try {
+          // Delete from role table
+          if (user.role === 'doctor') await supabase.deleteWhere('doctors', { profile_id: user.id });
+          else if (user.role === 'patient') await supabase.deleteWhere('patients', { profile_id: user.id });
+          else if (user.role === 'pharmacy') await supabase.deleteWhere('pharmacies', { profile_id: user.id });
+
+          // Delete auth user via SQL function
+          await supabase.rpc('admin_delete_user', { target_email: user.email });
+
+          // Delete profile
+          await supabase.delete('profiles', user.id);
+
+          // Reload data
+          await window.__store.loadFromSupabase();
+          alert(name + ' berhasil dihapus.');
+          window.location.hash = '/admin/dashboard';
+          setTimeout(() => window.location.hash = '/admin/users', 50);
+        } catch(e) { alert('Error: ' + e.message); }
+      } else {
+        // Demo mode: hapus dari localStorage
+        store.data.users = store.data.users.filter(u => u.id !== user.id);
+        store.data.doctors = store.data.doctors.filter(d => d.user_id !== user.id);
+        store.data.patients = store.data.patients.filter(p => p.user_id !== user.id);
+        store.data.pharmacies = store.data.pharmacies.filter(p => p.user_id !== user.id);
+        store._save(store.data);
+        alert(name + ' berhasil dihapus.');
+        window.location.hash = '/admin/dashboard';
+        setTimeout(() => window.location.hash = '/admin/users', 50);
+      }
     }
   };
 }
