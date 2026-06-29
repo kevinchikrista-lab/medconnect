@@ -233,7 +233,98 @@ export function doctorEMR(params) {
                     </div>
                   </div></template>
                   `).join('')}
-                  ${doses[doses.length-1]?.next_dose_date && doses[doses.length-1]?.dose_number < (doses[0]?.total_doses||1) ? `<div class="flex items-center gap-3 p-3 rounded-lg bg-amber-50"><div class="w-8 h-8 rounded-full flex items-center justify-center bg-amber-400 text-white text-xs font-bold">${doses[doses.length-1].dose_number + 1}</div><div><p class="text-sm font-medium text-amber-800">Dosis ${doses[doses.length-1].dose_number + 1}/${doses[0]?.total_doses} — Terjadwal</p><p class="text-xs text-amber-600">Jadwal: ${formatDate(doses[doses.length-1].next_dose_date)}</p></div></div>` : ''}
+                  ${(() => {
+                    const lastDose = doses[doses.length-1];
+                    const totalD = doses[0]?.total_doses || 1;
+                    const isBooster = doses[0]?.vax_mode === 'booster';
+                    const nextDoseNum = lastDose.dose_number + 1;
+                    const hasNext = isBooster ? !!lastDose.next_dose_date : (lastDose.dose_number < totalD);
+                    if (!hasNext) return '';
+
+                    const scheduledDate = lastDose.next_dose_date || '';
+                    const brand = lastDose.vaccine_brand || '';
+                    const loc = lastDose.location || 'Klinik Utama Prima';
+                    const boosterInterval = doses[0]?.booster_interval_months || 12;
+                    const label = isBooster ? 'Berikan Booster' : `Berikan Dosis ${nextDoseNum}/${totalD}`;
+                    const locations = (CONFIG.LOCATIONS || ['Klinik Utama Prima','Home Care','Telemedicine']);
+
+                    return `<div class="p-3 rounded-lg bg-amber-50 border border-amber-200" x-data="{showForm:false}">
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center bg-amber-400 text-white text-xs font-bold">${isBooster ? '→' : nextDoseNum}</div>
+                        <div class="flex-1">
+                          <p class="text-sm font-medium text-amber-800">${isBooster ? 'Booster Berikutnya' : 'Dosis '+nextDoseNum+'/'+totalD+' — Terjadwal'}</p>
+                          <p class="text-xs text-amber-600">Jadwal: ${formatDate(scheduledDate)}</p>
+                        </div>
+                        <button @click="showForm=!showForm" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 transition">${label}</button>
+                      </div>
+                      <template x-if="showForm">
+                        <div class="mt-3 p-4 rounded-lg bg-white border border-amber-200" x-data="{
+                          af: {
+                            vaccine_name: '${name.replace(/'/g,"\\'")}',
+                            vaccine_brand: '${brand.replace(/'/g,"\\'")}',
+                            vax_mode: '${isBooster ? 'booster' : 'series'}',
+                            dose_number: ${isBooster ? lastDose.dose_number + 1 : nextDoseNum},
+                            total_doses: ${totalD},
+                            batch_number: '',
+                            date_given: new Date().toISOString().split('T')[0],
+                            next_dose_date: '',
+                            location: '${loc.replace(/'/g,"\\'")}',
+                            ${isBooster ? 'booster_interval_months: '+boosterInterval+',' : ''}
+                            notes: ''
+                          },
+                          saving: false,
+                          saveDose() {
+                            this.saving = true;
+                            const self = this;
+                            ${isBooster ? `
+                            const given = new Date(self.af.date_given);
+                            const next = new Date(given);
+                            next.setMonth(next.getMonth() + ${boosterInterval});
+                            self.af.next_dose_date = next.toISOString().split('T')[0];
+                            ` : ''}
+                            setTimeout(function() {
+                              window.__store.createVaccination({
+                                patient_id: '${params.patientId}',
+                                administered_by: '${getDoctor()?.id}',
+                                ...self.af
+                              });
+                              window.__store.createRecord({
+                                patient_id: '${params.patientId}',
+                                doctor_id: '${getDoctor()?.id}',
+                                visit_type: 'vaccination',
+                                location: self.af.location,
+                                anamnesis: 'Vaksinasi ' + self.af.vaccine_name + ' ' + self.af.vaccine_brand + ' Dosis ' + self.af.dose_number,
+                                diagnosis: 'Vaksinasi ' + self.af.vaccine_name,
+                                therapy: 'Pemberian vaksin ' + self.af.vaccine_brand + ' dosis ' + self.af.dose_number + ${isBooster ? "''" : "'/' + self.af.total_doses"},
+                                vital_signs: {},
+                                follow_up_date: self.af.next_dose_date,
+                                follow_up_notes: '${isBooster ? 'Booster berikutnya' : 'Vaksin dosis berikutnya'}',
+                                notes: 'Batch: ' + self.af.batch_number
+                              });
+                              self.saving = false;
+                              window.location.hash='/doctor/dashboard';
+                              setTimeout(function(){ window.location.hash='/doctor/emr/${params.patientId}'; },50);
+                            }, 400);
+                          }
+                        }">
+                          <p class="text-sm font-semibold text-amber-800 mb-3">💉 ${label}</p>
+                          <div class="grid grid-cols-2 lg:grid-cols-3 gap-2">
+                            <div><label class="block text-xs text-gray-500 mb-1">Vaksin</label><input type="text" x-model="af.vaccine_name" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm bg-gray-50" readonly></div>
+                            <div><label class="block text-xs text-gray-500 mb-1">Merk</label><input type="text" x-model="af.vaccine_brand" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>
+                            <div><label class="block text-xs text-gray-500 mb-1">Tanggal Pemberian *</label><input type="date" x-model="af.date_given" class="w-full px-2 py-1.5 border border-amber-300 rounded text-sm bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>
+                            <div><label class="block text-xs text-gray-500 mb-1">Batch Number *</label><input type="text" x-model="af.batch_number" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50" placeholder="Batch no."></div>
+                            <div><label class="block text-xs text-gray-500 mb-1">Lokasi</label><select x-model="af.location" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}</select></div>
+                            ${!isBooster ? `<div><label class="block text-xs text-gray-500 mb-1">Jadwal Dosis Berikut</label><input type="date" x-model="af.next_dose_date" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>` : ''}
+                            <div class="col-span-2"><label class="block text-xs text-gray-500 mb-1">Catatan KIPI</label><input type="text" x-model="af.notes" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50" placeholder="Opsional"></div>
+                          </div>
+                          <div class="flex gap-2 mt-3">
+                            <button @click="saveDose()" :disabled="saving || !af.batch_number" class="px-4 py-2 rounded-lg text-xs font-semibold text-white disabled:opacity-50 bg-amber-500 hover:bg-amber-600 transition"><span x-show="!saving">Simpan & Catat Vaksinasi</span><span x-show="saving" x-cloak>Menyimpan...</span></button>
+                            <button @click="showForm=false" class="px-4 py-2 rounded-lg text-xs font-medium text-gray-600 border border-gray-200">Batal</button>
+                          </div>
+                        </div>
+                      </template>
+                    </div>`;
+                  })()}
                 </div>
               </div>`).join('');
           })()}
