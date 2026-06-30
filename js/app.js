@@ -133,66 +133,75 @@ window.__generateVaxCert = function(patientId, vaccineName) {
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%}
   body{
-    font-family:'Inter',sans-serif;background:#dcdcec;padding:40px 20px;
+    font-family:'Inter',sans-serif;background:#dcdcec;padding:32px 20px;
     min-height:100vh;display:flex;flex-direction:column;align-items:center;
   }
 
+  /* A4 portrait, true to size: 210mm x 297mm. Screen preview scales the same ratio. */
   .cert{
-    width:794px;background:var(--paper);position:relative;
+    width:210mm;height:297mm;background:var(--paper);position:relative;
     page-break-inside:avoid;
     border:1px solid #c7c2e8;
     box-shadow:0 1px 3px rgba(30,27,75,.08),0 12px 32px rgba(30,27,75,.12);
+    display:flex;flex-direction:column;
   }
   .cert::before{ /* inner hairline frame, classic certificate device */
-    content:'';position:absolute;inset:14px;border:1px solid #d8d4f0;pointer-events:none;
+    content:'';position:absolute;inset:9mm;border:1px solid #d8d4f0;pointer-events:none;
   }
 
   /* subtle corner motif - quiet wedges, not competing with content */
-  .motif{position:absolute;width:170px;height:170px;pointer-events:none}
-  .motif-bl{left:0;bottom:0;background:linear-gradient(135deg,#fb923c,transparent 72%);clip-path:polygon(0 100%,0 38%,62% 100%);opacity:.16}
-  .motif-br{right:0;bottom:0;background:linear-gradient(225deg,#6d61e0,transparent 72%);clip-path:polygon(100% 100%,100% 38%,38% 100%);opacity:.14}
+  .motif{position:absolute;width:120mm;height:120mm;pointer-events:none}
+  .motif-bl{left:0;bottom:0;background:linear-gradient(135deg,#fb923c,transparent 72%);clip-path:polygon(0 100%,0 38%,62% 100%);opacity:.14}
+  .motif-br{right:0;bottom:0;background:linear-gradient(225deg,#6d61e0,transparent 72%);clip-path:polygon(100% 100%,100% 38%,38% 100%);opacity:.12}
 
-  .cert-inner{position:relative;z-index:2;padding:42px 56px 34px}
+  .cert-inner{
+    position:relative;z-index:2;flex:1;
+    padding:20mm 24mm 16mm;
+    display:flex;flex-direction:column;
+  }
 
   /* Header */
-  .header{display:flex;justify-content:space-between;align-items:center;padding-bottom:20px;border-bottom:1px solid var(--rule)}
-  .logo-left img{display:block;height:38px;width:auto;object-fit:contain}
-  .logo-right img{display:block;height:64px;width:auto;object-fit:contain}
+  .header{display:flex;justify-content:space-between;align-items:center;padding-bottom:9mm;border-bottom:1px solid var(--rule)}
+  .logo-left img{display:block;height:13mm;width:auto;object-fit:contain}
+  .logo-right img{display:block;height:21mm;width:auto;object-fit:contain}
   .logo-right{text-align:right}
   .clinic-line{font-size:9.5px;letter-spacing:.1em;color:var(--muted);margin-top:4px;text-transform:uppercase}
 
   /* Title block */
-  .eyebrow{text-align:center;font-size:11px;font-weight:600;letter-spacing:.18em;color:var(--gold);text-transform:uppercase;margin-top:30px}
-  .title{font-family:'Source Serif 4',serif;font-style:italic;font-weight:600;font-size:34px;color:var(--ink);text-align:center;margin:6px 0 14px;letter-spacing:-.01em}
-  .no-surat{text-align:center;font-size:12px;color:#5b5775;margin-bottom:26px}
+  .eyebrow{text-align:center;font-size:12px;font-weight:600;letter-spacing:.2em;color:var(--gold);text-transform:uppercase;margin-top:14mm}
+  .title{font-family:'Source Serif 4',serif;font-style:italic;font-weight:600;font-size:44px;color:var(--ink);text-align:center;margin:7px 0 16px;letter-spacing:-.01em}
+  .no-surat{text-align:center;font-size:13px;color:#5b5775;margin-bottom:13mm}
   .no-surat b{color:var(--ink);font-weight:600}
 
-  .given-to{text-align:center;font-size:13px;color:#5b5775;margin-bottom:10px}
-  .patient-name{text-align:center;font-family:'Source Serif 4',serif;font-weight:600;font-size:27px;color:var(--ink);letter-spacing:.01em;padding-bottom:14px;margin:0 80px 22px;border-bottom:1px solid var(--rule)}
+  .given-to{text-align:center;font-size:14px;color:#5b5775;margin-bottom:11px}
+  .patient-name{text-align:center;font-family:'Source Serif 4',serif;font-weight:600;font-size:34px;color:var(--ink);letter-spacing:.01em;padding-bottom:16px;margin:0 60px 13mm;border-bottom:1px solid var(--rule)}
 
-  .done-text{text-align:center;font-size:13px;color:#5b5775;margin-bottom:8px}
-  .vaccine-title{text-align:center;font-size:17px;font-weight:700;color:var(--ink)}
-  .dose-badge{text-align:center;font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase;margin:6px 0 26px}
+  .done-text{text-align:center;font-size:14px;color:#5b5775;margin-bottom:9px}
+  .vaccine-title{text-align:center;font-size:21px;font-weight:700;color:var(--ink)}
+  .dose-badge{text-align:center;font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase;margin:8px 0 14mm}
 
   /* Table */
   table{width:100%;border-collapse:collapse;border:1px solid var(--rule)}
-  th{background:var(--table-head);color:#eef0ff;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:11px 14px;text-align:left}
-  td{padding:10px 14px;border-top:1px solid var(--rule);font-size:12.5px;color:#332f52;background:white}
+  th{background:var(--table-head);color:#eef0ff;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:13px 16px;text-align:left}
+  td{padding:13px 16px;border-top:1px solid var(--rule);font-size:13.5px;color:#332f52;background:white}
   tbody tr:nth-child(even) td{background:#f7f6fd}
   .status-done{color:var(--done);font-weight:700}
   .status-pending{color:var(--pending);font-weight:700}
 
+  /* Spacer pushes signature + footer to the bottom of the page, filling it fully */
+  .spacer{flex:1;min-height:8mm}
+
   /* Signature block - centered, matches traditional cert convention */
-  .sign-block{margin:34px auto 0;width:260px;text-align:center}
-  .sign-city{font-size:12.5px;color:#5b5775;margin-bottom:46px}
-  .sign-line{border-top:1px solid #a7a2c9;padding-top:8px}
-  .sign-name{font-size:14px;font-weight:700;color:var(--ink);letter-spacing:.01em}
-  .sign-sip{font-size:10.5px;color:var(--muted);margin-top:2px}
+  .sign-block{margin:0 auto;width:280px;text-align:center}
+  .sign-city{font-size:13.5px;color:#5b5775;margin-bottom:15mm}
+  .sign-line{border-top:1px solid #a7a2c9;padding-top:9px}
+  .sign-name{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:.01em}
+  .sign-sip{font-size:11.5px;color:var(--muted);margin-top:3px}
 
   /* Footer */
-  .footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--rule);display:flex;justify-content:space-between;align-items:center}
-  .footer-id{font-size:9.5px;color:var(--muted);letter-spacing:.03em}
-  .footer-note{font-size:9.5px;color:var(--muted);text-align:right;max-width:280px;line-height:1.5}
+  .footer{margin-top:12mm;padding-top:14px;border-top:1px solid var(--rule);display:flex;justify-content:space-between;align-items:center}
+  .footer-id{font-size:10.5px;color:var(--muted);letter-spacing:.03em}
+  .footer-note{font-size:10.5px;color:var(--muted);text-align:right;max-width:300px;line-height:1.5}
 
   .print-btn{
     margin-top:22px;background:var(--ink-soft);color:white;border:none;
@@ -203,10 +212,9 @@ window.__generateVaxCert = function(patientId, vaccineName) {
   .print-btn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(67,56,202,.36)}
 
   @media print{
-    @page{size:A4;margin:0}
+    @page{size:A4 portrait;margin:0}
     html,body{background:white;padding:0}
-    .cert{box-shadow:none;border:none;width:100%}
-    .cert::before{inset:10px}
+    .cert{box-shadow:none;border:none;width:210mm;height:297mm}
     .no-print{display:none!important}
   }
   </style></head><body>
@@ -245,6 +253,8 @@ window.__generateVaxCert = function(patientId, vaccineName) {
         return `<tr><td>${i+1}/${totalD}</td><td>${d?.vaccine_brand || '-'}</td><td>${d?.date_given ? new Date(d.date_given).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}) : '-'}</td><td>${d?.batch_number || '-'}</td><td>${d?.location || '-'}</td><td class="${d?.date_given ? 'status-done' : 'status-pending'}">${d?.date_given ? 'Selesai' : 'Belum'}</td></tr>`;
       }).join('')}
       </tbody></table>
+
+      <div class="spacer"></div>
 
       <div class="sign-block">
         <div class="sign-city">${certDate}</div>
