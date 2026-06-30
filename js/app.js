@@ -6,6 +6,7 @@ import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
+import { verifyPage } from './pages/verify.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
@@ -32,6 +33,10 @@ function getUser() {
 }
 
 router.beforeEach = (path, meta) => {
+  // Verification page: always accessible to everyone, logged in or not (e.g. someone
+  // scanning the QR code on a printed certificate, with no MedConnect account at all).
+  if (path.startsWith('/verify')) return true;
+
   const user = getUser();
   const publicPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
 
@@ -62,6 +67,7 @@ router.add('/login', () => render(loginPage));
 router.add('/register', () => render(registerPage));
 router.add('/forgot-password', () => render(forgotPasswordPage));
 router.add('/reset-password', () => render(resetPasswordPage));
+router.add('/verify/:certId', (p) => render(verifyPage, p));
 
 // Admin
 router.add('/admin/dashboard', () => render(adminDashboard));
@@ -106,11 +112,16 @@ window.addEventListener('auth-changed', () => {
   router.resolve();
 });
 
-window.__generateVaxCert = function(patientId, vaccineName) {
+window.__generateVaxCert = async function(patientId, vaccineName) {
   const patient = store.getPatient(patientId);
   const vaccinations = store.getVaccinations(patientId).filter(v => v.vaccine_name === vaccineName);
   if (!patient || vaccinations.length === 0) return;
-  const doctor = store.getDoctor(vaccinations[0].administered_by) || store.data.doctors[0];
+
+  // Open the window synchronously (right on the click) so popup blockers don't intervene,
+  // then fill it in once the async cert-number + log lookups resolve.
+  const w = window.open('', '_blank');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Memuat sertifikat...</title></head><body style="font-family:Inter,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:#4338ca;background:#f5f4fb"><p>Menyiapkan sertifikat...</p></body></html>');
+
   const latestDose = vaccinations.filter(v=>v.date_given).sort((a,b)=>b.date_given.localeCompare(a.date_given))[0];
   const latestBrand = latestDose?.vaccine_brand || vaccinations[0]?.vaccine_brand || '';
   const latestDoseNum = latestDose?.dose_number || 1;
@@ -118,9 +129,24 @@ window.__generateVaxCert = function(patientId, vaccineName) {
   const isBooster = vaccinations[0]?.vax_mode === 'booster';
   const doseLabel = isBooster ? `Pemberian ke-${vaccinations.filter(v=>v.date_given).length}` : (totalD > 1 ? `DOSIS ${latestDoseNum} dari ${totalD}` : '');
   const certDate = latestDose?.date_given ? new Date(latestDose.date_given).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}) : new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
-  const certNum = `${String(Math.floor(Math.random()*9000)+1000)}/ ${new Date().toLocaleDateString('id-ID',{month:'short'}).toUpperCase().replace('.','').slice(0,3)} / SKV / KP / ${new Date().getFullYear().toString().slice(2)}`;
 
-  const certId = `CERT-${patientId.slice(-3).toUpperCase()}-${vaccineName.replace(/\s/g,'').slice(0,4).toUpperCase()}-${new Date().getFullYear()}`;
+  const year = new Date().getFullYear();
+  let seqNumber;
+  try { seqNumber = await store.getNextCertNumber(year); } catch { seqNumber = 1; }
+  const certNum = `${String(seqNumber).padStart(4,'0')}/SKV/KP/${String(year).slice(2)}`;
+
+  const doseInfoForLog = vaccinations.filter(v=>v.date_given).map(v => ({ dose: v.dose_number, date: v.date_given, batch: v.batch_number, doctor: (store.getDoctor(v.administered_by)||{}).full_name || '' }));
+
+  let certRecord;
+  try {
+    certRecord = await store.logCertificate({
+      cert_number: certNum, patient_id: patientId, patient_name: patient.full_name,
+      vaccine_name: vaccineName, vaccine_brand: latestBrand, dose_info: doseInfoForLog
+    });
+  } catch { certRecord = { id: 'local-' + Date.now() }; }
+
+  const verifyUrl = `${window.location.origin}/#/verify/${certRecord.id}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=4&data=${encodeURIComponent(verifyUrl)}`;
 
   const certHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Sertifikat Vaksinasi - ${patient.full_name}</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Serif+4:ital,wght@0,600;1,500;1,600&display=swap" rel="stylesheet">
@@ -192,12 +218,27 @@ window.__generateVaxCert = function(patientId, vaccineName) {
   /* Spacer pushes signature + footer to the bottom of the page, filling it fully */
   .spacer{flex:1;min-height:8mm}
 
-  /* Signature block - centered, matches traditional cert convention */
-  .sign-block{margin:0 auto;width:280px;text-align:center}
-  .sign-city{font-size:13.5px;color:#5b5775;margin-bottom:15mm}
-  .sign-line{border-top:1px solid #a7a2c9;padding-top:9px}
-  .sign-name{font-size:15px;font-weight:700;color:var(--ink);letter-spacing:.01em}
-  .sign-sip{font-size:11.5px;color:var(--muted);margin-top:3px}
+  /* Verification block — QR code + clinic stamp, replaces a single doctor's signature
+     since each dose in the table above may have been administered by a different doctor */
+  .verify-block{display:flex;align-items:center;gap:16px;padding:14px 18px;background:#f7f6fd;border:1px solid var(--rule);border-radius:10px}
+  .verify-qr{flex:0 0 auto;background:white;padding:6px;border-radius:6px;border:1px solid var(--rule)}
+  .verify-qr img{display:block;width:76px;height:76px}
+  .verify-text{flex:1;min-width:0}
+  .verify-title{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:3px}
+  .verify-desc{font-size:11px;color:var(--muted);line-height:1.5}
+  .stamp{flex:0 0 auto}
+  .stamp-ring{
+    width:78px;height:78px;border-radius:50%;
+    border:2px solid var(--ink-soft);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    transform:rotate(-8deg);opacity:.75;
+  }
+  .stamp-ring::before{
+    content:'';position:absolute;width:66px;height:66px;border-radius:50%;border:1px solid var(--ink-soft);
+  }
+  .stamp-text-top{font-size:7px;font-weight:800;color:var(--ink-soft);letter-spacing:.04em;margin-top:6px}
+  .stamp-star{font-size:11px;color:var(--gold);line-height:1;margin:2px 0}
+  .stamp-text-bottom{font-size:6px;font-weight:700;color:var(--ink-soft);letter-spacing:.03em;margin-bottom:6px}
 
   /* Footer */
   .footer{margin-top:12mm;padding-top:14px;border-top:1px solid var(--rule);display:flex;justify-content:space-between;align-items:center}
@@ -246,29 +287,37 @@ window.__generateVaxCert = function(patientId, vaccineName) {
       <div class="vaccine-title">${vaccineName.toUpperCase()}${latestBrand ? ' &ndash; '+latestBrand.toUpperCase() : ''}</div>
       <div class="dose-badge">${doseLabel}</div>
 
-      <table><thead><tr><th>${isBooster ? 'Ke-' : 'Dosis'}</th><th>Merk Vaksin</th><th>Tanggal</th><th>Batch No.</th><th>Lokasi</th><th>Status</th></tr></thead><tbody>
+      <table><thead><tr><th>${isBooster ? 'Ke-' : 'Dosis'}</th><th>Merk Vaksin</th><th>Tanggal</th><th>Batch No.</th><th>Dokter Penyuntik</th><th>Status</th></tr></thead><tbody>
       ${isBooster ?
         vaccinations.filter(v=>v.date_given).sort((a,b)=>a.date_given.localeCompare(b.date_given)).map((d,i) =>
-          `<tr><td>${i+1}</td><td>${d.vaccine_brand||'-'}</td><td>${new Date(d.date_given).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})}</td><td>${d.batch_number||'-'}</td><td>${d.location||'-'}</td><td class="status-done">Selesai</td></tr>`
+          `<tr><td>${i+1}</td><td>${d.vaccine_brand||'-'}</td><td>${new Date(d.date_given).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})}</td><td>${d.batch_number||'-'}</td><td>${(store.getDoctor(d.administered_by)||{}).full_name || '-'}</td><td class="status-done">Selesai</td></tr>`
         ).join('') + (latestDose?.next_dose_date ? `<tr><td>Next</td><td>&mdash;</td><td style="color:var(--pending);font-weight:600">${new Date(latestDose.next_dose_date).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})}</td><td>&mdash;</td><td>&mdash;</td><td class="status-pending">Terjadwal</td></tr>` : '')
       : Array.from({length: totalD}, (_, i) => {
         const d = vaccinations.find(v => v.dose_number === i+1);
-        return `<tr><td>${i+1}/${totalD}</td><td>${d?.vaccine_brand || '-'}</td><td>${d?.date_given ? new Date(d.date_given).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}) : '-'}</td><td>${d?.batch_number || '-'}</td><td>${d?.location || '-'}</td><td class="${d?.date_given ? 'status-done' : 'status-pending'}">${d?.date_given ? 'Selesai' : 'Belum'}</td></tr>`;
+        const docName = d ? (store.getDoctor(d.administered_by)||{}).full_name : null;
+        return `<tr><td>${i+1}/${totalD}</td><td>${d?.vaccine_brand || '-'}</td><td>${d?.date_given ? new Date(d.date_given).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}) : '-'}</td><td>${d?.batch_number || '-'}</td><td>${docName || '-'}</td><td class="${d?.date_given ? 'status-done' : 'status-pending'}">${d?.date_given ? 'Selesai' : 'Belum'}</td></tr>`;
       }).join('')}
       </tbody></table>
 
       <div class="spacer"></div>
 
-      <div class="sign-block">
-        <div class="sign-city">${certDate}</div>
-        <div class="sign-line">
-          <div class="sign-name">${(doctor?.full_name || 'Dokter').toUpperCase()}</div>
-          <div class="sign-sip">${doctor?.sip_number ? 'SIP: '+doctor.sip_number : ''}</div>
+      <div class="verify-block">
+        <div class="verify-qr"><img src="${qrUrl}" alt="QR Verifikasi" width="76" height="76"></div>
+        <div class="verify-text">
+          <div class="verify-title">Verifikasi Keaslian Dokumen</div>
+          <div class="verify-desc">Pindai kode QR untuk memverifikasi keabsahan sertifikat ini secara online melalui sistem Klinik Prima.</div>
+        </div>
+        <div class="stamp">
+          <div class="stamp-ring">
+            <div class="stamp-text-top">KLINIK PRIMA</div>
+            <div class="stamp-star">&#9733;</div>
+            <div class="stamp-text-bottom">DOKUMEN RESMI</div>
+          </div>
         </div>
       </div>
 
       <div class="footer">
-        <div class="footer-id">ID Dokumen: ${certId}</div>
+        <div class="footer-id">No. Sertifikat: ${certNum} &nbsp;|&nbsp; Diterbitkan: ${certDate}</div>
         <div class="footer-note">Dokumen ini diterbitkan secara digital oleh Klinik Prima melalui platform Primuni.id</div>
       </div>
     </div>
@@ -298,7 +347,7 @@ window.__generateVaxCert = function(patientId, vaccineName) {
     }
   </script>
   </body></html>`;
-  const w = window.open('', '_blank');
+  w.document.open();
   w.document.write(certHtml);
   w.document.close();
 };

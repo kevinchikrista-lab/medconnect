@@ -167,6 +167,47 @@ class Store {
     } catch (e) { console.warn('Supabase sync error:', e); }
   }
 
+  // Sequential certificate numbering, resets each year (0001/SKV/KP/26, 0002/..., etc)
+  async getNextCertNumber(year) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const result = await supabase.rpc('get_next_cert_number', { p_year: year });
+        if (typeof result === 'number') return result;
+      } catch (e) { console.warn('Cert sequence RPC failed, using local fallback:', e); }
+    }
+    // Demo mode / fallback: local counter in localStorage, also resets per year
+    const key = 'medconnect_cert_seq_' + year;
+    const current = parseInt(localStorage.getItem(key) || '0', 10);
+    const next = current + 1;
+    localStorage.setItem(key, String(next));
+    return next;
+  }
+
+  // Persist an issued certificate so it can be looked up later via QR verification
+  async logCertificate(cert) {
+    const record = { id: generateId(), ...cert, issued_at: new Date().toISOString() };
+    if (!this.data.certificates) this.data.certificates = [];
+    this.data.certificates.push(record);
+    this._save();
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const inserted = await supabase.insert('certificates', cert);
+        if (inserted && inserted.id) return inserted; // use server-generated UUID
+      } catch (e) { console.warn('Failed to log certificate to Supabase:', e); }
+    }
+    return record;
+  }
+
+  async getCertificateById(id) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const results = await supabase.select('certificates', { eq: { id } });
+        if (results && results[0]) return results[0];
+      } catch (e) { console.warn('Failed to fetch certificate from Supabase:', e); }
+    }
+    return (this.data.certificates || []).find(c => c.id === id) || null;
+  }
+
   async loadFromSupabase() {
     if (CONFIG.DEMO_MODE) return;
     try {
