@@ -160,17 +160,18 @@ window.__generateVaxCert = function(patientId, vaccineName) {
     display:flex;flex-direction:column;
   }
 
-  /* Header */
-  .header{display:flex;justify-content:space-between;align-items:center;padding-bottom:9mm;border-bottom:1px solid var(--rule)}
-  .logo-left img{display:block;height:13mm;width:auto;object-fit:contain}
-  .logo-right img{display:block;height:21mm;width:auto;object-fit:contain}
-  .logo-right{text-align:right}
+  /* Header — logos and title share one band, like the reference certificate */
+  .header{display:flex;align-items:center;gap:18px;padding-bottom:11mm;border-bottom:1px solid var(--rule)}
+  .logo-left{flex:0 0 auto}
+  .logo-left img{display:block;height:15mm;width:auto;object-fit:contain}
+  .logo-right{flex:0 0 auto;text-align:right}
+  .logo-right img{display:block;height:19mm;width:auto;object-fit:contain;margin-left:auto}
   .clinic-line{font-size:9.5px;letter-spacing:.1em;color:var(--muted);margin-top:4px;text-transform:uppercase}
+  .header-title{flex:1;text-align:center;min-width:0}
+  .eyebrow{font-size:11px;font-weight:600;letter-spacing:.18em;color:var(--gold);text-transform:uppercase;margin-bottom:4px}
+  .title{font-family:'Source Serif 4',serif;font-style:italic;font-weight:600;font-size:30px;color:var(--ink);letter-spacing:-.01em;line-height:1.1}
 
-  /* Title block */
-  .eyebrow{text-align:center;font-size:12px;font-weight:600;letter-spacing:.2em;color:var(--gold);text-transform:uppercase;margin-top:14mm}
-  .title{font-family:'Source Serif 4',serif;font-style:italic;font-weight:600;font-size:44px;color:var(--ink);text-align:center;margin:7px 0 16px;letter-spacing:-.01em}
-  .no-surat{text-align:center;font-size:13px;color:#5b5775;margin-bottom:13mm}
+  .no-surat{text-align:center;font-size:13px;color:#5b5775;margin:9mm 0 13mm}
   .no-surat b{color:var(--ink);font-weight:600}
 
   .given-to{text-align:center;font-size:14px;color:#5b5775;margin-bottom:11px}
@@ -226,14 +227,16 @@ window.__generateVaxCert = function(patientId, vaccineName) {
         <div class="logo-left">
           <img src="${window.location.origin}/assets/logos/primuni-logo.png" alt="Primuni.id">
         </div>
+        <div class="header-title">
+          <div class="eyebrow">Surat Keterangan Resmi</div>
+          <div class="title">Sertifikat Vaksinasi</div>
+        </div>
         <div class="logo-right">
           <img src="${window.location.origin}/assets/logos/klinik-prima-logo.png" alt="Klinik Prima">
           <div class="clinic-line">Healthcare Center</div>
         </div>
       </div>
 
-      <div class="eyebrow">Surat Keterangan Resmi</div>
-      <div class="title">Sertifikat Vaksinasi</div>
       <div class="no-surat">No. Surat: <b>${certNum}</b></div>
 
       <div class="given-to">Dengan ini menerangkan bahwa</div>
@@ -270,7 +273,30 @@ window.__generateVaxCert = function(patientId, vaccineName) {
       </div>
     </div>
   </div>
-  <button class="no-print print-btn" onclick="window.print()">Cetak / Download PDF</button>
+  <button class="no-print print-btn" id="printBtn" onclick="printCertNow()">Cetak / Download PDF</button>
+  <script>
+    function printCertNow() {
+      var btn = document.getElementById('printBtn');
+      var imgs = Array.prototype.slice.call(document.images);
+      var pending = imgs.filter(function(img){ return !img.complete; });
+      if (pending.length === 0) { window.print(); return; }
+      btn.textContent = 'Menyiapkan...';
+      btn.disabled = true;
+      var done = 0;
+      pending.forEach(function(img){
+        img.addEventListener('load', check);
+        img.addEventListener('error', check);
+      });
+      function check() {
+        done++;
+        if (done >= pending.length) {
+          btn.textContent = 'Cetak / Download PDF';
+          btn.disabled = false;
+          window.print();
+        }
+      }
+    }
+  </script>
   </body></html>`;
   const w = window.open('', '_blank');
   w.document.write(certHtml);
