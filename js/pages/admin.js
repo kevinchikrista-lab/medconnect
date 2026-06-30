@@ -105,6 +105,23 @@ export function adminUsers() {
             </div>
           </div>
         </div>
+        <!-- Certificate Download Modal -->
+        <div x-show="certUser" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="certUser=null">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h3 class="text-lg font-bold text-gray-800 mb-1">Sertifikat Vaksinasi</h3>
+            <p class="text-sm text-gray-500 mb-4">Unduhkan sertifikat untuk <span class="font-medium text-gray-800" x-text="certUser?.profile?.full_name"></span></p>
+            <div class="space-y-2 max-h-72 overflow-y-auto">
+              <template x-for="vname in vaccineNamesFor(certUser)" :key="vname">
+                <button @click="window.__generateVaxCert(certUser.profile.id, vname)" class="w-full flex items-center justify-between p-3 rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition text-left">
+                  <span class="text-sm font-medium text-gray-800" x-text="vname"></span>
+                  <span class="text-xs text-purple-600 font-medium">Unduh &rarr;</span>
+                </button>
+              </template>
+              <template x-if="vaccineNamesFor(certUser).length === 0"><p class="text-sm text-gray-400 text-center py-6">Pasien ini belum memiliki riwayat vaksinasi</p></template>
+            </div>
+            <button @click="certUser=null" class="w-full mt-4 px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Tutup</button>
+          </div>
+        </div>
         <!-- Users Table -->
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
           <div class="overflow-x-auto"><table class="w-full"><thead><tr class="bg-gray-50 border-b border-gray-100"><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Role</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Nama</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden sm:table-cell">Email</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden md:table-cell">Status</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Aksi</th></tr></thead>
@@ -119,6 +136,7 @@ export function adminUsers() {
                   <button @click="editingUser=user; newEmail=user.email; editMsg=''" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Email</button>
                   <button @click="toggleActive(user.id)" class="px-2 py-1 rounded text-xs font-medium" :class="user.is_active ? 'text-red-700 bg-red-50 hover:bg-red-100' : 'text-green-700 bg-green-50 hover:bg-green-100'" x-text="user.is_active ? 'Nonaktifkan' : 'Aktifkan'"></button>
                   <button @click="resetUser=user; resetNewPass=''; resetMsg=''" class="px-2 py-1 rounded text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Reset Pass</button>
+                  <template x-if="user.role==='patient'"><button @click="certUser=user" class="px-2 py-1 rounded text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition">Sertifikat</button></template>
                   <button @click="deleteUser(user)" class="px-2 py-1 rounded text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Hapus</button>
                 </div></td>
               </tr>
@@ -137,6 +155,12 @@ export function adminUsersData() {
     showCreate: false, createMsg: '', creating: false,
     editingUser: null, newEmail: '', editMsg: '',
     resetUser: null, resetNewPass: '', resetMsg: '', resetting: false,
+    certUser: null,
+    vaccineNamesFor(user) {
+      if (!user || !user.profile || !user.profile.id) return [];
+      const vax = window.__store.getVaccinations(user.profile.id);
+      return [...new Set(vax.map(v => v.vaccine_name))];
+    },
     newUser: { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', license_no: '', address: '' },
     get filteredUsers() {
       let users = store.getUsers(this.filter || undefined);
