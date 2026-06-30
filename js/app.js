@@ -137,12 +137,10 @@ window.__generateVaxCert = function(patientId, vaccineName) {
   .deco-line2{position:absolute;bottom:0;right:155px;width:4px;height:120px;background:linear-gradient(to top,#7c3aed,transparent);z-index:0}
   /* Header */
   .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
-  .logo-left{display:flex;align-items:center;gap:6px}
-  .logo-left .brand{font-size:28px;font-weight:800;color:#f97316;font-style:italic;font-family:'Playfair Display',serif}
-  .logo-left .brand span{color:#4f46e5}
-  .logo-right{text-align:right}
-  .logo-right .kp{font-size:14px;font-weight:800;color:#1e40af;letter-spacing:1px}
-  .logo-right .kp-sub{font-size:10px;color:#64748b;letter-spacing:2px}
+  .logo-left{display:flex;align-items:center}
+  .logo-left img{height:48px;width:auto;object-fit:contain}
+  .logo-right{display:flex;align-items:center;justify-content:flex-end}
+  .logo-right img{height:56px;width:auto;object-fit:contain}
   /* Title */
   .title{font-family:'Playfair Display',serif;font-size:42px;font-weight:700;color:#4f46e5;text-align:center;margin:20px 0 6px;font-style:italic}
   .no-surat{text-align:center;font-size:13px;color:#334155;font-weight:600;margin-bottom:4px}
@@ -174,8 +172,8 @@ window.__generateVaxCert = function(patientId, vaccineName) {
     <div class="deco-line2"></div>
     <div class="cert-inner">
       <div class="header">
-        <div class="logo-left"><div class="brand">primu<span>ni</span></div><div style="font-size:11px;color:#94a3b8;margin-left:4px">.id</div></div>
-        <div class="logo-right"><div class="kp" style="color:#e11d48">K<span style="color:#2563eb">L</span><span style="color:#16a34a">I</span><span style="color:#e11d48">N</span><span style="color:#2563eb">I</span><span style="color:#e11d48">K</span> <span style="color:#2563eb">P</span><span style="color:#e11d48">R</span><span style="color:#2563eb">I</span><span style="color:#16a34a">M</span><span style="color:#e11d48">A</span></div><div class="kp-sub">HEALTHCARE CENTER</div></div>
+        <div class="logo-left"><img src="${window.location.origin}/assets/logos/primuni-logo.png" alt="Primuni.id"></div>
+        <div class="logo-right"><img src="${window.location.origin}/assets/logos/klinik-prima-logo.png" alt="Klinik Prima"></div>
       </div>
       <div class="title">Sertifikat Vaksinasi</div>
       <div class="no-surat">No. Surat: ${certNum}</div>
