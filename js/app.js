@@ -130,20 +130,30 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
   const doseLabel = isBooster ? `Pemberian ke-${vaccinations.filter(v=>v.date_given).length}` : (totalD > 1 ? `DOSIS ${latestDoseNum} dari ${totalD}` : '');
   const certDate = latestDose?.date_given ? new Date(latestDose.date_given).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}) : new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
 
-  const year = new Date().getFullYear();
-  let seqNumber;
-  try { seqNumber = await store.getNextCertNumber(year); } catch { seqNumber = 1; }
-  const certNum = `${String(seqNumber).padStart(4,'0')}/SKV/KP/${String(year).slice(2)}`;
-
   const doseInfoForLog = vaccinations.filter(v=>v.date_given).map(v => ({ dose: v.dose_number, date: v.date_given, batch: v.batch_number, doctor: (store.getDoctor(v.administered_by)||{}).full_name || '' }));
 
-  let certRecord;
+  // Reuse the same cert number / QR if this patient+vaccine already has one issued
+  // (re-downloading doesn't burn a new sequential number); otherwise mint a fresh one.
+  let certRecord, certNum;
   try {
-    certRecord = await store.logCertificate({
-      cert_number: certNum, patient_id: patientId, patient_name: patient.full_name,
-      vaccine_name: vaccineName, vaccine_brand: latestBrand, dose_info: doseInfoForLog
-    });
-  } catch { certRecord = { id: 'local-' + Date.now() }; }
+    const existing = await store.getCertificateForPatientVaccine(patientId, vaccineName);
+    if (existing) {
+      certNum = existing.cert_number;
+      await store.updateCertificate(existing.id, { dose_info: doseInfoForLog, vaccine_brand: latestBrand });
+      certRecord = existing;
+    } else {
+      const year = new Date().getFullYear();
+      const seqNumber = await store.getNextCertNumber(year);
+      certNum = `${String(seqNumber).padStart(4,'0')}/SKV/KP/${String(year).slice(2)}`;
+      certRecord = await store.logCertificate({
+        cert_number: certNum, patient_id: patientId, patient_name: patient.full_name,
+        vaccine_name: vaccineName, vaccine_brand: latestBrand, dose_info: doseInfoForLog
+      });
+    }
+  } catch {
+    certNum = `0001/SKV/KP/${String(new Date().getFullYear()).slice(2)}`;
+    certRecord = { id: 'local-' + Date.now() };
+  }
 
   const verifyUrl = `${window.location.origin}/#/verify/${certRecord.id}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=4&data=${encodeURIComponent(verifyUrl)}`;

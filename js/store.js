@@ -208,6 +208,28 @@ class Store {
     return (this.data.certificates || []).find(c => c.id === id) || null;
   }
 
+  // One certificate number/QR per patient+vaccine pair — re-downloading reuses
+  // the same record instead of minting a new sequential number each time.
+  async getCertificateForPatientVaccine(patientId, vaccineName) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const results = await supabase.select('certificates', { eq: { patient_id: patientId, vaccine_name: vaccineName }, order: 'issued_at.desc', limit: 1 });
+        if (results && results[0]) return results[0];
+      } catch (e) { console.warn('Failed to look up existing certificate:', e); }
+    }
+    const local = (this.data.certificates || []).filter(c => c.patient_id === patientId && c.vaccine_name === vaccineName);
+    return local.length ? local[local.length - 1] : null;
+  }
+
+  async updateCertificate(id, updates) {
+    const local = (this.data.certificates || []).find(c => c.id === id);
+    if (local) Object.assign(local, updates);
+    this._save();
+    if (!CONFIG.DEMO_MODE) {
+      try { await supabase.update('certificates', id, updates); } catch (e) { console.warn('Failed to update certificate:', e); }
+    }
+  }
+
   async loadFromSupabase() {
     if (CONFIG.DEMO_MODE) return;
     try {

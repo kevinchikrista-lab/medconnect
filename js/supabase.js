@@ -61,11 +61,11 @@ export const supabase = {
     const params = [];
     if (query.select) params.push(`select=${query.select}`);
     else params.push('select=*');
-    if (query.eq) Object.entries(query.eq).forEach(([k, v]) => params.push(`${k}=eq.${v}`));
-    if (query.neq) Object.entries(query.neq).forEach(([k, v]) => params.push(`${k}=neq.${v}`));
-    if (query.gte) Object.entries(query.gte).forEach(([k, v]) => params.push(`${k}=gte.${v}`));
-    if (query.lte) Object.entries(query.lte).forEach(([k, v]) => params.push(`${k}=lte.${v}`));
-    if (query.like) Object.entries(query.like).forEach(([k, v]) => params.push(`${k}=ilike.*${v}*`));
+    if (query.eq) Object.entries(query.eq).forEach(([k, v]) => params.push(`${k}=eq.${encodeURIComponent(v)}`));
+    if (query.neq) Object.entries(query.neq).forEach(([k, v]) => params.push(`${k}=neq.${encodeURIComponent(v)}`));
+    if (query.gte) Object.entries(query.gte).forEach(([k, v]) => params.push(`${k}=gte.${encodeURIComponent(v)}`));
+    if (query.lte) Object.entries(query.lte).forEach(([k, v]) => params.push(`${k}=lte.${encodeURIComponent(v)}`));
+    if (query.like) Object.entries(query.like).forEach(([k, v]) => params.push(`${k}=ilike.*${encodeURIComponent(v)}*`));
     if (query.order) params.push(`order=${query.order}`);
     if (query.limit) params.push(`limit=${query.limit}`);
     url += params.join('&');
