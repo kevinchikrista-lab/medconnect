@@ -1,11 +1,11 @@
 {
-  "name": "MedConnect - Platform Kesehatan Digital",
-  "short_name": "MedConnect",
+  "name": "Klinik Kasih Anugerah Prima",
+  "short_name": "Klinik Prima",
   "description": "Platform kesehatan digital terintegrasi untuk dokter, pasien, dan apotek mitra",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
-  "theme_color": "#0d9488",
+  "theme_color": "#3A6FC9",
   "orientation": "any",
   "icons": [
     {

@@ -7,7 +7,7 @@ function formatDate(d) {
 
 export function verifyPage(params) {
   return `
-  <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #0d3b66 50%, #0d9488 100%);"
+  <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #1c3980 50%, #3A6FC9 100%);"
     x-data="{ loading: true, cert: null, error: false,
       async load() {
         try {
@@ -19,11 +19,11 @@ export function verifyPage(params) {
     }" x-init="load()">
     <div class="w-full max-w-md">
       <div class="text-center mb-6">
-        <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 mb-3">
-          <svg class="w-7 h-7 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <div class="inline-block rounded-2xl overflow-hidden mb-3 shadow-xl">
+          <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-16 w-auto">
         </div>
         <h1 class="text-xl font-bold text-white">Verifikasi Sertifikat</h1>
-        <p class="text-teal-200/70 text-sm mt-1">Klinik Prima &middot; Primuni.id</p>
+        <p class="text-teal-200/70 text-sm mt-1">Klinik Kasih Anugerah Prima &middot; Primuni.id</p>
       </div>
 
       <div class="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-6 shadow-2xl">

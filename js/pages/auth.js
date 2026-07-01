@@ -4,7 +4,7 @@ import { supabase } from '../supabase.js';
 
 export function loginPage() {
   return `
-  <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #0d3b66 50%, #0d9488 100%);">
+  <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #1c3980 50%, #3A6FC9 100%);">
     <div class="absolute inset-0 opacity-10" style="background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2260%22><circle cx=%2230%22 cy=%2230%22 r=%221%22 fill=%22white%22/></svg>');"></div>
     <div class="relative w-full max-w-md" x-data="{ email: '', password: '', showPass: false, loading: false, error: '',
       fillDemo(e, p) { this.email = e; this.password = p; this.error = ''; },
@@ -44,10 +44,10 @@ export function loginPage() {
       }
     }">
       <div class="text-center mb-8">
-        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 mb-4">
-          <svg class="w-8 h-8 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+        <div class="inline-block rounded-2xl overflow-hidden mb-4 shadow-xl">
+          <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-20 w-auto">
         </div>
-        <h1 class="text-3xl font-bold text-white tracking-tight">MedConnect</h1>
+        <h1 class="text-2xl font-bold text-white tracking-tight">Klinik Kasih Anugerah Prima</h1>
         <p class="text-teal-200/70 mt-1">Platform Kesehatan Digital</p>
       </div>
       <div class="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-8 shadow-2xl">
@@ -79,7 +79,7 @@ export function loginPage() {
             <input type="checkbox" id="remember" class="w-4 h-4 rounded border-white/30 bg-white/10 text-teal-500 focus:ring-teal-400/50">
             <label for="remember" class="ml-2 text-sm text-teal-100/70">Ingat saya</label>
           </div>
-          <button type="submit" :disabled="loading" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50" style="background: linear-gradient(135deg, #0d9488, #0891b2); box-shadow: 0 4px 15px rgba(13,148,136,0.4);">
+          <button type="submit" :disabled="loading" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50" style="background: linear-gradient(135deg, #3A6FC9, #E03B27); box-shadow: 0 4px 15px rgba(58,111,201,0.4);">
             <span x-show="!loading" class="text-white">Masuk ke Akun</span>
             <span x-show="loading" x-cloak class="flex items-center justify-center"><svg class="animate-spin h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg> Memproses...</span>
           </button>
@@ -105,7 +105,7 @@ export function loginFormData() {
 
 export function registerPage() {
   return `
-  <div class="min-h-screen flex items-center justify-center p-4 py-12" style="background: linear-gradient(135deg, #0f172a 0%, #0d3b66 50%, #0d9488 100%);">
+  <div class="min-h-screen flex items-center justify-center p-4 py-12" style="background: linear-gradient(135deg, #0f172a 0%, #1c3980 50%, #3A6FC9 100%);">
     <div class="absolute inset-0 opacity-10" style="background-image: url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2260%22><circle cx=%2230%22 cy=%2230%22 r=%221%22 fill=%22white%22/></svg>');"></div>
     <div class="relative w-full max-w-lg" x-data="{
       form: { full_name: '', nik: '', birth_date: '', gender: '', phone: '', address: '', blood_type: '', allergies: '', email: '', password: '' },
@@ -178,7 +178,7 @@ export function registerPage() {
             <input type="checkbox" x-model="agreed" required class="w-4 h-4 mt-0.5 rounded border-white/30 bg-white/10 text-teal-500 focus:ring-teal-400/50">
             <label class="ml-2 text-xs text-teal-100/70">Saya menyetujui <span class="text-teal-300 cursor-pointer">Syarat & Ketentuan</span> serta <span class="text-teal-300 cursor-pointer">Kebijakan Privasi</span></label>
           </div>
-          <button type="submit" :disabled="loading" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50" style="background: linear-gradient(135deg, #0d9488, #0891b2); box-shadow: 0 4px 15px rgba(13,148,136,0.4);">
+          <button type="submit" :disabled="loading" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50" style="background: linear-gradient(135deg, #3A6FC9, #E03B27); box-shadow: 0 4px 15px rgba(58,111,201,0.4);">
             <span x-show="!loading">Daftar Sekarang</span>
             <span x-show="loading" x-cloak>Memproses...</span>
           </button>
@@ -195,7 +195,7 @@ export function registerFormData() {
 
 export function forgotPasswordPage() {
   return `
-  <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #0d3b66 50%, #0d9488 100%);">
+  <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #1c3980 50%, #3A6FC9 100%);">
     <div class="relative w-full max-w-md" x-data="{ email: '', sent: false }">
       <div class="text-center mb-8">
         <h1 class="text-2xl font-bold text-white">Reset Password</h1>
@@ -207,7 +207,7 @@ export function forgotPasswordPage() {
             <label class="block text-teal-100 text-sm font-medium mb-2">Alamat Email</label>
             <input type="email" x-model="email" required class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-teal-400/50 transition" placeholder="email@contoh.com">
           </div>
-          <button @click="fetch('${CONFIG.SUPABASE_URL}/auth/v1/recover', { method:'POST', headers:{'apikey':'${CONFIG.SUPABASE_ANON_KEY}','Content-Type':'application/json'}, body:JSON.stringify({email:email}) }).catch(()=>{}); sent=true" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]" style="background: linear-gradient(135deg, #0d9488, #0891b2); box-shadow: 0 4px 15px rgba(13,148,136,0.4);">Kirim Link Reset</button>
+          <button @click="fetch('${CONFIG.SUPABASE_URL}/auth/v1/recover', { method:'POST', headers:{'apikey':'${CONFIG.SUPABASE_ANON_KEY}','Content-Type':'application/json'}, body:JSON.stringify({email:email}) }).catch(()=>{}); sent=true" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]" style="background: linear-gradient(135deg, #3A6FC9, #E03B27); box-shadow: 0 4px 15px rgba(58,111,201,0.4);">Kirim Link Reset</button>
         </div>
         <div x-show="sent" x-cloak class="text-center">
           <div class="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"><svg class="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
@@ -223,7 +223,7 @@ export function forgotPasswordPage() {
 
 export function resetPasswordPage() {
   return `
-  <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #0d3b66 50%, #0d9488 100%);">
+  <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #1c3980 50%, #3A6FC9 100%);">
     <div class="relative w-full max-w-md" x-data="{
       newPass: '', confirmPass: '', loading: false, error: '', success: false,
       async handleReset() {
@@ -248,8 +248,8 @@ export function resetPasswordPage() {
       }
     }">
       <div class="text-center mb-8">
-        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 mb-4">
-          <svg class="w-8 h-8 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+        <div class="inline-block rounded-xl overflow-hidden mb-4 shadow-xl">
+          <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-14 w-auto">
         </div>
         <h1 class="text-2xl font-bold text-white">Set Password Baru</h1>
         <p class="text-teal-200/70 mt-1">Masukkan password baru untuk akun Anda</p>
@@ -265,7 +265,7 @@ export function resetPasswordPage() {
             <label class="block text-teal-100 text-sm font-medium mb-2">Konfirmasi Password</label>
             <input type="password" x-model="confirmPass" class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-teal-400/50 transition" placeholder="Ulangi password baru">
           </div>
-          <button @click="handleReset()" :disabled="loading" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50" style="background: linear-gradient(135deg, #0d9488, #0891b2); box-shadow: 0 4px 15px rgba(13,148,136,0.4);">
+          <button @click="handleReset()" :disabled="loading" class="w-full py-3 px-4 rounded-xl font-semibold text-white transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50" style="background: linear-gradient(135deg, #3A6FC9, #E03B27); box-shadow: 0 4px 15px rgba(58,111,201,0.4);">
             <span x-show="!loading">Simpan Password Baru</span>
             <span x-show="loading" x-cloak>Memproses...</span>
           </button>
@@ -274,7 +274,7 @@ export function resetPasswordPage() {
           <div class="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4"><svg class="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
           <h3 class="text-lg font-semibold text-white mb-2">Password Berhasil Diubah!</h3>
           <p class="text-teal-100/70 text-sm mb-4">Silakan login dengan password baru Anda.</p>
-          <a href="#/login" class="inline-block py-2 px-6 rounded-xl font-medium text-white" style="background: linear-gradient(135deg, #0d9488, #0891b2);">Login Sekarang</a>
+          <a href="#/login" class="inline-block py-2 px-6 rounded-xl font-medium text-white" style="background: linear-gradient(135deg, #3A6FC9, #E03B27);">Login Sekarang</a>
         </div>
       </div>
     </div>

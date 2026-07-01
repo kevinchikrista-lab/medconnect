@@ -1,5 +1,5 @@
 export const CONFIG = {
-  APP_NAME: 'MedConnect',
+  APP_NAME: 'Klinik Kasih Anugerah Prima',
   APP_TAGLINE: 'Platform Kesehatan Digital',
   DOMAIN: 'prima.id',
 
