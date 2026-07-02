@@ -19,9 +19,11 @@ export function doctorDashboard() {
   const today = new Date().toISOString().split('T')[0];
   const todayAppts = store.getAppointmentsByDoctor(doc?.id, today);
   const allRecords = store.getRecordsByDoctor(doc?.id);
+  const todayRecords = allRecords.filter(r => r.visit_date === today);
   const prescriptions = store.getPrescriptionsByDoctor(doc?.id);
   const waiting = todayAppts.filter(a => a.status === 'waiting').length;
-  const completed = todayAppts.filter(a => a.status === 'completed').length;
+  const completed = todayRecords.length;
+  const todayPatientIds = new Set([...todayAppts.map(a => a.patient_id), ...todayRecords.map(r => r.patient_id)]);
   const upcoming = store.data.appointments.filter(a => a.doctor_id === doc?.id && a.date > today && a.status === 'scheduled').slice(0, 5);
 
   return `
@@ -35,7 +37,7 @@ export function doctorDashboard() {
           <p class="text-gray-500 text-sm">${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${todayAppts.length}</p><p class="text-xs text-gray-500">Pasien Hari Ini</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${todayPatientIds.size}</p><p class="text-xs text-gray-500">Pasien Hari Ini</p></div></div></div>
           <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${waiting}</p><p class="text-xs text-gray-500">Antrean Aktif</p></div></div></div>
           <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${completed}</p><p class="text-xs text-gray-500">Selesai Hari Ini</p></div></div></div>
           <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-purple-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${prescriptions.length}</p><p class="text-xs text-gray-500">Resep Terkirim</p></div></div></div>
@@ -50,12 +52,12 @@ export function doctorDashboard() {
                 const statusLabels = { waiting: 'Menunggu', completed: 'Selesai', scheduled: 'Terjadwal' };
                 return `<div class="p-4 hover:bg-gray-50 transition flex items-center justify-between">
                   <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">${apt.queue_number || '-'}</div>
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${apt.queue_number || '-'}</div>
                     <div><p class="font-medium text-gray-800 text-sm">${patient?.full_name || 'N/A'}</p><p class="text-xs text-gray-500">${apt.time_slot} — ${apt.notes || apt.type}</p></div>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="px-2 py-1 rounded-full text-xs font-medium ${statusColors[apt.status] || 'bg-gray-100 text-gray-600'}">${statusLabels[apt.status] || apt.status}</span>
-                    ${apt.status === 'waiting' ? `<a href="#/doctor/emr/${apt.patient_id}/new" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">Mulai</a>` : ''}
+                    ${apt.status === 'waiting' ? `<a href="#/doctor/emr/${apt.patient_id}/new" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Mulai</a>` : ''}
                   </div>
                 </div>`;
               }).join('')}
@@ -95,7 +97,7 @@ export function doctorPatients() {
           <h2 class="text-xl font-bold text-gray-800">Manajemen Pasien</h2>
           <div class="flex gap-2">
             <div class="relative flex-1"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari nama, NIK, telepon..."></div>
-            <button @click="showNewForm = !showNewForm" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#0d9488,#0891b2)">+ Pasien Baru</button>
+            <button @click="showNewForm = !showNewForm" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">+ Pasien Baru</button>
           </div>
         </div>
         <div x-show="showNewForm" x-cloak x-data="{ saving: false, msg: '' }" class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
@@ -112,7 +114,7 @@ export function doctorPatients() {
               <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="newPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
             </div>
-            <div class="flex gap-2"><button type="submit" :disabled="saving" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">Simpan</button><button type="button" @click="showNewForm=false" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button></div>
+            <div class="flex gap-2"><button type="submit" :disabled="saving" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Simpan</button><button type="button" @click="showNewForm=false" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button></div>
           </form>
         </div>
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -123,7 +125,7 @@ export function doctorPatients() {
                 ${patients.map(p => `
                 <template x-if="!search || '${p.full_name.toLowerCase()}'.includes(search.toLowerCase()) || '${p.nik}'.includes(search) || '${p.phone}'.includes(search)">
                   <tr class="hover:bg-gray-50 transition">
-                    <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">${p.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><p class="font-medium text-gray-800 text-sm">${p.full_name}</p><p class="text-xs text-gray-400">${p.blood_type ? 'Gol. '+p.blood_type : ''} ${p.allergies && p.allergies !== '-' ? '| Alergi: '+p.allergies : ''}</p></div></div></td>
+                    <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${p.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><p class="font-medium text-gray-800 text-sm">${p.full_name}</p><p class="text-xs text-gray-400">${p.blood_type ? 'Gol. '+p.blood_type : ''} ${p.allergies && p.allergies !== '-' ? '| Alergi: '+p.allergies : ''}</p></div></div></td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.nik}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${p.gender}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${p.phone}</td>
@@ -156,7 +158,7 @@ export function doctorEMR(params) {
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6">
           <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div class="flex items-center gap-4">
-              <div class="w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
+              <div class="w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
               <div>
                 <h2 class="text-lg font-bold text-gray-800">${patient.full_name}</h2>
                 <p class="text-sm text-gray-500">${patient.gender}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000)) + ' thn' : '-'} | NIK: ${patient.nik}</p>
@@ -172,7 +174,7 @@ export function doctorEMR(params) {
         <div class="flex gap-2 mb-4">
           <button @click="activeTab='records'" :class="activeTab==='records' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Rekam Medis (${records.length})</button>
           <button @click="activeTab='vaccinations'" :class="activeTab==='vaccinations' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Vaksinasi (${vaccinations.length})</button>
-          <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white ml-auto" style="background:linear-gradient(135deg,#0d9488,#0891b2)">+ Kunjungan Baru</a>
+          <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white ml-auto" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">+ Kunjungan Baru</a>
         </div>
         <div x-show="activeTab==='records'">
           ${records.length === 0 ? '<div class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400">Belum ada rekam medis</div>' :
@@ -413,12 +415,12 @@ export function doctorEMRNew(params) {
         <div class="flex items-center justify-between mb-6">
           <div class="flex items-center gap-2 text-sm text-gray-500"><a href="#/doctor/emr/${patient.id}" class="hover:text-teal-600 transition">${patient.full_name}</a><span>/</span><span class="text-gray-800 font-medium">Kunjungan Baru</span></div>
           <div class="flex gap-2">
-            <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${patient.id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
-          <div class="flex items-center gap-4"><div class="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><h3 class="font-bold text-gray-800">${patient.full_name}</h3><p class="text-sm text-gray-500">${patient.gender}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000))+' thn' : '-'} | Gol. ${patient.blood_type || '-'} | Alergi: ${patient.allergies || '-'}</p></div></div>
+          <div class="flex items-center gap-4"><div class="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><h3 class="font-bold text-gray-800">${patient.full_name}</h3><p class="text-sm text-gray-500">${patient.gender}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000))+' thn' : '-'} | Gol. ${patient.blood_type || '-'} | Alergi: ${patient.allergies || '-'}</p></div></div>
         </div>
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-3">Tipe Kunjungan & Lokasi</h4>
@@ -578,7 +580,7 @@ export function doctorEMRNew(params) {
             <h3 class="text-lg font-bold text-gray-800 mb-2">Rekam Medis Tersimpan!</h3>
             <p class="text-sm text-gray-500 mb-6">Apakah Anda ingin membuat e-resep untuk kunjungan ini?</p>
             <div class="flex gap-2">
-              <a :href="savedRecordId ? '#/doctor/prescriptions/new/'+savedRecordId : '#/doctor/emr/${patient.id}'" class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white text-center" style="background:linear-gradient(135deg,#0d9488,#0891b2)">Ya, Buat E-Resep</a>
+              <a :href="savedRecordId ? '#/doctor/prescriptions/new/'+savedRecordId : '#/doctor/emr/${patient.id}'" class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white text-center" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Ya, Buat E-Resep</a>
               <a href="#/doctor/emr/${patient.id}" class="flex-1 py-2.5 rounded-xl text-sm font-medium text-gray-600 border border-gray-200 text-center">Nanti Saja</a>
             </div>
           </div>
@@ -695,7 +697,7 @@ export function doctorPrescriptionNew(params) {
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold text-gray-800">Buat E-Resep</h2>
           <div class="flex gap-2">
-            <button @click="sending=true; setTimeout(()=>{ window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:pharmacy_id,notes:notes}, items); sending=false; sent=true; setTimeout(()=>window.location.hash='/doctor/prescriptions',1000) },500)" :disabled="sending || sent || items.some(i=>!i.drug_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
+            <button @click="sending=true; setTimeout(()=>{ window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:pharmacy_id,notes:notes}, items); sending=false; sent=true; setTimeout(()=>window.location.hash='/doctor/prescriptions',1000) },500)" :disabled="sending || sent || items.some(i=>!i.drug_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
           </div>
         </div>
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
@@ -782,7 +784,7 @@ export function doctorPrescriptionEdit(params) {
         <div class="flex items-center justify-between mb-6">
           <div><h2 class="text-xl font-bold text-gray-800">Edit E-Resep</h2><p class="text-sm text-gray-500">${rx.rx_number} — ${patient?.full_name || 'N/A'}</p></div>
           <div class="flex gap-2">
-            <button @click="saveEdit()" :disabled="saving || saved" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveEdit()" :disabled="saving || saved" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/prescriptions" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
@@ -857,7 +859,7 @@ export function doctorEMREdit(params) {
         <div class="flex items-center justify-between mb-6">
           <div><h2 class="text-xl font-bold text-gray-800">Edit Rekam Medis</h2><p class="text-sm text-gray-500">${patient?.full_name || ''} — ${formatDate(record.visit_date)}</p></div>
           <div class="flex gap-2">
-            <button @click="saveEdit()" :disabled="saving || saved || !form.anamnesis || !form.diagnosis" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveEdit()" :disabled="saving || saved || !form.anamnesis || !form.diagnosis" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${record.patient_id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
@@ -995,7 +997,7 @@ function doctorHeader(doc) {
     <button @click="sideOpen=!sideOpen" class="p-2 rounded-lg hover:bg-gray-100 transition"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
     <div class="flex items-center gap-3">
       <a href="#/doctor/notifications" class="relative p-1 hover:bg-gray-100 rounded-lg transition"><svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>${unread > 0 ? `<span class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">${unread}</span>` : ''}</a>
-      <div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">${(doc?.full_name || 'D').split(' ').map(n=>n[0]).join('').slice(0,2)}</div><span class="text-sm font-medium text-gray-700 hidden sm:block">${doc?.full_name || 'Dokter'}</span></div>
+      <div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${(doc?.full_name || 'D').split(' ').map(n=>n[0]).join('').slice(0,2)}</div><span class="text-sm font-medium text-gray-700 hidden sm:block">${doc?.full_name || 'Dokter'}</span></div>
     </div>
   </header>`;
 }

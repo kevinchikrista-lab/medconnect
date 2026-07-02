@@ -243,7 +243,7 @@ export function patientServices() {
                   <div><p class="text-sm font-medium text-gray-800 group-hover:text-teal-700">${item.name}</p><p class="text-xs text-gray-400">${item.desc}</p></div>
                   <div class="text-right flex-shrink-0 ml-3"><p class="text-sm font-bold text-teal-600">Rp ${item.price.toLocaleString('id-ID')}</p><span class="text-xs text-teal-500">Daftar &rarr;</span></div>
                 </a>`).join('')}
-              </div>` : `<a href="#/patient/booking/${s.id}/0" class="mt-3 block w-full py-2.5 rounded-xl text-sm font-medium text-white text-center" style="background:linear-gradient(135deg,#0d9488,#0891b2)">Daftar Layanan — Rp ${(s.price||0).toLocaleString('id-ID')}</a>`}
+              </div>` : `<a href="#/patient/booking/${s.id}/0" class="mt-3 block w-full py-2.5 rounded-xl text-sm font-medium text-white text-center" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Daftar Layanan — Rp ${(s.price||0).toLocaleString('id-ID')}</a>`}
             </div>
           </div>
         </template>`).join('')}
@@ -311,7 +311,7 @@ export function patientBooking(params) {
           </div>
           <div><label class="block text-xs text-gray-500 mb-1">Catatan Tambahan</label><textarea x-model="notes" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Opsional: keluhan, permintaan khusus..."></textarea></div>
         </div>
-        <button @click="submit()" :disabled="submitting || !preferred_date" class="w-full mt-4 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-50" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!submitting">Daftar Sekarang</span><span x-show="submitting" x-cloak>Memproses...</span></button>
+        <button @click="submit()" :disabled="submitting || !preferred_date" class="w-full mt-4 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!submitting">Daftar Sekarang</span><span x-show="submitting" x-cloak>Memproses...</span></button>
       </div>
       <!-- Success -->
       <div x-show="submitted" x-cloak class="bg-white rounded-xl border border-green-200 shadow-sm p-6 text-center mb-4">
@@ -354,7 +354,7 @@ export function patientProfile() {
     ${patientHeader(patient)}
     <main class="p-4 max-w-lg mx-auto">
       <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-4 text-center">
-        <div class="w-20 h-20 rounded-full mx-auto flex items-center justify-center text-2xl font-bold text-white mb-3" style="background:linear-gradient(135deg,#0d9488,#0891b2)">${patient?.full_name?.split(' ').map(n=>n[0]).join('').slice(0,2) || 'P'}</div>
+        <div class="w-20 h-20 rounded-full mx-auto flex items-center justify-center text-2xl font-bold text-white mb-3" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${patient?.full_name?.split(' ').map(n=>n[0]).join('').slice(0,2) || 'P'}</div>
         <h2 class="text-lg font-bold text-gray-800">${patient?.full_name || '-'}</h2>
         <p class="text-sm text-gray-500">${user?.email || '-'}</p>
       </div>
@@ -375,7 +375,7 @@ export function patientProfile() {
           <div class="px-4 py-3"><div class="flex justify-between items-center"><span class="text-sm text-gray-500">Riwayat Alergi</span><span x-show="!editing" class="text-sm text-gray-800 font-medium" x-text="form.allergies || '-'"></span></div><input x-show="editing" x-cloak type="text" x-model="form.allergies" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Dilaporkan oleh pasien"><p x-show="editing" class="text-xs text-amber-600 mt-1">Perubahan alergi akan ditandai sebagai "dilaporkan pasien"</p></div>
           <div class="px-4 py-3"><div class="flex justify-between items-center"><span class="text-sm text-gray-500">Kontak Darurat</span><span x-show="!editing" class="text-sm text-gray-800 font-medium text-right max-w-[60%]" x-text="form.emergency_contact || '-'"></span></div><input x-show="editing" x-cloak type="text" x-model="form.emergency_contact" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Nama - No. Telepon"></div>
         </div>
-        <div x-show="editing" x-cloak class="p-4 border-t border-gray-100"><button @click="saveProfile()" :disabled="saving" class="w-full py-2.5 rounded-xl text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!saving">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span></button></div>
+        <div x-show="editing" x-cloak class="p-4 border-t border-gray-100"><button @click="saveProfile()" :disabled="saving" class="w-full py-2.5 rounded-xl text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!saving">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span></button></div>
       </div>
       <button onclick="sessionStorage.clear();window.location.hash='/login';window.dispatchEvent(new CustomEvent('auth-changed'))" class="w-full py-3 rounded-xl text-sm font-medium text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition">Keluar dari Akun</button>
     </main>

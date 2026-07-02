@@ -20,7 +20,7 @@ export function adminDashboard() {
         <h2 class="text-2xl font-bold text-gray-800 mb-6">Dashboard SuperAdmin</h2>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-blue-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${stats.totalPatients}</p><p class="text-xs text-gray-500">Total Pasien</p></div></div></div>
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${stats.totalDoctors}</p><p class="text-xs text-gray-500">Dokter Aktif</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${stats.totalDoctors}</p><p class="text-xs text-gray-500">Dokter Aktif</p></div></div></div>
           <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-purple-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${stats.totalPharmacies}</p><p class="text-xs text-gray-500">Apotek Mitra</p></div></div></div>
           <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${stats.totalRecords}</p><p class="text-xs text-gray-500">Rekam Medis</p></div></div></div>
         </div>
@@ -30,7 +30,7 @@ export function adminDashboard() {
             const roleLabels = { doctor: 'Dokter', patient: 'Pasien', pharmacy: 'Apotek' };
             const roleColors = { doctor: 'bg-teal-100 text-teal-700', patient: 'bg-blue-100 text-blue-700', pharmacy: 'bg-purple-100 text-purple-700' };
             return `<div class="p-4 flex items-center justify-between hover:bg-gray-50 transition">
-              <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">${(u.profile?.full_name || u.profile?.name || u.email).charAt(0).toUpperCase()}</div><div><p class="text-sm font-medium text-gray-800">${u.profile?.full_name || u.profile?.name || u.email}</p><p class="text-xs text-gray-500">${u.email}</p></div></div>
+              <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${(u.profile?.full_name || u.profile?.name || u.email).charAt(0).toUpperCase()}</div><div><p class="text-sm font-medium text-gray-800">${u.profile?.full_name || u.profile?.name || u.email}</p><p class="text-xs text-gray-500">${u.email}</p></div></div>
               <div class="flex items-center gap-2"><span class="px-2 py-1 rounded-full text-xs font-medium ${roleColors[u.role] || 'bg-gray-100'}">${roleLabels[u.role] || u.role}</span><span class="w-2 h-2 rounded-full ${u.is_active ? 'bg-green-500' : 'bg-red-500'}"></span></div>
             </div>`;
           }).join('')}</div>
@@ -49,7 +49,7 @@ export function adminUsers() {
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <h2 class="text-xl font-bold text-gray-800">Manajemen User</h2>
-          <button @click="showCreate=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">+ Tambah User</button>
+          <button @click="showCreate=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">+ Tambah User</button>
         </div>
         <div class="flex flex-wrap gap-2 mb-4">
           <button @click="filter=''" :class="!filter ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">Semua</button>
@@ -76,7 +76,7 @@ export function adminUsers() {
                 <template x-if="newUser.role==='pharmacy'"><div><label class="block text-xs text-gray-600 mb-1">No. SIPA</label><input type="text" x-model="newUser.license_no" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
                 <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newUser.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
-              <div class="flex gap-2 justify-end"><button type="button" @click="showCreate=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button type="submit" :disabled="creating" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!creating">Buat Akun</span><span x-show="creating" x-cloak>Memproses...</span></button></div>
+              <div class="flex gap-2 justify-end"><button type="button" @click="showCreate=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button type="submit" :disabled="creating" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!creating">Buat Akun</span><span x-show="creating" x-cloak>Memproses...</span></button></div>
             </form>
           </div>
         </div>
@@ -86,7 +86,7 @@ export function adminUsers() {
             <h3 class="text-lg font-bold text-gray-800 mb-4">Ganti Email</h3>
             <div x-show="editMsg" class="mb-3 p-2 rounded-lg text-sm" :class="editMsg.includes('berhasil')?'bg-green-50 text-green-700':'bg-red-50 text-red-700'" x-text="editMsg"></div>
             <div class="mb-3"><label class="block text-xs text-gray-600 mb-1">Email Baru</label><input type="email" x-model="newEmail" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-            <div class="flex gap-2 justify-end"><button @click="editingUser=null" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button @click="saveEmail" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">Simpan</button></div>
+            <div class="flex gap-2 justify-end"><button @click="editingUser=null" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button @click="saveEmail" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Simpan</button></div>
           </div>
         </div>
         <!-- Reset Password Modal -->
@@ -101,7 +101,7 @@ export function adminUsers() {
             </div>
             <div class="flex gap-2 justify-end">
               <button @click="resetUser=null" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
-              <button @click="doResetPassword()" :disabled="resetting" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)"><span x-show="!resetting">Set Password Baru</span><span x-show="resetting" x-cloak>Memproses...</span></button>
+              <button @click="doResetPassword()" :disabled="resetting" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!resetting">Set Password Baru</span><span x-show="resetting" x-cloak>Memproses...</span></button>
             </div>
           </div>
         </div>
@@ -315,7 +315,7 @@ export function adminServices() {
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold text-gray-800">Manajemen Layanan</h2>
-          <button @click="openNew()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">+ Tambah Layanan</button>
+          <button @click="openNew()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">+ Tambah Layanan</button>
         </div>
         <!-- Add/Edit Modal -->
         <div x-show="showForm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showForm=false">
@@ -331,7 +331,7 @@ export function adminServices() {
               </div>
               <div><label class="block text-xs text-gray-600 mb-1">URL Gambar</label><input type="text" x-model="form.image_url" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
             </div>
-            <div class="flex gap-2 justify-end mt-4"><button @click="showForm=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button @click="save()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#0d9488,#0891b2)">Simpan</button></div>
+            <div class="flex gap-2 justify-end mt-4"><button @click="showForm=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button @click="save()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Simpan</button></div>
           </div>
         </div>
         <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
