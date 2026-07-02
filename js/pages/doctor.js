@@ -359,15 +359,19 @@ export function doctorEMRNew(params) {
     vaxForm: { vaccine_name:'', vaccine_brand:'', vax_mode:'series', dose_number:1, total_doses:1, batch_number:'', dose_schedule:[], booster_interval_months:12, next_dose_date:'', location:'${locations[0]}', notes:'' },
     saving: false, saved: false,
     updateDoseSchedule() {
-      if (this.vaxForm.vax_mode === 'series' && this.vaxForm.total_doses > 1) {
+      const currentDose = parseInt(this.vaxForm.dose_number) || 1;
+      const totalDoses = parseInt(this.vaxForm.total_doses) || 1;
+      if (this.vaxForm.vax_mode === 'series' && totalDoses > 1) {
         const existing = this.vaxForm.dose_schedule || [];
         const newSchedule = [];
-        for (let i = this.vaxForm.dose_number + 1; i <= this.vaxForm.total_doses; i++) {
+        for (let i = currentDose + 1; i <= totalDoses; i++) {
           const prev = existing.find(s => s.dose === i);
           newSchedule.push({ dose: i, date: prev ? prev.date : '' });
         }
         this.vaxForm.dose_schedule = newSchedule;
         this.vaxForm.next_dose_date = newSchedule.length > 0 ? newSchedule[0].date : '';
+      } else {
+        this.vaxForm.dose_schedule = [];
       }
     },
     saveRecord() {
