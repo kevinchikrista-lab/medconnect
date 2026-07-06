@@ -5,6 +5,64 @@ function generateId() {
   return 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// Parses the published Google Sheet CSV for home care BMHP/Jasa prices.
+// Handles quoted fields (commas inside item names) and looks columns up by
+// header name so re-ordering columns in the sheet doesn't break parsing.
+function parseHomeCarePriceCsv(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  if (rows.length === 0) return [];
+
+  const header = rows[0].map(h => h.trim().toLowerCase());
+  const idx = {
+    category: header.indexOf('kategori'),
+    name: header.indexOf('nama item'),
+    unit: header.indexOf('satuan'),
+    price: header.indexOf('harga'),
+    active: header.indexOf('aktif'),
+  };
+
+  // Kategori is only filled on the first row of each group in the sheet and
+  // left blank below it, so blank cells inherit the last non-blank category.
+  // Whether an item needs BMHP reimbursement (vs a pure service fee) is
+  // signalled by the Satuan column instead: rows priced "per Jasa" are
+  // services, everything else (Pcs, etc.) is a physical item to restock.
+  const items = [];
+  let lastCategory = '';
+  for (const r of rows.slice(1)) {
+    if (r.length <= 1 || !r[idx.name]) continue;
+    const active = (r[idx.active] || 'Y').trim().toUpperCase();
+    if (active === 'N') continue;
+    const rawCategory = (r[idx.category] || '').trim();
+    if (rawCategory) lastCategory = rawCategory;
+    const unit = (r[idx.unit] || '').trim();
+    items.push({
+      category: rawCategory || lastCategory,
+      unit,
+      bucket: unit.toLowerCase() === 'jasa' ? 'Jasa' : 'BMHP',
+      name: (r[idx.name] || '').trim(),
+      price: parseInt((r[idx.price] || '0').replace(/[^0-9-]/g, ''), 10) || 0,
+      active,
+    });
+  }
+  return items;
+}
+
 const DEMO_DATA = {
   users: [
     { id: 'u_admin1', email: 'superadmin@prima.id', password: 'admin12345', role: 'superadmin', is_active: true, created_at: '2026-01-01' },
@@ -167,6 +225,23 @@ class Store {
     } catch (e) { console.warn('Supabase sync error:', e); }
   }
 
+  // Fire-and-forget insert to Supabase. `localRecord.id` is a client-generated
+  // string (see generateId()), not a real UUID, so the id column in Postgres
+  // would reject it — it's omitted from the payload so Postgres assigns a real
+  // UUID, which is then patched back onto localRecord so later update/delete
+  // calls (keyed off .id) still target the right row. Pass `payloadOverride`
+  // when the Supabase column shape differs from the local record shape (e.g.
+  // notifications' profile_id vs local user_id). Returns a promise of the
+  // (possibly patched) localRecord, useful for header->detail FK sequencing.
+  _syncInsert(table, localRecord, payloadOverride) {
+    if (CONFIG.DEMO_MODE) return Promise.resolve(localRecord);
+    const { id, ...payload } = payloadOverride || localRecord;
+    return supabase.insert(table, payload).then(inserted => {
+      if (inserted && inserted.id) { localRecord.id = inserted.id; this._save(); }
+      return localRecord;
+    }).catch(() => localRecord);
+  }
+
   // Sequential certificate numbering, resets each year (0001/SKV/KP/26, 0002/..., etc)
   async getNextCertNumber(year) {
     if (!CONFIG.DEMO_MODE) {
@@ -233,7 +308,7 @@ class Store {
   async loadFromSupabase() {
     if (CONFIG.DEMO_MODE) return;
     try {
-      const [profiles, doctors, patients, pharmacies, records, prescriptions, rxItems, appointments, vaccinations, services, bookings, inventory, notifications] = await Promise.all([
+      const [profiles, doctors, patients, pharmacies, records, prescriptions, rxItems, appointments, vaccinations, services, bookings, inventory, notifications, homeCareClaims, homeCareClaimItems] = await Promise.all([
         supabase.select('profiles'), supabase.select('doctors'), supabase.select('patients'),
         supabase.select('pharmacies'), supabase.select('medical_records', { order: 'visit_date.desc' }),
         supabase.select('prescriptions', { order: 'created_at.desc' }),
@@ -241,6 +316,8 @@ class Store {
         supabase.select('vaccinations'), supabase.select('health_services'),
         supabase.select('bookings', { order: 'created_at.desc' }),
         supabase.select('inventory'), supabase.select('notifications', { order: 'created_at.desc' }),
+        supabase.select('home_care_claims', { order: 'created_at.desc' }),
+        supabase.select('home_care_claim_items'),
       ]);
       // Map Supabase data to local format
       this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, password: '***', created_at: p.created_at }));
@@ -256,6 +333,8 @@ class Store {
       if (bookings.length) this.data.bookings = bookings;
       if (inventory.length) this.data.inventory = inventory;
       if (notifications.length) this.data.notifications = notifications.map(n => ({ ...n, user_id: n.profile_id }));
+      if (homeCareClaims.length) this.data.home_care_claims = homeCareClaims;
+      if (homeCareClaimItems.length) this.data.home_care_claim_items = homeCareClaimItems;
       this._save(this.data);
       console.log('Data loaded from Supabase:', { profiles: profiles.length, doctors: doctors.length, patients: patients.length });
     } catch (e) { console.warn('Failed to load from Supabase, using local data:', e); }
@@ -420,10 +499,10 @@ class Store {
     if (record.follow_up_date) {
       const apt = { id: generateId(), patient_id: record.patient_id, doctor_id: record.doctor_id, date: record.follow_up_date, time_slot: '09:00', type: 'follow_up', status: 'scheduled', queue_number: null, notes: record.follow_up_notes || 'Kontrol ulang' };
       this.data.appointments.push(apt);
-      if (!CONFIG.DEMO_MODE) supabase.insert('appointments', apt).catch(() => {});
+      this._syncInsert('appointments', apt);
     }
     this._save();
-    if (!CONFIG.DEMO_MODE) supabase.insert('medical_records', newRecord).catch(() => {});
+    this._syncInsert('medical_records', newRecord);
     return newRecord;
   }
 
@@ -458,10 +537,9 @@ class Store {
     const patientUser = this.data.patients.find(p => p.id === rx.patient_id);
     if (patientUser) this.addNotification(patientUser.user_id, 'Resep Dikirim', `Resep ${newRx.rx_number} telah dikirim ke apotek.`, 'prescription');
     this._save();
-    if (!CONFIG.DEMO_MODE) {
-      supabase.insert('prescriptions', newRx).catch(() => {});
-      savedItems.forEach(si => supabase.insert('prescription_items', si).catch(() => {}));
-    }
+    this._syncInsert('prescriptions', newRx).then(rx => {
+      savedItems.forEach(si => { si.prescription_id = rx.id; this._syncInsert('prescription_items', si); });
+    });
     return newRx;
   }
 
@@ -492,7 +570,7 @@ class Store {
     newItems.forEach(item => {
       const newItem = { id: generateId(), prescription_id: rxId, ...item };
       this.data.prescription_items.push(newItem);
-      if (!CONFIG.DEMO_MODE) supabase.insert('prescription_items', newItem).catch(() => {});
+      this._syncInsert('prescription_items', newItem);
     });
     this._save();
   }
@@ -544,7 +622,7 @@ class Store {
     const newVax = { id: generateId(), ...vax };
     this.data.vaccinations.push(newVax);
     this._save();
-    if (!CONFIG.DEMO_MODE) supabase.insert('vaccinations', newVax).catch(() => {});
+    this._syncInsert('vaccinations', newVax);
     return newVax;
   }
 
@@ -566,7 +644,7 @@ class Store {
   // Health Services
   getServices() { return this.data.health_services.filter(s => s.is_active); }
   getAllServices() { return this.data.health_services; }
-  createService(svc) { const s = { id: generateId(), ...svc, is_active: true }; this.data.health_services.push(s); this._save(); if (!CONFIG.DEMO_MODE) supabase.insert('health_services', s).catch(() => {}); return s; }
+  createService(svc) { const s = { id: generateId(), ...svc, is_active: true }; this.data.health_services.push(s); this._save(); this._syncInsert('health_services', s); return s; }
   updateService(id, updates) { const s = this.data.health_services.find(x => x.id === id); if (s) { Object.assign(s, updates); this._save(); if (!CONFIG.DEMO_MODE) supabase.update('health_services', id, updates).catch(() => {}); } return s; }
   toggleServiceActive(id) { const s = this.data.health_services.find(x => x.id === id); if (s) { s.is_active = !s.is_active; this._save(); if (!CONFIG.DEMO_MODE) supabase.update('health_services', id, { is_active: s.is_active }).catch(() => {}); } }
   deleteService(id) { this.data.health_services = this.data.health_services.filter(x => x.id !== id); this._save(); if (!CONFIG.DEMO_MODE) supabase.delete('health_services', id).catch(() => {}); }
@@ -579,7 +657,7 @@ class Store {
     const adminUser = this.data.users.find(u => u.role === 'superadmin');
     if (adminUser) this.addNotification(adminUser.id, 'Pendaftaran Layanan Baru', `${booking.patient_name || 'Pasien'} mendaftar: ${booking.item_name || booking.service_name}. Tanggal: ${booking.preferred_date}`, 'system');
     this._save();
-    if (!CONFIG.DEMO_MODE) supabase.insert('bookings', b).catch(() => {});
+    this._syncInsert('bookings', b);
     return b;
   }
 
@@ -621,7 +699,7 @@ class Store {
     const notif = { id: generateId(), user_id: userId, title, message, type, is_read: false, created_at: new Date().toISOString() };
     this.data.notifications.push(notif);
     this._save();
-    if (!CONFIG.DEMO_MODE) supabase.insert('notifications', { ...notif, profile_id: userId }).catch(() => {});
+    this._syncInsert('notifications', notif, { ...notif, profile_id: userId });
   }
 
   // Doctors list
@@ -633,6 +711,98 @@ class Store {
   getPharmacies() { return this.data.pharmacies; }
   getPharmacy(pharmacyId) { return this.data.pharmacies.find(p => p.id === pharmacyId); }
   getPharmacyByUserId(userId) { return this.data.pharmacies.find(p => p.user_id === userId); }
+
+  // Home Care - BMHP & Jasa claims
+  // Always fetched live from the published Google Sheet (not cached in this.data)
+  // so a price edited in the sheet shows up next time this is called.
+  async getPriceList() {
+    try {
+      const res = await fetch(CONFIG.HOMECARE_PRICE_SHEET_CSV_URL, { cache: 'no-store' });
+      if (!res.ok) return [];
+      const text = await res.text();
+      return parseHomeCarePriceCsv(text);
+    } catch (e) { console.warn('Gagal memuat daftar harga BMHP/Jasa:', e); return []; }
+  }
+
+  createHomeCareClaim(header, items) {
+    const newClaim = { id: generateId(), status: 'pending', completed_at: null, ...header, created_at: new Date().toISOString() };
+    if (!this.data.home_care_claims) this.data.home_care_claims = [];
+    this.data.home_care_claims.push(newClaim);
+    const savedItems = [];
+    items.forEach(item => {
+      const newItem = { id: generateId(), claim_id: newClaim.id, ...item };
+      if (!this.data.home_care_claim_items) this.data.home_care_claim_items = [];
+      this.data.home_care_claim_items.push(newItem);
+      savedItems.push(newItem);
+    });
+    this._save();
+    this._syncInsert('home_care_claims', newClaim).then(claim => {
+      savedItems.forEach(si => { si.claim_id = claim.id; this._syncInsert('home_care_claim_items', si); });
+    });
+    return newClaim;
+  }
+
+  getHomeCareClaims(filters = {}) {
+    let claims = this.data.home_care_claims || [];
+    if (filters.doctorId) claims = claims.filter(c => c.doctor_id === filters.doctorId);
+    return claims.slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  }
+
+  getHomeCareClaim(claimId) {
+    return (this.data.home_care_claims || []).find(c => c.id === claimId);
+  }
+
+  getHomeCareClaimItems(claimId) {
+    return (this.data.home_care_claim_items || []).filter(i => i.claim_id === claimId);
+  }
+
+  updateHomeCareClaim(claimId, header, items) {
+    const claim = this.data.home_care_claims.find(c => c.id === claimId);
+    if (!claim) return { error: 'Klaim tidak ditemukan' };
+    Object.assign(claim, header);
+    this.data.home_care_claim_items = (this.data.home_care_claim_items || []).filter(i => i.claim_id !== claimId);
+    const savedItems = [];
+    items.forEach(item => {
+      const newItem = { id: generateId(), claim_id: claimId, ...item };
+      this.data.home_care_claim_items.push(newItem);
+      savedItems.push(newItem);
+    });
+    this._save();
+    if (!CONFIG.DEMO_MODE) {
+      supabase.update('home_care_claims', claimId, header).catch(() => {});
+      supabase.deleteWhere('home_care_claim_items', { claim_id: claimId }).catch(() => {});
+      savedItems.forEach(si => this._syncInsert('home_care_claim_items', si));
+    }
+    return { success: true };
+  }
+
+  markHomeCareClaimComplete(claimId) {
+    const claim = this.data.home_care_claims.find(c => c.id === claimId);
+    if (!claim) return;
+    claim.status = 'selesai';
+    claim.completed_at = new Date().toISOString();
+    this._save();
+    if (!CONFIG.DEMO_MODE) supabase.update('home_care_claims', claimId, { status: 'selesai', completed_at: claim.completed_at }).catch(() => {});
+  }
+
+  unmarkHomeCareClaimComplete(claimId) {
+    const claim = this.data.home_care_claims.find(c => c.id === claimId);
+    if (!claim) return;
+    claim.status = 'pending';
+    claim.completed_at = null;
+    this._save();
+    if (!CONFIG.DEMO_MODE) supabase.update('home_care_claims', claimId, { status: 'pending', completed_at: null }).catch(() => {});
+  }
+
+  deleteHomeCareClaim(claimId) {
+    this.data.home_care_claims = (this.data.home_care_claims || []).filter(c => c.id !== claimId);
+    this.data.home_care_claim_items = (this.data.home_care_claim_items || []).filter(i => i.claim_id !== claimId);
+    this._save();
+    if (!CONFIG.DEMO_MODE) {
+      supabase.deleteWhere('home_care_claim_items', { claim_id: claimId }).catch(() => {});
+      supabase.delete('home_care_claims', claimId).catch(() => {});
+    }
+  }
 
   // Stats
   getStats() {

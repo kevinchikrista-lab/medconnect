@@ -1,8 +1,8 @@
 import { router } from './router.js';
 import { store } from './store.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
-import { adminDashboard, adminUsers, adminUsersData, adminServices, adminBookings } from './pages/admin.js';
-import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar } from './pages/doctor.js';
+import { adminDashboard, adminUsers, adminUsersData, adminServices, adminBookings, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit } from './pages/admin.js';
+import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
@@ -74,6 +74,9 @@ router.add('/admin/dashboard', () => render(adminDashboard));
 router.add('/admin/users', () => render(adminUsers));
 router.add('/admin/services', () => render(adminServices));
 router.add('/admin/bookings', () => render(adminBookings));
+router.add('/admin/homecare/new', () => render(adminHomeCareNew));
+router.add('/admin/homecare/history', () => render(adminHomeCareHistory));
+router.add('/admin/homecare/edit/:claimId', (p) => render(adminHomeCareEdit, p));
 
 // Doctor
 router.add('/doctor/dashboard', () => render(doctorDashboard));
@@ -86,6 +89,10 @@ router.add('/doctor/prescriptions/new/:recordId', (p) => render(doctorPrescripti
 router.add('/doctor/prescriptions/edit/:rxId', (p) => render(doctorPrescriptionEdit, p));
 router.add('/doctor/emr/edit/:recordId', (p) => render(doctorEMREdit, p));
 router.add('/doctor/calendar', () => render(doctorCalendar));
+router.add('/doctor/calendar/:year/:month', (p) => render(doctorCalendar, p));
+router.add('/doctor/homecare/new', () => render(doctorHomeCareNew));
+router.add('/doctor/homecare/history', () => render(doctorHomeCareHistory));
+router.add('/doctor/homecare/edit/:claimId', (p) => render(doctorHomeCareEdit, p));
 router.add('/doctor/notifications', () => render(notificationsPage));
 
 // Patient

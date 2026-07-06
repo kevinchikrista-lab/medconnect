@@ -9,6 +9,10 @@ export const CONFIG = {
   // Mode: true = localStorage (demo), false = Supabase (production)
   DEMO_MODE: false,
 
+  // Google Sheet ("Publish to web" > CSV) berisi daftar harga BMHP & Jasa untuk
+  // klaim home care. Ganti dengan URL asli setelah sheet dipublish.
+  HOMECARE_PRICE_SHEET_CSV_URL: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSysnB7-noF-xICJu4CAepc2W4iO8Kwn4ysPQE7QPOT69PYSKK2H-Vz3pj1gil8VJK5ZS-r5JnGR2e_/pub?gid=745153631&single=true&output=csv',
+
   ROLES: {
     SUPERADMIN: 'superadmin',
     DOCTOR: 'doctor',
