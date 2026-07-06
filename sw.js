@@ -12,6 +12,7 @@ const STATIC_ASSETS = [
   'js/pages/doctor.js',
   'js/pages/patient.js',
   'js/pages/pharmacy.js',
+  'js/pages/homecare.js',
   'assets/icons/icon-192.svg',
   'assets/icons/icon-512.svg',
 ];
@@ -36,7 +37,7 @@ self.addEventListener('fetch', event => {
   const { request } = event;
   if (request.method !== 'GET') return;
 
-  if (request.url.includes('/api/') || request.url.includes('supabase')) {
+  if (request.url.includes('/api/') || request.url.includes('supabase') || request.url.includes('docs.google.com')) {
     event.respondWith(
       fetch(request).catch(() => new Response(JSON.stringify({ error: 'offline' }), {
         headers: { 'Content-Type': 'application/json' }
