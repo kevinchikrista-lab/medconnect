@@ -1,6 +1,7 @@
 import { store } from '../store.js';
 import { CONFIG } from '../config.js';
 import { ICD10 } from '../icd10.js';
+import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -346,6 +347,7 @@ export function doctorEMRNew(params) {
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
     visitType: 'consultation',
+    visitDate: '${new Date().toISOString().split('T')[0]}',
     form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', visit_type:'consultation' },
     icdSearch: '', icdResults: [], icdOpen: false, icdSearch2: '', icdResults2: [], icdOpen2: false,
     searchICD(q, which) {
@@ -383,12 +385,12 @@ export function doctorEMRNew(params) {
         self.form.visit_type = self.visitType;
         var result = null;
         if (self.visitType === 'consultation' || self.visitType === 'both') {
-          result = window.__store.createRecord({patient_id:'${patient.id}', doctor_id:'${doc?.id}', ...self.form});
+          result = window.__store.createRecord({patient_id:'${patient.id}', doctor_id:'${doc?.id}', ...self.form, visit_date: self.visitDate});
         }
         if (self.visitType === 'vaccination' || self.visitType === 'both') {
           const vd = {...self.vaxForm};
           if (vd.vax_mode === 'booster') {
-            const given = new Date();
+            const given = new Date(self.visitDate);
             const next = new Date(given);
             next.setMonth(next.getMonth() + parseInt(vd.booster_interval_months));
             vd.next_dose_date = next.toISOString().split('T')[0];
@@ -396,11 +398,11 @@ export function doctorEMRNew(params) {
           } else {
             vd.next_dose_date = vd.dose_schedule && vd.dose_schedule.length > 0 ? vd.dose_schedule[0].date : '';
           }
-          window.__store.createVaccination({patient_id:'${patient.id}', administered_by:'${doc?.id}', date_given: new Date().toISOString().split('T')[0], ...vd});
+          window.__store.createVaccination({patient_id:'${patient.id}', administered_by:'${doc?.id}', date_given: self.visitDate, ...vd});
           if (self.visitType === 'vaccination') {
             const followDate = vd.next_dose_date || '';
             const modeLabel = vd.vax_mode === 'booster' ? ' (Booster tiap '+vd.booster_interval_months+' bulan)' : ' Dosis '+vd.dose_number+'/'+vd.total_doses;
-            window.__store.createRecord({patient_id:'${patient.id}', doctor_id:'${doc?.id}', visit_type:'vaccination', location:vd.location, anamnesis:'Vaksinasi '+vd.vaccine_name+' '+vd.vaccine_brand+modeLabel, diagnosis:'Vaksinasi '+vd.vaccine_name, therapy:'Pemberian vaksin '+vd.vaccine_brand+modeLabel, vital_signs:self.form.vital_signs, follow_up_date:followDate, follow_up_notes:vd.vax_mode==='booster'?'Booster berikutnya':'Vaksin dosis berikutnya', notes:'Batch: '+vd.batch_number });
+            window.__store.createRecord({patient_id:'${patient.id}', doctor_id:'${doc?.id}', visit_type:'vaccination', visit_date: self.visitDate, location:vd.location, anamnesis:'Vaksinasi '+vd.vaccine_name+' '+vd.vaccine_brand+modeLabel, diagnosis:'Vaksinasi '+vd.vaccine_name, therapy:'Pemberian vaksin '+vd.vaccine_brand+modeLabel, vital_signs:self.form.vital_signs, follow_up_date:followDate, follow_up_notes:vd.vax_mode==='booster'?'Booster berikutnya':'Vaksin dosis berikutnya', notes:'Batch: '+vd.batch_number });
           }
         }
         self.saving = false; self.saved = true; self.savedRecordId = (result && result.id) ? result.id : null;
@@ -424,7 +426,7 @@ export function doctorEMRNew(params) {
         </div>
         <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-3">Tipe Kunjungan & Lokasi</h4>
-          <div class="grid sm:grid-cols-2 gap-3">
+          <div class="grid sm:grid-cols-3 gap-3">
             <div>
               <label class="block text-xs text-gray-500 mb-1">Tipe Kunjungan *</label>
               <div class="flex gap-2">
@@ -434,6 +436,7 @@ export function doctorEMRNew(params) {
               </div>
               <p class="text-xs text-gray-400 mt-1" x-show="visitType==='both'">Akan membuat 2 rekam medis terpisah (konsultasi + vaksinasi) di waktu yang sama.</p>
             </div>
+            <div><label class="block text-xs text-gray-500 mb-1">Tanggal Kunjungan *</label><input type="date" x-model="visitDate" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
             <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat *</label><select x-model="form.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
           </div>
         </div>
@@ -891,17 +894,25 @@ export function doctorEMREdit(params) {
   </div>`;
 }
 
-export function doctorCalendar() {
+export function doctorCalendar(params) {
   const doc = getDoctor();
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
   const allAppts = store.data.appointments.filter(a => a.doctor_id === doc?.id);
+  const allRecords = store.getRecordsByDoctor(doc?.id);
 
-  const year = today.getFullYear();
-  const month = today.getMonth();
+  const year = params?.year ? parseInt(params.year, 10) : today.getFullYear();
+  const month = params?.month ? parseInt(params.month, 10) - 1 : today.getMonth();
+  const viewDate = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDay = new Date(year, month, 1).getDay();
-  const monthName = today.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+  const monthName = viewDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+  const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+
+  const prevMonthDate = new Date(year, month - 1, 1);
+  const nextMonthDate = new Date(year, month + 1, 1);
+  const prevHref = `/doctor/calendar/${prevMonthDate.getFullYear()}/${prevMonthDate.getMonth() + 1}`;
+  const nextHref = `/doctor/calendar/${nextMonthDate.getFullYear()}/${nextMonthDate.getMonth() + 1}`;
 
   const calendarDays = [];
   for (let i = 0; i < (firstDay === 0 ? 6 : firstDay - 1); i++) calendarDays.push(null);
@@ -913,12 +924,20 @@ export function doctorCalendar() {
   });
   window.__calendarAppts = apptsData;
 
+  const recordsData = allRecords.map(r => {
+    const p = store.getPatient(r.patient_id);
+    return { id: r.id, patient_id: r.patient_id, patient_name: p?.full_name || 'N/A', visit_date: r.visit_date, diagnosis: r.diagnosis, visit_type: r.visit_type };
+  });
+  window.__calendarRecords = recordsData;
+
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
-    selectedDate: '${todayStr}',
+    selectedDate: '${isCurrentMonth ? todayStr : `${year}-${String(month + 1).padStart(2, '0')}-01`}',
     allAppts: window.__calendarAppts || [],
+    allRecords: window.__calendarRecords || [],
     get selectedAppts() { return this.allAppts.filter(a => a.date === this.selectedDate).sort((a,b) => (a.time_slot||'').localeCompare(b.time_slot||'')); },
+    get selectedRecords() { return this.allRecords.filter(r => r.visit_date === this.selectedDate); },
     get selectedDateFormatted() { const d = new Date(this.selectedDate); return d.toLocaleDateString('id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric'}); },
     typeIcons: { visit:'🏥', vaccination:'💉', follow_up:'🔄', telemedicine:'📹' },
     statusLabels: { waiting:'Menunggu', completed:'Selesai', scheduled:'Terjadwal' },
@@ -931,15 +950,28 @@ export function doctorCalendar() {
         <h2 class="text-xl font-bold text-gray-800 mb-6">Kalender & Jadwal</h2>
         <div class="grid lg:grid-cols-5 gap-6">
           <div class="lg:col-span-3 bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-            <h3 class="font-semibold text-gray-800 mb-4 text-center">${monthName}</h3>
+            <div class="flex items-center justify-between mb-4">
+              <a href="#${prevHref}" class="p-1.5 rounded-lg hover:bg-gray-100 transition text-gray-500"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></a>
+              <div class="flex items-center gap-2">
+                <h3 class="font-semibold text-gray-800">${monthName}</h3>
+                ${!isCurrentMonth ? `<a href="#/doctor/calendar" class="text-xs text-teal-600 hover:text-teal-700 font-medium">Hari Ini</a>` : ''}
+              </div>
+              <a href="#${nextHref}" class="p-1.5 rounded-lg hover:bg-gray-100 transition text-gray-500"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></a>
+            </div>
             <div class="grid grid-cols-7 gap-1 text-center text-xs">
               ${['Sen','Sel','Rab','Kam','Jum','Sab','Min'].map(d=>`<div class="font-semibold text-gray-500 py-2">${d}</div>`).join('')}
               ${calendarDays.map(d => {
                 if (!d) return '<div></div>';
                 const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                const count = allAppts.filter(a => a.date === dateStr).length;
-                const isToday = d === today.getDate();
-                return `<button @click="selectedDate='${dateStr}'" :class="selectedDate==='${dateStr}' && !${isToday} ? 'bg-teal-100 text-teal-800 ring-2 ring-teal-400' : ''" class="relative py-2.5 rounded-lg transition hover:bg-teal-50 cursor-pointer ${isToday ? 'bg-teal-600 text-white hover:bg-teal-700 font-bold' : ''}"><span>${d}</span>${count > 0 ? `<span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 flex gap-0.5">${Array(Math.min(count,3)).fill('<span class="w-1.5 h-1.5 rounded-full '+(isToday?'bg-white':'bg-teal-500')+'"></span>').join('')}</span>` : ''}</button>`;
+                const recordCount = allRecords.filter(r => r.visit_date === dateStr).length;
+                const apptCount = allAppts.filter(a => a.date === dateStr).length;
+                const isToday = isCurrentMonth && d === today.getDate();
+                const dotColors = [
+                  ...Array(Math.min(recordCount, 3)).fill('bg-green-500'),
+                  ...Array(Math.max(0, Math.min(apptCount, 3 - Math.min(recordCount, 3)))).fill('bg-teal-500'),
+                ];
+                const dotsHtml = dotColors.map(c => `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white' : c}"></span>`).join('');
+                return `<button @click="selectedDate='${dateStr}'" :class="selectedDate==='${dateStr}' && !${isToday} ? 'bg-teal-100 text-teal-800 ring-2 ring-teal-400' : ''" class="relative py-2.5 rounded-lg transition hover:bg-teal-50 cursor-pointer ${isToday ? 'bg-teal-600 text-white hover:bg-teal-700 font-bold' : ''}"><span>${d}</span>${dotColors.length > 0 ? `<span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 flex gap-0.5">${dotsHtml}</span>` : ''}</button>`;
               }).join('')}
             </div>
           </div>
@@ -947,7 +979,7 @@ export function doctorCalendar() {
             <h3 class="font-semibold text-gray-800 mb-1">Jadwal</h3>
             <p class="text-xs text-gray-500 mb-4" x-text="selectedDateFormatted"></p>
             <div class="space-y-2">
-              <template x-if="selectedAppts.length === 0"><p class="text-gray-400 text-sm text-center py-8">Tidak ada jadwal di tanggal ini</p></template>
+              <template x-if="selectedAppts.length === 0 && selectedRecords.length === 0"><p class="text-gray-400 text-sm text-center py-8">Tidak ada jadwal atau rekam medis di tanggal ini</p></template>
               <template x-for="apt in selectedAppts" :key="apt.id">
                 <div class="p-3 rounded-lg bg-gray-50 border border-gray-100 hover:border-teal-200 transition">
                   <div class="flex items-center gap-3">
@@ -963,6 +995,21 @@ export function doctorCalendar() {
                   </div>
                 </div>
               </template>
+              <template x-if="selectedRecords.length > 0">
+                <p class="text-xs font-semibold text-gray-500 uppercase pt-2" x-show="selectedAppts.length > 0">Rekam Medis</p>
+              </template>
+              <template x-for="rec in selectedRecords" :key="rec.id">
+                <a :href="'#/doctor/emr/'+rec.patient_id" class="block p-3 rounded-lg bg-green-50/50 border border-green-100 hover:border-green-300 transition">
+                  <div class="flex items-center gap-3">
+                    <span class="text-lg">🩺</span>
+                    <div class="flex-1">
+                      <p class="text-sm font-medium text-gray-800" x-text="rec.patient_name"></p>
+                      <p class="text-xs text-gray-500" x-text="rec.diagnosis || rec.visit_type"></p>
+                    </div>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Selesai</span>
+                  </div>
+                </a>
+              </template>
             </div>
           </div>
         </div>
@@ -971,12 +1018,57 @@ export function doctorCalendar() {
   </div>`;
 }
 
+export function doctorHomeCareNew() {
+  const doc = getDoctor();
+  return homeCareNewPage({
+    role: 'doctor',
+    sidebar: doctorSidebar('homecare'),
+    header: doctorHeader(doc),
+    doctorId: doc?.id,
+    patients: store.getPatients(),
+    historyPath: '/doctor/homecare/history',
+  });
+}
+
+export function doctorHomeCareHistory() {
+  const doc = getDoctor();
+  const claims = store.getHomeCareClaims({ doctorId: doc?.id });
+  const claimItemsMap = {};
+  claims.forEach(c => { claimItemsMap[c.id] = store.getHomeCareClaimItems(c.id); });
+  return homeCareHistoryPage({
+    role: 'doctor',
+    sidebar: doctorSidebar('homecare'),
+    header: doctorHeader(doc),
+    claims, claimItemsMap,
+    newPath: '/doctor/homecare/new',
+    editPath: '/doctor/homecare/edit',
+  });
+}
+
+export function doctorHomeCareEdit(params) {
+  const doc = getDoctor();
+  const claim = store.getHomeCareClaim(params.claimId);
+  if (!claim) return '<div class="p-8 text-center text-gray-500">Klaim tidak ditemukan</div>';
+  return homeCareNewPage({
+    role: 'doctor',
+    sidebar: doctorSidebar('homecare'),
+    header: doctorHeader(doc),
+    doctorId: doc?.id,
+    patients: store.getPatients(),
+    historyPath: '/doctor/homecare/history',
+    claimId: claim.id,
+    existingClaim: claim,
+    existingItems: store.getHomeCareClaimItems(claim.id),
+  });
+}
+
 function doctorSidebar(active) {
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>', href: '#/doctor/dashboard' },
     { id: 'patients', label: 'Pasien', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>', href: '#/doctor/patients' },
     { id: 'emr', label: 'Rekam Medis', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>', href: '#/doctor/records' },
     { id: 'prescriptions', label: 'E-Resep', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>', href: '#/doctor/prescriptions' },
+    { id: 'homecare', label: 'BMHP & Jasa', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/>', href: '#/doctor/homecare/history' },
     { id: 'calendar', label: 'Kalender', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>', href: '#/doctor/calendar' },
   ];
   return `

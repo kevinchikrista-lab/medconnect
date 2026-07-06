@@ -1,6 +1,7 @@
 import { store } from '../store.js';
 import { CONFIG } from '../config.js';
 import { supabase } from '../supabase.js';
+import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -406,12 +407,55 @@ export function adminBookings() {
   </div>`;
 }
 
+export function adminHomeCareNew() {
+  return homeCareNewPage({
+    role: 'superadmin',
+    sidebar: adminSidebar('homecare'),
+    header: adminHeader(),
+    doctors: store.getDoctors(),
+    patients: store.getPatients(),
+    historyPath: '/admin/homecare/history',
+  });
+}
+
+export function adminHomeCareHistory() {
+  const claims = store.getHomeCareClaims().map(c => ({ ...c, doctor_name: store.getDoctor(c.doctor_id)?.full_name || '-' }));
+  const claimItemsMap = {};
+  claims.forEach(c => { claimItemsMap[c.id] = store.getHomeCareClaimItems(c.id); });
+  return homeCareHistoryPage({
+    role: 'superadmin',
+    sidebar: adminSidebar('homecare'),
+    header: adminHeader(),
+    claims, claimItemsMap,
+    doctors: store.getDoctors(),
+    newPath: '/admin/homecare/new',
+    editPath: '/admin/homecare/edit',
+  });
+}
+
+export function adminHomeCareEdit(params) {
+  const claim = store.getHomeCareClaim(params.claimId);
+  if (!claim) return '<div class="p-8 text-center text-gray-500">Klaim tidak ditemukan</div>';
+  return homeCareNewPage({
+    role: 'superadmin',
+    sidebar: adminSidebar('homecare'),
+    header: adminHeader(),
+    doctors: store.getDoctors(),
+    patients: store.getPatients(),
+    historyPath: '/admin/homecare/history',
+    claimId: claim.id,
+    existingClaim: claim,
+    existingItems: store.getHomeCareClaimItems(claim.id),
+  });
+}
+
 function adminSidebar(active) {
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>', href: '#/admin/dashboard' },
     { id: 'users', label: 'Manajemen User', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>', href: '#/admin/users' },
     { id: 'services', label: 'Layanan', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>', href: '#/admin/services' },
     { id: 'bookings', label: 'Pendaftaran', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>', href: '#/admin/bookings' },
+    { id: 'homecare', label: 'BMHP & Jasa', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/>', href: '#/admin/homecare/history' },
   ];
   return `
   <aside class="fixed top-0 left-0 h-full w-64 bg-slate-900 text-white z-40 transform transition-transform duration-300" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
