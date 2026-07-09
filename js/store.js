@@ -78,8 +78,8 @@ const DEMO_DATA = {
   ],
 
   doctors: [
-    { id: 'd_1', user_id: 'u_doc1', full_name: 'dr. Kevin Chikrista', sip_number: 'SIP-4401234567', specialization: 'Dokter Umum', phone: '081234567890', is_available: true, schedule: { mon: '08:00-16:00', tue: '08:00-16:00', wed: '08:00-12:00', thu: '08:00-16:00', fri: '08:00-16:00', sat: '08:00-12:00', sun: null } },
-    { id: 'd_2', user_id: 'u_doc2', full_name: 'dr. Sarah Putri, Sp.A', sip_number: 'SIP-4401234568', specialization: 'Dokter Anak', phone: '081234567891', is_available: true, schedule: { mon: '09:00-15:00', tue: null, wed: '09:00-15:00', thu: '09:00-15:00', fri: '09:00-15:00', sat: null, sun: null } },
+    { id: 'd_1', user_id: 'u_doc1', full_name: 'dr. Kevin Chikrista', sip_number: 'SIP-4401234567', specialization: 'Dokter Umum', phone: '081234567890', is_available: true, is_public_listed: true, schedule: { mon: '08:00-16:00', tue: '08:00-16:00', wed: '08:00-12:00', thu: '08:00-16:00', fri: '08:00-16:00', sat: '08:00-12:00', sun: null } },
+    { id: 'd_2', user_id: 'u_doc2', full_name: 'dr. Sarah Putri, Sp.A', sip_number: 'SIP-4401234568', specialization: 'Dokter Anak', phone: '081234567891', is_available: true, is_public_listed: true, schedule: { mon: '09:00-15:00', tue: null, wed: '09:00-15:00', thu: '09:00-15:00', fri: '09:00-15:00', sat: null, sun: null } },
   ],
 
   patients: [
@@ -167,7 +167,7 @@ const DEMO_DATA = {
       { name: 'Paket Premium', price: 1200000, desc: 'Standard + EKG, rontgen, tumor marker' },
     ]},
     { id: 'hs_4', name: 'HomeCare Visit', description: 'Kunjungan dokter ke rumah untuk konsultasi, pemeriksaan, atau tindakan medis ringan.', category: 'HomeCare', price: 350000, image_url: 'https://placehold.co/400x250/f59e0b/white?text=Home+Care', is_active: true, items: []},
-    { id: 'hs_5', name: 'Konsultasi Online', description: 'Konsultasi kesehatan via video call dengan dokter. Resep digital dikirim langsung ke apotek.', category: 'Konsultasi', price: 100000, image_url: 'https://placehold.co/400x250/ec4899/white?text=Konsultasi', is_active: true, items: [
+    { id: 'hs_5', name: 'Konsultasi Online', description: 'Konsultasi kesehatan via video call dengan dokter. Resep digital dikirim langsung ke apotek.', category: 'Konsultasi', price: 75000, is_promo: true, promo_original_price: 100000, image_url: 'https://placehold.co/400x250/ec4899/white?text=Konsultasi', is_active: true, items: [
       { name: 'Konsultasi Umum (Video Call)', price: 100000, desc: 'Konsultasi 30 menit via video call' },
       { name: 'Konsultasi Spesialis Anak', price: 200000, desc: 'Konsultasi dengan dokter spesialis anak' },
     ]},
@@ -186,6 +186,10 @@ const DEMO_DATA = {
     { id: 'inv_6', pharmacy_id: 'ph_1', drug_name: 'Amlodipine 5mg', stock: 150, unit: 'Tablet', min_stock: 50, expiry_date: '2027-08-01' },
     { id: 'inv_7', pharmacy_id: 'ph_1', drug_name: 'Metformin 500mg', stock: 180, unit: 'Tablet', min_stock: 60, expiry_date: '2027-07-01' },
     { id: 'inv_8', pharmacy_id: 'ph_1', drug_name: 'Cetirizine 10mg', stock: 5, unit: 'Tablet', min_stock: 30, expiry_date: '2027-04-01' },
+  ],
+
+  articles: [
+    { id: 'art_1', title: 'Kapan demam anak perlu dibawa ke dokter?', excerpt: 'Kenali tanda-tanda demam pada anak yang perlu penanganan medis segera.', body: 'Demam pada anak umumnya adalah respons normal tubuh terhadap infeksi. Namun, ada beberapa tanda yang perlu diwaspadai orang tua...', category: 'Anak', image_url: 'https://placehold.co/400x250/1b6fd6/white?text=Artikel', is_published: true, sort_order: 0, created_at: '2026-06-28T00:00:00' },
   ],
 
   notifications: [
@@ -238,8 +242,9 @@ class Store {
     const { id, ...payload } = payloadOverride || localRecord;
     return supabase.insert(table, payload).then(inserted => {
       if (inserted && inserted.id) { localRecord.id = inserted.id; this._save(); }
+      else if (inserted && inserted.error) { console.warn(`Gagal menyimpan ke Supabase (${table}):`, inserted.error, payload); }
       return localRecord;
-    }).catch(() => localRecord);
+    }).catch(e => { console.warn(`Gagal menyimpan ke Supabase (${table}):`, e, payload); return localRecord; });
   }
 
   // Sequential certificate numbering, resets each year (0001/SKV/KP/26, 0002/..., etc)
@@ -308,7 +313,7 @@ class Store {
   async loadFromSupabase() {
     if (CONFIG.DEMO_MODE) return;
     try {
-      const [profiles, doctors, patients, pharmacies, records, prescriptions, rxItems, appointments, vaccinations, services, bookings, inventory, notifications, homeCareClaims, homeCareClaimItems] = await Promise.all([
+      const [profiles, doctors, patients, pharmacies, records, prescriptions, rxItems, appointments, vaccinations, services, bookings, inventory, notifications, homeCareClaims, homeCareClaimItems, consultations, consultationMessages, articles] = await Promise.all([
         supabase.select('profiles'), supabase.select('doctors'), supabase.select('patients'),
         supabase.select('pharmacies'), supabase.select('medical_records', { order: 'visit_date.desc' }),
         supabase.select('prescriptions', { order: 'created_at.desc' }),
@@ -318,6 +323,9 @@ class Store {
         supabase.select('inventory'), supabase.select('notifications', { order: 'created_at.desc' }),
         supabase.select('home_care_claims', { order: 'created_at.desc' }),
         supabase.select('home_care_claim_items'),
+        supabase.select('consultations'),
+        supabase.select('consultation_messages'),
+        supabase.select('articles'),
       ]);
       // Map Supabase data to local format
       this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, password: '***', created_at: p.created_at }));
@@ -335,6 +343,9 @@ class Store {
       if (notifications.length) this.data.notifications = notifications.map(n => ({ ...n, user_id: n.profile_id }));
       if (homeCareClaims.length) this.data.home_care_claims = homeCareClaims;
       if (homeCareClaimItems.length) this.data.home_care_claim_items = homeCareClaimItems;
+      if (consultations.length) this.data.consultations = consultations;
+      if (consultationMessages.length) this.data.consultation_messages = consultationMessages;
+      this.data.articles = articles;
       this._save(this.data);
       console.log('Data loaded from Supabase:', { profiles: profiles.length, doctors: doctors.length, patients: patients.length });
     } catch (e) { console.warn('Failed to load from Supabase, using local data:', e); }
@@ -413,6 +424,10 @@ class Store {
   getProfile(user) {
     switch (user.role) {
       case 'doctor': return this.data.doctors.find(d => d.user_id === user.id);
+      // Owner = combined SuperAdmin + Dokter account — same doctor lookup as
+      // 'doctor' (its linked doctors row is what makes /doctor/* pages work),
+      // falling back to a generic label if that row hasn't been created yet.
+      case 'owner': return this.data.doctors.find(d => d.user_id === user.id) || { full_name: 'Owner', role: 'owner' };
       case 'patient': return this.data.patients.find(p => p.user_id === user.id);
       case 'pharmacy': return this.data.pharmacies.find(ph => ph.user_id === user.id);
       case 'superadmin': return { full_name: 'Super Admin', role: 'superadmin' };
@@ -430,10 +445,15 @@ class Store {
   createUser(userData) {
     const exists = this.data.users.find(u => u.email === userData.email);
     if (exists) return { error: 'Email sudah terdaftar' };
+    if (userData.role === 'owner') {
+      const currentUser = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+      const ownerAlreadyExists = this.data.users.some(u => u.role === 'owner');
+      if (currentUser?.role !== 'owner' && ownerAlreadyExists) return { error: 'Hanya akun Owner yang bisa membuat akun Owner baru' };
+    }
     const userId = generateId();
     const user = { id: userId, email: userData.email, password: userData.password || 'default123', role: userData.role, is_active: true, created_at: new Date().toISOString().split('T')[0] };
     this.data.users.push(user);
-    if (userData.role === 'doctor') {
+    if (userData.role === 'doctor' || userData.role === 'owner') {
       this.data.doctors.push({ id: generateId(), user_id: userId, full_name: userData.full_name, sip_number: userData.sip_number || '', specialization: userData.specialization || '', phone: userData.phone || '', is_available: true, schedule: { mon: '08:00-16:00', tue: '08:00-16:00', wed: '08:00-16:00', thu: '08:00-16:00', fri: '08:00-16:00', sat: null, sun: null } });
     } else if (userData.role === 'patient') {
       this.data.patients.push({ id: generateId(), user_id: userId, full_name: userData.full_name, nik: userData.nik || '', birth_date: userData.birth_date || '', gender: userData.gender || '', phone: userData.phone || '', address: userData.address || '', blood_type: userData.blood_type || '', allergies: userData.allergies || '-', emergency_contact: userData.emergency_contact || '' });
@@ -456,9 +476,14 @@ class Store {
 
   toggleUserActive(userId) {
     const user = this.data.users.find(u => u.id === userId);
-    if (!user) return;
+    if (!user) return { error: 'User tidak ditemukan' };
+    if (user.role === 'owner' && user.is_active) {
+      const activeOwners = this.data.users.filter(u => u.role === 'owner' && u.is_active);
+      if (activeOwners.length <= 1) return { error: 'Tidak bisa menonaktifkan — minimal harus ada 1 akun Owner yang aktif' };
+    }
     user.is_active = !user.is_active;
     this._save();
+    return { success: true };
   }
 
   // Patients
@@ -608,6 +633,10 @@ class Store {
     return this.data.appointments.filter(a => a.patient_id === patientId).sort((a, b) => b.date.localeCompare(a.date));
   }
 
+  // Unfiltered, across every doctor — for SuperAdmin's clinic-wide calendar.
+  getAllAppointments() { return this.data.appointments; }
+  getAllRecords() { return this.data.medical_records; }
+
   getUpcomingAppointments(patientId) {
     const today = new Date().toISOString().split('T')[0];
     return this.data.appointments.filter(a => a.patient_id === patientId && a.date >= today && a.status === 'scheduled').sort((a, b) => a.date.localeCompare(b.date));
@@ -654,16 +683,102 @@ class Store {
     const b = { id: generateId(), ...booking, status: 'pending', created_at: new Date().toISOString() };
     if (!this.data.bookings) this.data.bookings = [];
     this.data.bookings.push(b);
-    const adminUser = this.data.users.find(u => u.role === 'superadmin');
-    if (adminUser) this.addNotification(adminUser.id, 'Pendaftaran Layanan Baru', `${booking.patient_name || 'Pasien'} mendaftar: ${booking.item_name || booking.service_name}. Tanggal: ${booking.preferred_date}`, 'system');
+    this.data.users.filter(u => u.role === 'superadmin' || u.role === 'owner').forEach(u =>
+      this.addNotification(u.id, 'Pendaftaran Layanan Baru', `${booking.patient_name || 'Pasien'} mendaftar: ${booking.item_name || booking.service_name}. Tanggal: ${booking.preferred_date}`, 'system')
+    );
     this._save();
     this._syncInsert('bookings', b);
     return b;
   }
 
   getBookings() { return (this.data.bookings || []).sort((a,b) => b.created_at.localeCompare(a.created_at)); }
+
+  // Re-fetches all bookings from Supabase — called by the SuperAdmin bookings
+  // list's polling interval, since a booking created from another tab/device
+  // (patient app or the public guest-booking page) otherwise never shows up
+  // until a full page reload (this.data is a one-time snapshot from login).
+  async fetchBookings() {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('bookings', { order: 'created_at.desc' });
+        if (rows) { this.data.bookings = rows; this._save(); }
+      } catch (e) { console.warn('Gagal memuat daftar pendaftaran:', e); }
+    }
+    return this.getBookings();
+  }
   getBookingsByPatient(patientId) { return (this.data.bookings || []).filter(b => b.patient_id === patientId).sort((a,b) => b.created_at.localeCompare(a.created_at)); }
-  updateBookingStatus(bookingId, status) { const b = (this.data.bookings || []).find(x => x.id === bookingId); if (b) { b.status = status; this._save(); if (!CONFIG.DEMO_MODE) supabase.update('bookings', bookingId, { status }).catch(() => {}); } }
+
+  // Re-fetches one patient's own bookings — same staleness fix as
+  // fetchBookings, for the patient-facing "status pendaftaran" view so they
+  // can see when SuperAdmin confirms/rejects/marks paid without reloading.
+  async fetchBookingsForPatient(patientId) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('bookings', { eq: { patient_id: patientId }, order: 'created_at.desc' });
+        if (rows) this.data.bookings = (this.data.bookings || []).filter(b => b.patient_id !== patientId).concat(rows);
+        this._save();
+      } catch (e) { console.warn('Gagal memuat daftar pendaftaran:', e); }
+    }
+    return this.getBookingsByPatient(patientId);
+  }
+  // These are all awaited by the caller before it re-fetches from Supabase (see
+  // adminBookings' poll() calls) — without awaiting the write first, an
+  // immediate re-fetch could race the update and read back the old value,
+  // making a successful action look like it silently failed/reverted.
+  async updateBookingStatus(bookingId, status) {
+    const b = (this.data.bookings || []).find(x => x.id === bookingId);
+    if (!b) return;
+    b.status = status;
+    this._save();
+    if (!CONFIG.DEMO_MODE) await supabase.update('bookings', bookingId, { status }).catch(e => console.warn('Gagal update status booking:', e));
+  }
+
+  // Confirming a booking assigns a doctor + exact time and creates a real
+  // appointment on that doctor's calendar. patient_id may be null (guest
+  // booking, no patient account) — patient_name is denormalized onto the
+  // appointment itself so the doctor's calendar can still show a name.
+  async confirmBookingWithAppointment(bookingId, doctorId, timeSlot) {
+    const b = (this.data.bookings || []).find(x => x.id === bookingId);
+    if (!b) return { error: 'Booking tidak ditemukan' };
+    if (!doctorId || !timeSlot) return { error: 'Pilih dokter dan jam terlebih dahulu' };
+    b.status = 'confirmed';
+    const apt = {
+      id: generateId(), patient_id: b.patient_id || null, doctor_id: doctorId,
+      date: b.preferred_date, time_slot: timeSlot, type: 'visit', status: 'scheduled',
+      queue_number: null, notes: b.item_name || b.service_name || '',
+      patient_name: b.patient_name || '', booking_id: b.id,
+    };
+    if (!this.data.appointments) this.data.appointments = [];
+    this.data.appointments.push(apt);
+    const doc = this.getDoctor(doctorId);
+    if (doc) this.addNotification(doc.user_id, 'Jadwal Baru', `${apt.patient_name || 'Pasien'} dijadwalkan ${apt.date} pukul ${timeSlot} (${apt.notes}).`, 'appointment');
+    this._save();
+    if (!CONFIG.DEMO_MODE) await supabase.update('bookings', bookingId, { status: 'confirmed' }).catch(e => console.warn('Gagal konfirmasi booking:', e));
+    await this._syncInsert('appointments', apt);
+    return { success: true, appointment: apt };
+  }
+
+  // Manual payment confirmation — no payment gateway, admin marks paid after
+  // confirming transfer/QRIS/cash payment themselves.
+  async toggleBookingPaid(bookingId) {
+    const b = (this.data.bookings || []).find(x => x.id === bookingId);
+    if (!b) return;
+    b.is_paid = !b.is_paid;
+    this._save();
+    if (!CONFIG.DEMO_MODE) await supabase.update('bookings', bookingId, { is_paid: b.is_paid }).catch(e => console.warn('Gagal update status bayar:', e));
+  }
+
+  // Only a cancelled (rejected) booking can be removed — pending/confirmed/completed
+  // ones stay as a record. Callable from both the patient's own history and SuperAdmin.
+  async deleteBooking(bookingId) {
+    const b = (this.data.bookings || []).find(x => x.id === bookingId);
+    if (!b) return { error: 'Booking tidak ditemukan' };
+    if (b.status !== 'cancelled') return { error: 'Hanya pendaftaran yang sudah ditolak yang bisa dihapus' };
+    this.data.bookings = (this.data.bookings || []).filter(x => x.id !== bookingId);
+    this._save();
+    if (!CONFIG.DEMO_MODE) await supabase.delete('bookings', bookingId).catch(e => console.warn('Gagal menghapus booking:', e));
+    return { success: true };
+  }
 
   // Inventory
   getInventory(pharmacyId) {
@@ -699,13 +814,231 @@ class Store {
     const notif = { id: generateId(), user_id: userId, title, message, type, is_read: false, created_at: new Date().toISOString() };
     this.data.notifications.push(notif);
     this._save();
-    this._syncInsert('notifications', notif, { ...notif, profile_id: userId });
+    this._syncInsert('notifications', notif, { id: notif.id, profile_id: userId, title, message, type, is_read: false, created_at: notif.created_at });
   }
 
   // Doctors list
   getDoctors() { return this.data.doctors; }
   getDoctor(doctorId) { return this.data.doctors.find(d => d.id === doctorId); }
   getDoctorByUserId(userId) { return this.data.doctors.find(d => d.user_id === userId); }
+
+  // Doctors shown on the public landing page — opt-in via SuperAdmin, since having
+  // an account doesn't mean a doctor actually practices at this clinic (could be
+  // a visiting/temporary doctor), so this is never just "all doctor accounts".
+  getPublicDoctors() { return this.data.doctors.filter(d => d.is_public_listed); }
+  toggleDoctorPublicListing(doctorId) {
+    const d = this.data.doctors.find(x => x.id === doctorId);
+    if (!d) return;
+    d.is_public_listed = !d.is_public_listed;
+    this._save();
+    if (!CONFIG.DEMO_MODE) supabase.update('doctors', doctorId, { is_public_listed: d.is_public_listed }).catch(() => {});
+  }
+
+  // Promo — not a separate content type: any Layanan can be flagged as promo
+  // from SuperAdmin (checkbox + strikethrough "harga asli"), shown highlighted
+  // on the public landing page while is_promo is on. Uses the same
+  // createService/updateService/toggleServiceActive/deleteService methods above.
+  getPromoServices() { return this.data.health_services.filter(s => s.is_active && s.is_promo); }
+
+  // Health articles — managed from SuperAdmin, shown on the public landing page when published.
+  getAllArticles() { return this.data.articles || []; }
+  getPublishedArticles() { return (this.data.articles || []).filter(a => a.is_published).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)); }
+  getArticle(id) { return (this.data.articles || []).find(a => a.id === id); }
+  createArticle(data) {
+    const a = { id: generateId(), is_published: true, sort_order: 0, ...data, created_at: new Date().toISOString() };
+    if (!this.data.articles) this.data.articles = [];
+    this.data.articles.push(a);
+    this._save();
+    this._syncInsert('articles', a);
+    return a;
+  }
+  updateArticle(id, updates) {
+    const a = (this.data.articles || []).find(x => x.id === id);
+    if (a) { Object.assign(a, updates); this._save(); if (!CONFIG.DEMO_MODE) supabase.update('articles', id, updates).catch(() => {}); }
+    return a;
+  }
+  toggleArticlePublished(id) {
+    const a = (this.data.articles || []).find(x => x.id === id);
+    if (a) { a.is_published = !a.is_published; this._save(); if (!CONFIG.DEMO_MODE) supabase.update('articles', id, { is_published: a.is_published }).catch(() => {}); }
+  }
+  deleteArticle(id) {
+    this.data.articles = (this.data.articles || []).filter(x => x.id !== id);
+    this._save();
+    if (!CONFIG.DEMO_MODE) supabase.delete('articles', id).catch(() => {});
+  }
+
+  // Chat consultations (Patient <-> Doctor), refreshed via polling since there's
+  // no realtime/websocket support in this hand-rolled Supabase REST wrapper.
+  async getOrCreateConsultation(patientId, doctorId) {
+    let c = (this.data.consultations || []).find(x => x.patient_id === patientId && x.doctor_id === doctorId);
+    if (c) return c;
+    // Check Supabase directly (not just the local cache) before creating —
+    // otherwise if the patient and doctor each start the chat from their own
+    // side in separate browser sessions, neither session's local cache knows
+    // about the other's row yet, and each would create its OWN consultation,
+    // silently splitting the conversation in two (messages never connect).
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const existing = await supabase.select('consultations', { eq: { patient_id: patientId, doctor_id: doctorId } });
+        if (existing && existing[0]) {
+          c = existing[0];
+          if (!this.data.consultations) this.data.consultations = [];
+          this.data.consultations.push(c);
+          this._save();
+          return c;
+        }
+      } catch (e) { console.warn('Gagal mengecek percakapan yang sudah ada:', e); }
+    }
+    c = { id: generateId(), patient_id: patientId, doctor_id: doctorId, last_message_at: new Date().toISOString(), patient_last_read_at: null, doctor_last_read_at: null, created_at: new Date().toISOString() };
+    if (!this.data.consultations) this.data.consultations = [];
+    this.data.consultations.push(c);
+    this._save();
+    await this._syncInsert('consultations', c);
+    return c;
+  }
+
+  getConsultation(id) { return (this.data.consultations || []).find(c => c.id === id); }
+
+  _consultationSummary(c, viewerRole) {
+    const patient = this.getPatient(c.patient_id);
+    const doctor = this.getDoctor(c.doctor_id);
+    const msgs = this.getMessages(c.id);
+    const last = msgs[msgs.length - 1];
+    const lastReadAt = viewerRole === 'patient' ? c.patient_last_read_at : c.doctor_last_read_at;
+    const unread = msgs.filter(m => m.sender_role !== viewerRole && (!lastReadAt || m.created_at > lastReadAt)).length;
+    return {
+      ...c,
+      patient_name: patient?.full_name || 'Pasien',
+      doctor_name: doctor?.full_name || 'Dokter',
+      last_message: last?.message || '',
+      unread_count: unread,
+    };
+  }
+
+  getConsultationsForPatient(patientId) {
+    return (this.data.consultations || []).filter(c => c.patient_id === patientId)
+      .map(c => this._consultationSummary(c, 'patient'))
+      .sort((a, b) => (b.last_message_at || '').localeCompare(a.last_message_at || ''));
+  }
+
+  // All consultations across every patient/doctor — for SuperAdmin's Riwayat
+  // Konsultasi oversight page (read-only, not a chat participant).
+  getAllConsultations() {
+    return (this.data.consultations || []).map(c => {
+      const patient = this.getPatient(c.patient_id);
+      const doctor = this.getDoctor(c.doctor_id);
+      const msgs = this.getMessages(c.id);
+      return {
+        ...c,
+        patient_name: patient?.full_name || 'Pasien',
+        doctor_name: doctor?.full_name || 'Dokter',
+        last_message: msgs[msgs.length - 1]?.message || '',
+        message_count: msgs.length,
+      };
+    }).sort((a, b) => (b.last_message_at || '').localeCompare(a.last_message_at || ''));
+  }
+
+  // Re-fetches every consultation + message from Supabase — same staleness
+  // fix as fetchBookings, for the SuperAdmin Riwayat Konsultasi list.
+  async fetchAllConsultations() {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const [consults, msgs] = await Promise.all([
+          supabase.select('consultations'),
+          supabase.select('consultation_messages'),
+        ]);
+        if (consults) this.data.consultations = consults;
+        if (msgs) this.data.consultation_messages = msgs;
+        this._save();
+      } catch (e) { console.warn('Gagal memuat riwayat konsultasi:', e); }
+    }
+    return this.getAllConsultations();
+  }
+
+  getConsultationsForDoctor(doctorId) {
+    return (this.data.consultations || []).filter(c => c.doctor_id === doctorId)
+      .map(c => this._consultationSummary(c, 'doctor'))
+      .sort((a, b) => (b.last_message_at || '').localeCompare(a.last_message_at || ''));
+  }
+
+  getMessages(consultationId) {
+    return (this.data.consultation_messages || []).filter(m => m.consultation_id === consultationId).sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+  }
+
+  // Re-fetches the consultation list from Supabase — called by the chat list
+  // page's polling interval, so a new conversation started by the other party
+  // (patient or doctor) appears without a full app reload.
+  async fetchConsultationsForPatient(patientId) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const [consults, msgs] = await Promise.all([
+          supabase.select('consultations', { eq: { patient_id: patientId } }),
+          supabase.select('consultation_messages'),
+        ]);
+        if (consults) this.data.consultations = (this.data.consultations || []).filter(c => c.patient_id !== patientId).concat(consults);
+        if (msgs) this.data.consultation_messages = msgs;
+        this._save();
+      } catch (e) { console.warn('Gagal memuat daftar percakapan:', e); }
+    }
+    return this.getConsultationsForPatient(patientId);
+  }
+
+  async fetchConsultationsForDoctor(doctorId) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const [consults, msgs] = await Promise.all([
+          supabase.select('consultations', { eq: { doctor_id: doctorId } }),
+          supabase.select('consultation_messages'),
+        ]);
+        if (consults) this.data.consultations = (this.data.consultations || []).filter(c => c.doctor_id !== doctorId).concat(consults);
+        if (msgs) this.data.consultation_messages = msgs;
+        this._save();
+      } catch (e) { console.warn('Gagal memuat daftar percakapan:', e); }
+    }
+    return this.getConsultationsForDoctor(doctorId);
+  }
+
+  // Re-fetches messages for one conversation from Supabase — called by the chat
+  // thread's polling interval. Only ever touches this.data.consultation_messages,
+  // never any compose-box input state, so in-progress typing is never wiped.
+  async fetchMessages(consultationId) {
+    if (CONFIG.DEMO_MODE) return this.getMessages(consultationId);
+    try {
+      const rows = await supabase.select('consultation_messages', { eq: { consultation_id: consultationId }, order: 'created_at.asc' });
+      if (rows) {
+        this.data.consultation_messages = (this.data.consultation_messages || []).filter(m => m.consultation_id !== consultationId).concat(rows);
+        this._save();
+      }
+    } catch (e) { console.warn('Gagal memuat pesan chat:', e); }
+    return this.getMessages(consultationId);
+  }
+
+  sendMessage(consultationId, senderRole, text) {
+    const msg = { id: generateId(), consultation_id: consultationId, sender_role: senderRole, message: text, created_at: new Date().toISOString() };
+    if (!this.data.consultation_messages) this.data.consultation_messages = [];
+    this.data.consultation_messages.push(msg);
+    const c = this.getConsultation(consultationId);
+    if (c) {
+      c.last_message_at = msg.created_at;
+      const patient = this.getPatient(c.patient_id);
+      const doctor = this.getDoctor(c.doctor_id);
+      if (senderRole === 'patient' && doctor) this.addNotification(doctor.user_id, 'Pesan Baru', `${patient?.full_name || 'Pasien'}: ${text.slice(0, 60)}`, 'chat');
+      if (senderRole === 'doctor' && patient) this.addNotification(patient.user_id, 'Pesan Baru', `${doctor?.full_name || 'Dokter'}: ${text.slice(0, 60)}`, 'chat');
+    }
+    this._save();
+    this._syncInsert('consultation_messages', msg);
+    if (c && !CONFIG.DEMO_MODE) supabase.update('consultations', consultationId, { last_message_at: msg.created_at }).catch(() => {});
+    return msg;
+  }
+
+  markConversationRead(consultationId, viewerRole) {
+    const c = this.getConsultation(consultationId);
+    if (!c) return;
+    const now = new Date().toISOString();
+    if (viewerRole === 'patient') c.patient_last_read_at = now; else c.doctor_last_read_at = now;
+    this._save();
+    if (!CONFIG.DEMO_MODE) supabase.update('consultations', consultationId, viewerRole === 'patient' ? { patient_last_read_at: now } : { doctor_last_read_at: now }).catch(() => {});
+  }
 
   // Pharmacies list
   getPharmacies() { return this.data.pharmacies; }
@@ -746,6 +1079,28 @@ class Store {
     let claims = this.data.home_care_claims || [];
     if (filters.doctorId) claims = claims.filter(c => c.doctor_id === filters.doctorId);
     return claims.slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  }
+
+  // Re-fetches claims (+ items) from Supabase — same staleness fix as
+  // fetchBookings, so a claim submitted by a doctor shows up for SuperAdmin
+  // (and vice versa) without a full page reload. Pass a doctorId to scope to
+  // one doctor's own history page, or omit for SuperAdmin's cross-doctor view.
+  async fetchHomeCareClaims(doctorId) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const query = doctorId ? { eq: { doctor_id: doctorId }, order: 'created_at.desc' } : { order: 'created_at.desc' };
+        const [claims, items] = await Promise.all([
+          supabase.select('home_care_claims', query),
+          supabase.select('home_care_claim_items'),
+        ]);
+        if (claims) this.data.home_care_claims = doctorId
+          ? (this.data.home_care_claims || []).filter(c => c.doctor_id !== doctorId).concat(claims)
+          : claims;
+        if (items) this.data.home_care_claim_items = items;
+        this._save();
+      } catch (e) { console.warn('Gagal memuat klaim BMHP:', e); }
+    }
+    return this.getHomeCareClaims(doctorId ? { doctorId } : {});
   }
 
   getHomeCareClaim(claimId) {

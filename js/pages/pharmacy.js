@@ -29,19 +29,19 @@ export function pharmacyDashboard() {
   const unread = store.getUnreadCount(user?.id);
 
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-gray-50">
+  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-wash">
     ${pharmacySidebar('dashboard')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${pharmacyHeader(pharmacy, unread)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="mb-6"><h2 class="text-2xl font-bold text-gray-800">${pharmacy?.name || 'Apotek'}</h2><p class="text-sm text-gray-500">${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p></div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-red-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${incoming.length}</p><p class="text-xs text-gray-500">Resep Masuk</p></div></div></div>
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${processing.length}</p><p class="text-xs text-gray-500">Sedang Proses</p></div></div></div>
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${completed.length}</p><p class="text-xs text-gray-500">Selesai Hari Ini</p></div></div></div>
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg ${lowStock.length > 0 ? 'bg-red-500' : 'bg-blue-500'} flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${lowStock.length}</p><p class="text-xs text-gray-500">Stok Rendah</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-green flex items-center justify-center"><span class="ms text-[22px] text-white">prescriptions</span></div><div><p class="text-2xl font-bold text-ink">${incoming.length}</p><p class="text-xs text-faint">Resep Masuk</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:#e0a112"><span class="ms text-[22px] text-white">pending_actions</span></div><div><p class="text-2xl font-bold text-ink">${processing.length}</p><p class="text-xs text-faint">Sedang Proses</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#22b573,#158a54)"><span class="ms text-[22px] text-white">task_alt</span></div><div><p class="text-2xl font-bold text-ink">${completed.length}</p><p class="text-xs text-faint">Selesai Hari Ini</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:${lowStock.length > 0 ? '#e8452c' : '#1b6fd6'}"><span class="ms text-[22px] text-white">warning</span></div><div><p class="text-2xl font-bold text-ink">${lowStock.length}</p><p class="text-xs text-faint">Stok Rendah</p></div></div></div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-6">
+        <div class="bg-white border border-slate-100 rounded-3xl mb-6">
           <div class="p-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-semibold text-gray-800">Resep Masuk (Real-time)</h3><a href="#/pharmacy/prescriptions" class="text-xs text-teal-600 hover:text-teal-700">Lihat Semua</a></div>
           <div class="divide-y divide-gray-50">
             ${[...incoming, ...processing, ...ready].length === 0 ? '<p class="p-6 text-center text-gray-400 text-sm">Tidak ada resep aktif</p>' :
@@ -78,7 +78,7 @@ export function pharmacyPrescriptions() {
   const pharmacy = getPharmacy();
   const prescriptions = store.getPrescriptionsByPharmacy(pharmacy?.id);
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, filter: '' }" class="min-h-screen bg-gray-50">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, filter: '' }" class="min-h-screen bg-wash">
     ${pharmacySidebar('prescriptions')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${pharmacyHeader(pharmacy)}
@@ -87,7 +87,7 @@ export function pharmacyPrescriptions() {
         <div class="flex flex-wrap gap-2 mb-4">
           ${['','sent','preparing','ready','completed','rejected'].map(s => `<button @click="filter='${s}'" :class="filter==='${s}' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-xs font-medium transition">${s ? CONFIG.PRESCRIPTION_STATUS_LABELS[s] : 'Semua'}</button>`).join('')}
         </div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           <div class="divide-y divide-gray-50">
             ${prescriptions.map(rx => {
               const patient = store.getPatient(rx.patient_id);
@@ -119,7 +119,7 @@ export function pharmacyInventory() {
   const pharmacy = getPharmacy();
   const inventory = store.getInventory(pharmacy?.id);
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '' }" class="min-h-screen bg-gray-50">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '' }" class="min-h-screen bg-wash">
     ${pharmacySidebar('inventory')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${pharmacyHeader(pharmacy)}
@@ -127,7 +127,7 @@ export function pharmacyInventory() {
         <div class="flex items-center justify-between mb-6"><h2 class="text-xl font-bold text-gray-800">Inventaris Obat</h2>
           <div class="relative"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari obat..."></div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           <div class="overflow-x-auto"><table class="w-full"><thead><tr class="bg-gray-50 border-b border-gray-100"><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Nama Obat</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Stok</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden sm:table-cell">Min. Stok</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden md:table-cell">Kadaluarsa</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Status</th></tr></thead>
           <tbody class="divide-y divide-gray-50">
             ${inventory.map(i => `
@@ -149,24 +149,24 @@ export function pharmacyInventory() {
 
 function pharmacySidebar(active) {
   const items = [
-    { id: 'dashboard', label: 'Dashboard', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>', href: '#/pharmacy/dashboard' },
-    { id: 'prescriptions', label: 'E-Resep', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>', href: '#/pharmacy/prescriptions' },
-    { id: 'inventory', label: 'Inventaris', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>', href: '#/pharmacy/inventory' },
+    { id: 'dashboard', label: 'Dashboard', icon: 'grid_view', href: '#/pharmacy/dashboard' },
+    { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/pharmacy/prescriptions' },
+    { id: 'inventory', label: 'Inventaris', icon: 'inventory_2', href: '#/pharmacy/inventory' },
   ];
   return `
-  <aside class="fixed top-0 left-0 h-full w-64 bg-slate-900 text-white z-40 transform transition-transform duration-300" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
-    <div class="p-4 border-b border-slate-700/50 flex items-center justify-between"><div class="flex items-center gap-2"><div class="bg-white rounded-lg px-1.5 py-1"><img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-6 w-auto"></div><div><span class="font-bold text-sm">Klinik Prima</span><span class="block text-xs text-slate-400">Apotek Mitra</span></div></div><button @click="sideOpen=false" class="lg:hidden text-slate-400 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button></div>
-    <nav class="p-3 space-y-1">${items.map(i=>`<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition ${active===i.id ? 'bg-teal-600/20 text-teal-300' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">${i.icon}</svg>${i.label}</a>`).join('')}</nav>
-    <div class="absolute bottom-0 left-0 right-0 p-3 border-t border-slate-700/50"><button onclick="sessionStorage.clear();window.location.hash='/login';window.dispatchEvent(new CustomEvent('auth-changed'))" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:bg-slate-800 hover:text-white transition w-full"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>Keluar</button></div>
+  <aside class="fixed top-0 left-0 h-full w-[236px] bg-white border-r border-slate-100 z-40 transform transition-transform duration-300 flex flex-col" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
+    <div class="p-4 border-b border-slate-100 flex items-center justify-between"><div class="flex items-center gap-2"><img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto"><div><span class="font-extrabold text-[13.5px] leading-none block">Klinik Prima</span><span class="block text-[10.5px] text-faint font-semibold mt-0.5">Apotek Mitra</span></div></div><button @click="sideOpen=false" class="lg:hidden text-faint hover:text-ink"><span class="ms text-[20px]">close</span></button></div>
+    <nav class="p-3 space-y-1 flex-1">${items.map(i=>`<a href="${i.href}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] transition ${active===i.id ? 'bg-[#e9f7f1] text-green font-bold' : 'text-muted font-semibold hover:bg-slate-50'}"><span class="ms ${active===i.id ? 'ms-fill' : ''} text-[20px] ${active===i.id ? 'text-green' : 'text-faint'}">${i.icon}</span>${i.label}</a>`).join('')}</nav>
+    <div class="p-3 border-t border-slate-100"><button onclick="sessionStorage.clear();window.location.hash='/login';window.dispatchEvent(new CustomEvent('auth-changed'))" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-semibold text-muted hover:bg-slate-50 hover:text-ink transition w-full"><span class="ms text-[20px] text-faint">logout</span>Keluar</button></div>
   </aside>`;
 }
 
 function pharmacyHeader(pharmacy, unread = 0) {
-  return `<header class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-    <button @click="sideOpen=!sideOpen" class="p-2 rounded-lg hover:bg-gray-100 transition"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  return `<header class="sticky top-0 z-30 h-[66px] bg-white border-b border-slate-100 px-4 flex items-center justify-between">
+    <button @click="sideOpen=!sideOpen" class="p-2 rounded-xl hover:bg-wash transition"><span class="ms text-[21px] text-muted">menu</span></button>
     <div class="flex items-center gap-3">
-      <a href="#/pharmacy/notifications" class="relative p-1 hover:bg-gray-100 rounded-lg transition"><svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>${unread > 0 ? `<span class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">${unread}</span>` : ''}</a>
-      <div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-xs font-bold text-white">${(pharmacy?.name || 'A').charAt(0)}</div><span class="text-sm font-medium text-gray-700 hidden sm:block">${pharmacy?.name || 'Apotek'}</span></div>
+      <a href="#/pharmacy/notifications" class="relative w-10 h-10 rounded-xl bg-wash flex items-center justify-center hover:bg-slate-100 transition"><span class="ms text-[21px] text-slate-600">notifications</span>${unread > 0 ? `<span class="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-green border-2 border-white"></span>` : ''}</a>
+      <div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full bg-[#e9f7f1] flex items-center justify-center text-xs font-bold text-green">${(pharmacy?.name || 'A').charAt(0)}</div><span class="text-sm font-medium text-ink hidden sm:block">${pharmacy?.name || 'Apotek'}</span></div>
     </div>
   </header>`;
 }

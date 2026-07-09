@@ -13,8 +13,14 @@ export const CONFIG = {
   // klaim home care. Ganti dengan URL asli setelah sheet dipublish.
   HOMECARE_PRICE_SHEET_CSV_URL: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSysnB7-noF-xICJu4CAepc2W4iO8Kwn4ysPQE7QPOT69PYSKK2H-Vz3pj1gil8VJK5ZS-r5JnGR2e_/pub?gid=745153631&single=true&output=csv',
 
+  CLINIC_ADDRESS: 'Jl. Dr. Wahidin, Gg. Sepakat 8 No. 88BC, Pontianak',
+  CLINIC_WHATSAPP: '6289518824216',
+  CLINIC_WHATSAPP_DISPLAY: '0895-1882-4216',
+  CLINIC_HOURS: 'Setiap hari · 08.00 – 21.00 WIB',
+
   ROLES: {
     SUPERADMIN: 'superadmin',
+    OWNER: 'owner',
     DOCTOR: 'doctor',
     PATIENT: 'patient',
     PHARMACY: 'pharmacy',

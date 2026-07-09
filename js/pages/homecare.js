@@ -95,7 +95,7 @@ export function homeCareNewPage(ctx) {
       await window.__store.deleteHomeCareClaim('${claimId}');
       window.location.hash = '${historyPath}';
     }` : ''}
-  }" x-init="loadPriceList()" class="min-h-screen bg-gray-50">
+  }" x-init="loadPriceList()" class="min-h-screen bg-wash">
     ${sidebar}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${header}
@@ -104,7 +104,7 @@ export function homeCareNewPage(ctx) {
           <h2 class="text-xl font-bold text-gray-800">${isEdit ? 'Edit Klaim BMHP & Jasa' : 'Klaim BMHP & Jasa — Home Care'}</h2>
           <div class="flex gap-2">
             ${isEdit ? `<button @click="deleteClaim()" :disabled="deleting" class="px-4 py-2 rounded-lg text-sm font-medium text-red-600 border border-red-200 hover:bg-red-50 transition disabled:opacity-50">Hapus Klaim</button>` : ''}
-            <button @click="submitClaim()" :disabled="saving || saved || selectedList.length === 0 || (!patientName && !patientSearch)${role === 'superadmin' ? ' || !doctorId' : ''}" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">
+            <button @click="submitClaim()" :disabled="saving || saved || selectedList.length === 0 || (!patientName && !patientSearch)${role === 'superadmin' ? ' || !doctorId' : ''}" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">
               <span x-show="!saving && !saved">${isEdit ? 'Simpan Perubahan' : 'Simpan Klaim'}</span>
               <span x-show="saving" x-cloak>Menyimpan...</span>
               <span x-show="saved" x-cloak>Tersimpan!</span>
@@ -112,7 +112,7 @@ export function homeCareNewPage(ctx) {
           </div>
         </div>
 
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <div class="grid sm:grid-cols-2 ${role === 'superadmin' ? 'lg:grid-cols-3' : ''} gap-3">
             <div class="relative">
               <label class="block text-xs text-gray-500 mb-1">Pasien *</label>
@@ -131,7 +131,7 @@ export function homeCareNewPage(ctx) {
           </div>
         </div>
 
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <div class="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
             <div class="flex flex-wrap gap-2">
               <button @click="categoryFilter=''" :class="!categoryFilter ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">Semua</button>
@@ -191,11 +191,11 @@ export function homeCareNewPage(ctx) {
         </div>
 
         <div class="grid lg:grid-cols-2 gap-4">
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="bg-white border border-slate-100 rounded-3xl p-4">
             <h4 class="font-semibold text-gray-800 mb-2">Catatan</h4>
             <textarea x-model="notes" rows="3" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Opsional"></textarea>
           </div>
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="bg-white border border-slate-100 rounded-3xl p-4">
             <h4 class="font-semibold text-gray-800 mb-3">Ringkasan</h4>
             <div class="space-y-1.5 text-sm">
               <div class="flex justify-between"><span class="text-gray-500">Total BMHP</span><span class="font-medium text-gray-800" x-text="formatRupiah(totalBmhp)"></span></div>
@@ -210,7 +210,7 @@ export function homeCareNewPage(ctx) {
 }
 
 export function homeCareHistoryPage(ctx) {
-  const { role, sidebar, header, claims = [], claimItemsMap = {}, doctors = [], newPath, editPath } = ctx;
+  const { role, sidebar, header, claims = [], claimItemsMap = {}, doctors = [], newPath, editPath, doctorId } = ctx;
   window.__homecareClaims = claims;
   window.__homecareClaimItems = claimItemsMap;
   window.__homecareFilterDoctors = doctors.map(d => ({ id: d.id, full_name: d.full_name }));
@@ -222,6 +222,17 @@ export function homeCareHistoryPage(ctx) {
     itemsMap: window.__homecareClaimItems || {},
     doctors: window.__homecareFilterDoctors || [],
     doctorFilter: '', dateFrom: '', dateTo: '', openId: null, statusFilter: 'pending',
+    init() {
+      if (window.__pagePollInterval) clearInterval(window.__pagePollInterval);
+      window.__pagePollInterval = setInterval(() => this.poll(), 8000);
+    },
+    async poll() {
+      const claims = await window.__store.fetchHomeCareClaims(${doctorId ? `'${doctorId}'` : 'undefined'});
+      this.claims = ${role === 'superadmin' ? 'claims.map(c => ({ ...c, doctor_name: window.__store.getDoctor(c.doctor_id)?.full_name || \'-\' }))' : 'claims'};
+      const map = {};
+      this.claims.forEach(c => { map[c.id] = window.__store.getHomeCareClaimItems(c.id); });
+      this.itemsMap = map;
+    },
     get filteredClaims() {
       return this.claims.filter(c =>
         (!this.doctorFilter || c.doctor_id === this.doctorFilter) &&
@@ -250,14 +261,14 @@ export function homeCareHistoryPage(ctx) {
       const c = this.claims.find(x => x.id === claimId);
       if (c) c.status = 'pending';
     }
-  }" class="min-h-screen bg-gray-50">
+  }" class="min-h-screen bg-wash">
     ${sidebar}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${header}
       <main class="p-4 lg:p-6 max-w-6xl mx-auto">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold text-gray-800">Riwayat Klaim BMHP & Jasa</h2>
-          <a href="#${newPath}" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">+ Klaim Baru</a>
+          <a href="#${newPath}" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Klaim Baru</a>
         </div>
 
         <div class="grid sm:grid-cols-3 gap-4 mb-4">
@@ -272,7 +283,7 @@ export function homeCareHistoryPage(ctx) {
           <button @click="statusFilter=''" :class="statusFilter==='' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">Semua</button>
         </div>
 
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <div class="grid sm:grid-cols-2 ${role === 'superadmin' ? 'lg:grid-cols-4' : ''} gap-3">
             <div><label class="block text-xs text-gray-500 mb-1">Dari Tanggal</label><input type="date" x-model="dateFrom" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
             <div><label class="block text-xs text-gray-500 mb-1">Sampai Tanggal</label><input type="date" x-model="dateTo" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
@@ -280,7 +291,7 @@ export function homeCareHistoryPage(ctx) {
           </div>
         </div>
 
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           <template x-if="filteredClaims.length === 0"><p class="p-8 text-center text-gray-400 text-sm">Belum ada klaim yang tersimpan</p></template>
           <div class="divide-y divide-gray-50">
             <template x-for="claim in filteredClaims" :key="claim.id">

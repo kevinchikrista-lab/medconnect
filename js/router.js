@@ -12,7 +12,7 @@ export class Router {
   }
 
   resolve() {
-    const hash = window.location.hash.slice(1) || '/login';
+    const hash = window.location.hash.slice(1) || '/';
     const parts = hash.split('/').filter(Boolean);
 
     let matched = this.routes[hash];

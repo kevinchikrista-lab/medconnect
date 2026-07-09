@@ -19,12 +19,13 @@
       theme: {
         extend: {
           colors: {
-            teal: { 50:'#eef3fb', 100:'#d5e3f5', 200:'#aec6eb', 300:'#7da6df', 400:'#508ad4', 500:'#3a6fc9', 600:'#2e5cac', 700:'#24498a', 800:'#1a3768', 900:'#102448' },
-            primary: { 50:'#eef3fb', 100:'#d5e3f5', 200:'#aec6eb', 300:'#7da6df', 400:'#508ad4', 500:'#3a6fc9', 600:'#2e5cac', 700:'#24498a', 800:'#1a3768', 900:'#102448' },
-            accent: { 50:'#fef1ef', 100:'#fcdad6', 200:'#f9b3ab', 300:'#f58076', 400:'#ef5040', 500:'#e03b27', 600:'#c22f1e', 700:'#9e2418', 800:'#7a1c12', 900:'#56130d' }
+            teal: { 50:'#eaf2fd', 100:'#d0e3fb', 200:'#a3c7f6', 300:'#76abf0', 400:'#4690e3', 500:'#1b6fd6', 600:'#155bb8', 700:'#0f4c9e', 800:'#0b3a79', 900:'#082a58' },
+            primary: { 50:'#eaf2fd', 100:'#d0e3fb', 200:'#a3c7f6', 300:'#76abf0', 400:'#4690e3', 500:'#1b6fd6', 600:'#155bb8', 700:'#0f4c9e', 800:'#0b3a79', 900:'#082a58' },
+            accent: { 50:'#fef1ef', 100:'#fcdad6', 200:'#f9b3ab', 300:'#f58076', 400:'#ef5040', 500:'#e03b27', 600:'#c22f1e', 700:'#9e2418', 800:'#7a1c12', 900:'#56130d' },
+            ink:'#12203a', brand:'#1b6fd6', 'brand-dark':'#0f4c9e', muted:'#5b6b85', faint:'#8593a8', wash:'#f4f7fb', tint:'#eaf2fd', green:'#1f9d63', night:'#0d1b30'
           },
           fontFamily: {
-            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            sans: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
             display: ['"Plus Jakarta Sans"', 'Inter', 'sans-serif']
           }
         }
@@ -34,12 +35,15 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
 
   <style>
     [x-cloak] { display: none !important; }
     * { -webkit-tap-highlight-color: transparent; }
-    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    body { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif; }
+    .ms { font-family:'Material Symbols Rounded'; font-weight:normal; font-style:normal; line-height:1; -webkit-font-feature-settings:'liga'; -webkit-font-smoothing:antialiased; }
+    .ms-fill { font-variation-settings:'FILL' 1; }
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }

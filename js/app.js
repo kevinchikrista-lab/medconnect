@@ -1,17 +1,24 @@
 import { router } from './router.js';
 import { store } from './store.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
-import { adminDashboard, adminUsers, adminUsersData, adminServices, adminBookings, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit } from './pages/admin.js';
-import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit } from './pages/doctor.js';
-import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile } from './pages/patient.js';
+import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit } from './pages/admin.js';
+import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart } from './pages/doctor.js';
+import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
 import { verifyPage } from './pages/verify.js';
+import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pages/landing.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
 
 function render(htmlFn, params) {
+  // The hash router has no "unmount" hook, so this is the one chokepoint every
+  // page change passes through — clearing any page-level polling interval
+  // (chat, bookings, consultations, ...) here means it always stops, no
+  // matter how the user navigated away.
+  if (window.__pagePollInterval) { clearInterval(window.__pagePollInterval); window.__pagePollInterval = null; }
+
   const container = document.getElementById('app');
   const html = typeof htmlFn === 'function' ? htmlFn(params) : htmlFn;
 
@@ -37,12 +44,32 @@ router.beforeEach = (path, meta) => {
   // scanning the QR code on a printed certificate, with no MedConnect account at all).
   if (path.startsWith('/verify')) return true;
 
+  // Article detail pages and guest booking: public, accessible regardless of
+  // login state (unlike /login etc. below, a logged-in doctor/patient
+  // shouldn't be bounced away from these links back to their dashboard).
+  if (path.startsWith('/artikel')) return true;
+  if (path.startsWith('/booking-tamu')) return true;
+
   const user = getUser();
+
+  // Public landing page ('/'): shown to anonymous visitors instead of forcing
+  // straight to /login. Kept as its own exact-match check (not folded into
+  // publicPaths below) because publicPaths uses startsWith() — '/' would match
+  // every route in the app and disable the login gate entirely.
+  if (path === '/') {
+    if (user) {
+      const routes = { superadmin: '#/admin/dashboard', owner: '#/admin/dashboard', doctor: '#/doctor/dashboard', patient: '#/patient/dashboard', pharmacy: '#/pharmacy/dashboard' };
+      window.location.hash = routes[user.role] || '#/login';
+      return false;
+    }
+    return true;
+  }
+
   const publicPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
 
   if (publicPaths.some(p => path.startsWith(p))) {
     if (user) {
-      const routes = { superadmin: '#/admin/dashboard', doctor: '#/doctor/dashboard', patient: '#/patient/dashboard', pharmacy: '#/pharmacy/dashboard' };
+      const routes = { superadmin: '#/admin/dashboard', owner: '#/admin/dashboard', doctor: '#/doctor/dashboard', patient: '#/patient/dashboard', pharmacy: '#/pharmacy/dashboard' };
       window.location.hash = routes[user.role] || '#/login';
       return false;
     }
@@ -54,13 +81,22 @@ router.beforeEach = (path, meta) => {
     return false;
   }
 
-  if (path.startsWith('/admin') && user.role !== 'superadmin') { window.location.hash = '#/login'; return false; }
-  if (path.startsWith('/doctor') && user.role !== 'doctor') { window.location.hash = '#/login'; return false; }
+  // 'owner' is a combined SuperAdmin+Dokter account (see store.getProfile) — it
+  // passes both guards below so it can switch between the two views without
+  // ever logging out.
+  if (path.startsWith('/admin') && !['superadmin', 'owner'].includes(user.role)) { window.location.hash = '#/login'; return false; }
+  if (path.startsWith('/doctor') && !['doctor', 'owner'].includes(user.role)) { window.location.hash = '#/login'; return false; }
   if (path.startsWith('/patient') && user.role !== 'patient') { window.location.hash = '#/login'; return false; }
   if (path.startsWith('/pharmacy') && user.role !== 'pharmacy') { window.location.hash = '#/login'; return false; }
 
   return true;
 };
+
+// Public landing page
+router.add('/', () => render(publicLandingPage));
+router.add('/artikel/:id', (p) => render(publicArticleDetail, p));
+router.add('/booking-tamu', () => render(publicGuestBooking));
+router.add('/booking-tamu/:serviceId', (p) => render(publicGuestBooking, p));
 
 // Auth pages
 router.add('/login', () => render(loginPage));
@@ -73,7 +109,12 @@ router.add('/verify/:certId', (p) => render(verifyPage, p));
 router.add('/admin/dashboard', () => render(adminDashboard));
 router.add('/admin/users', () => render(adminUsers));
 router.add('/admin/services', () => render(adminServices));
+router.add('/admin/articles', () => render(adminArticles));
 router.add('/admin/bookings', () => render(adminBookings));
+router.add('/admin/calendar', () => render(adminCalendar));
+router.add('/admin/calendar/:year/:month', (p) => render(adminCalendar, p));
+router.add('/admin/consultations', () => render(adminConsultations));
+router.add('/admin/consultations/:id', (p) => render(adminConsultationDetail, p));
 router.add('/admin/homecare/new', () => render(adminHomeCareNew));
 router.add('/admin/homecare/history', () => render(adminHomeCareHistory));
 router.add('/admin/homecare/edit/:claimId', (p) => render(adminHomeCareEdit, p));
@@ -93,6 +134,9 @@ router.add('/doctor/calendar/:year/:month', (p) => render(doctorCalendar, p));
 router.add('/doctor/homecare/new', () => render(doctorHomeCareNew));
 router.add('/doctor/homecare/history', () => render(doctorHomeCareHistory));
 router.add('/doctor/homecare/edit/:claimId', (p) => render(doctorHomeCareEdit, p));
+router.add('/doctor/chat', () => render(doctorChatList));
+router.add('/doctor/chat/start/:patientId', (p) => render(doctorChatStart, p));
+router.add('/doctor/chat/:conversationId', (p) => render(doctorChatThread, p));
 router.add('/doctor/notifications', () => render(notificationsPage));
 
 // Patient
@@ -101,6 +145,9 @@ router.add('/patient/history', () => render(patientHistory));
 router.add('/patient/prescriptions', () => render(patientPrescriptions));
 router.add('/patient/services', () => render(patientServices));
 router.add('/patient/booking/:serviceId/:itemIdx', (p) => render(patientBooking, p));
+router.add('/patient/chat', () => render(patientChatList));
+router.add('/patient/chat/start/:doctorId', (p) => render(patientChatStart, p));
+router.add('/patient/chat/:conversationId', (p) => render(patientChatThread, p));
 router.add('/patient/profile', () => render(patientProfile));
 router.add('/patient/notifications', () => render(notificationsPage));
 
@@ -369,7 +416,11 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
   w.document.close();
 };
 
-if ('serviceWorker' in navigator) {
+// Skip on localhost/local testing servers — the cache-first service worker
+// otherwise serves a stale app.js after every code change, which has been a
+// recurring source of confusion when trying out changes locally.
+const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+if ('serviceWorker' in navigator && !isLocalHost) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });

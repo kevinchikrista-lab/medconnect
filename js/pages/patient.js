@@ -1,5 +1,6 @@
 import { store } from '../store.js';
 import { CONFIG } from '../config.js';
+import { chatListPage, chatThreadPage } from './chat.js';
 
 function getPatient() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -16,13 +17,36 @@ export function patientDashboard() {
   const prescriptions = store.getPrescriptionsByPatient(patient?.id);
   const activePrescriptions = prescriptions.filter(rx => !['completed','rejected'].includes(rx.status));
   const services = store.getServices().slice(0, 4);
+  const doctors = store.getDoctors().slice(0, 6);
   const unread = store.getUnreadCount(user?.id);
 
   return `
-  <div class="min-h-screen bg-gray-50 pb-20">
-    ${patientHeader(patient, unread)}
-    <main class="p-4 max-w-lg mx-auto">
-      <div class="mb-6"><h2 class="text-xl font-bold text-gray-800">Halo, ${patient?.full_name?.split(' ')[0] || 'Pasien'}!</h2><p class="text-sm text-gray-500">Semoga hari Anda sehat.</p></div>
+  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-wash">
+    ${patientSidebar('home')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-[236px]' : 'ml-0'">
+      <div class="hidden lg:block">${patientHeader(patient, unread)}</div>
+      <div class="lg:hidden bg-gradient-to-b from-[#2b7ee0] to-brand-dark px-5 pt-5 pb-12 relative overflow-hidden rounded-b-[28px]">
+        <div class="absolute -right-10 -top-5 w-40 h-40 rounded-full bg-white/[.07]"></div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-8 w-auto bg-white/90 rounded-lg p-1">
+            <div><div class="text-xs text-white/70 font-semibold leading-none">Klinik Prima</div><div class="text-[14.5px] text-white font-extrabold leading-relaxed mt-0.5">Halo, ${patient?.full_name?.split(' ')[0] || 'Pasien'}</div></div>
+          </div>
+          <a href="#/patient/notifications" class="relative w-10 h-10 rounded-xl bg-white/[.16] flex items-center justify-center"><span class="ms text-[21px] text-white">notifications</span>${unread > 0 ? `<span class="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-[#ff5436] border-2 border-brand-dark"></span>` : ''}</a>
+        </div>
+      </div>
+      <a href="#/patient/services" class="lg:hidden -mt-7 mx-5 relative z-10 flex items-center gap-2.5 bg-white rounded-2xl px-4 py-3.5 shadow-xl shadow-slate-900/10">
+        <span class="ms text-[20px] text-brand">search</span>
+        <span class="text-sm text-slate-400 font-medium">Cari dokter atau layanan…</span>
+      </a>
+      <main class="p-4 lg:p-6 max-w-7xl mx-auto pb-24 lg:pb-6">
+      <div class="mb-6 hidden lg:block"><h2 class="text-xl font-bold text-ink">Halo, ${patient?.full_name?.split(' ')[0] || 'Pasien'}!</h2><p class="text-sm text-gray-500">Semoga hari Anda sehat.</p></div>
+      <div class="lg:hidden grid grid-cols-4 gap-2.5 mb-6 mt-4">
+        <a href="#/patient/services" class="flex flex-col items-center gap-2"><span class="w-[54px] h-[54px] rounded-2xl bg-tint flex items-center justify-center"><span class="ms text-[24px] text-brand">calendar_month</span></span><span class="text-[11px] font-semibold text-[#3a4b66]">Janji</span></a>
+        <a href="#/patient/prescriptions" class="flex flex-col items-center gap-2"><span class="w-[54px] h-[54px] rounded-2xl bg-[#e9f7f1] flex items-center justify-center"><span class="ms text-[24px] text-[#1f9d63]">medication</span></span><span class="text-[11px] font-semibold text-[#3a4b66]">Resep</span></a>
+        <a href="#/patient/history" class="flex flex-col items-center gap-2"><span class="w-[54px] h-[54px] rounded-2xl bg-[#fdeee9] flex items-center justify-center"><span class="ms text-[24px] text-[#e8452c]">clinical_notes</span></span><span class="text-[11px] font-semibold text-[#3a4b66]">Riwayat</span></a>
+        <a href="#/patient/profile" class="flex flex-col items-center gap-2"><span class="w-[54px] h-[54px] rounded-2xl bg-[#f4eefb] flex items-center justify-center"><span class="ms text-[24px] text-[#7b52c4]">person</span></span><span class="text-[11px] font-semibold text-[#3a4b66]">Profil</span></a>
+      </div>
       ${upcoming.length > 0 ? `
       <div class="mb-6">
         <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Jadwal Terdekat</h3>
@@ -32,7 +56,7 @@ export function patientDashboard() {
             const days = daysUntil(apt.date);
             const typeLabels = { follow_up: 'Kontrol Ulang', vaccination: 'Vaksinasi', visit: 'Kunjungan', telemedicine: 'Telemedicine' };
             const typeIcons = { follow_up: '🔄', vaccination: '💉', visit: '🏥', telemedicine: '📹' };
-            return `<div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+            return `<div class="bg-white border border-slate-100 rounded-3xl p-4">
               <div class="flex items-start gap-3">
                 <div class="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style="background:linear-gradient(135deg,#ecfdf5,#d1fae5)">${typeIcons[apt.type] || '📋'}</div>
                 <div class="flex-1">
@@ -54,7 +78,7 @@ export function patientDashboard() {
           const pharmacy = store.getPharmacy(rx.pharmacy_id);
           const steps = ['sent','received','preparing','ready','completed'];
           const currentIdx = steps.indexOf(rx.status);
-          return `<div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-3">
+          return `<div class="bg-white border border-slate-100 rounded-3xl p-4 mb-3">
             <div class="flex items-center justify-between mb-3"><span class="font-semibold text-sm text-gray-800">${rx.rx_number}</span><span class="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status]}</span></div>
             <div class="flex items-center gap-1 mb-3">${steps.map((s, i) => `<div class="flex-1 h-1.5 rounded-full ${i <= currentIdx ? 'bg-teal-500' : 'bg-gray-200'} transition"></div>`).join('')}</div>
             <div class="flex justify-between text-xs text-gray-400">${steps.map((s, i) => `<span class="${i <= currentIdx ? 'text-teal-600 font-medium' : ''}">${['Kirim','Terima','Siapkan','Ambil','Done'][i]}</span>`).join('')}</div>
@@ -65,36 +89,96 @@ export function patientDashboard() {
       <div class="mb-6">
         <div class="flex items-center justify-between mb-3"><h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider">Layanan Kesehatan</h3><a href="#/patient/services" class="text-xs text-teal-600 hover:text-teal-700">Lihat Semua</a></div>
         <div class="grid grid-cols-2 gap-3">
-          ${services.map(s => `<a href="#/patient/services/${s.id}" class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md transition group">
+          ${services.map(s => `<a href="#/patient/services/${s.id}" class="bg-white border border-slate-100 rounded-3xl overflow-hidden hover:shadow-md transition group">
             <div class="relative"><img src="${s.image_url}" alt="${s.name}" class="w-full h-24 object-cover group-hover:scale-105 transition duration-300"><div class="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div></div>
             <div class="p-3"><p class="font-medium text-gray-800 text-xs">${s.name}</p><p class="text-xs text-teal-600 font-semibold mt-1">Rp ${s.price.toLocaleString('id-ID')}</p></div>
           </a>`).join('')}
         </div>
       </div>
-    </main>
-    ${patientBottomNav('home')}
-  </div>`;
+      <div class="lg:hidden -mx-4">
+        <div class="flex items-center justify-between px-4 pb-3"><span class="text-[15.5px] font-extrabold">Dokter Tersedia</span></div>
+        <div class="flex gap-3.5 overflow-x-auto px-4 pb-1.5">
+          ${doctors.map(d => `<a href="#/patient/chat/start/${d.id}" class="shrink-0 w-[150px] bg-white border border-slate-100 rounded-3xl p-4 hover:shadow-md transition">
+            <div class="w-[52px] h-[52px] rounded-full bg-tint flex items-center justify-center"><span class="ms text-[26px] text-brand">person</span></div>
+            <div class="mt-3 text-[13.5px] font-extrabold">${d.full_name}</div>
+            <div class="text-[11px] text-faint font-medium">${d.specialization || '-'}</div>
+            <div class="flex items-center gap-1 mt-2">${d.is_available ? `<span class="w-1.5 h-1.5 rounded-full bg-[#1f9d63]"></span><span class="text-[10.5px] font-bold text-[#1f9d63]">Online sekarang</span>` : `<span class="w-1.5 h-1.5 rounded-full bg-slate-300"></span><span class="text-[10.5px] font-bold text-faint">Offline</span>`}</div>
+          </a>`).join('')}
+        </div>
+      </div>
+      </main>
+    </div>
+  </div>
+  ${patientBottomNav('home')}`;
 }
 
 export function patientHistory() {
   const patient = getPatient();
   const records = store.getRecords(patient?.id);
   const vaccinations = store.getVaccinations(patient?.id);
+  window.__patientBookingsInitial = store.getBookingsByPatient(patient?.id);
   return `
-  <div class="min-h-screen bg-gray-50 pb-20" x-data="{ tab: 'visits' }">
-    ${patientHeader(patient)}
-    <main class="p-4 max-w-lg mx-auto">
-      <h2 class="text-xl font-bold text-gray-800 mb-4">Riwayat Kesehatan</h2>
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024, tab: 'visits',
+    patientId: '${patient?.id || ''}',
+    bookings: window.__patientBookingsInitial || [],
+    statusLabels: { pending:'Menunggu Konfirmasi', confirmed:'Dikonfirmasi', completed:'Selesai', cancelled:'Ditolak' },
+    statusColors: { pending:'bg-amber-100 text-amber-700', confirmed:'bg-blue-100 text-blue-700', completed:'bg-green-100 text-green-700', cancelled:'bg-red-100 text-red-700' },
+    init() {
+      if (!this.patientId) return;
+      if (window.__pagePollInterval) clearInterval(window.__pagePollInterval);
+      window.__pagePollInterval = setInterval(() => this.poll(), 8000);
+    },
+    async poll() { this.bookings = await window.__store.fetchBookingsForPatient(this.patientId); },
+    async removeBooking(id) {
+      if (!confirm('Hapus pendaftaran ini?')) return;
+      const result = await window.__store.deleteBooking(id);
+      if (result.error) { alert(result.error); return; }
+      await this.poll();
+    }
+  }" class="min-h-screen bg-wash">
+    ${patientSidebar('history')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-[236px]' : 'ml-0'">
+      ${patientHeader(patient)}
+      <main class="p-4 lg:p-6 max-w-7xl mx-auto pb-24 lg:pb-6">
+      <h2 class="text-xl font-bold text-ink mb-4">Riwayat Kesehatan</h2>
       <div class="flex gap-2 mb-4">
         <button @click="tab='visits'" :class="tab==='visits' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Kunjungan (${records.length})</button>
         <button @click="tab='vaccines'" :class="tab==='vaccines' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Vaksinasi (${vaccinations.length})</button>
+        <button @click="tab='bookings'" :class="tab==='bookings' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Pendaftaran (<span x-text="bookings.length"></span>)</button>
+      </div>
+      <div x-show="tab==='bookings'" x-cloak>
+        <template x-if="bookings.length === 0"><div class="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Belum ada pendaftaran layanan</div></template>
+        <template x-for="b in bookings" :key="b.id">
+          <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-3">
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <p class="font-medium text-gray-800 text-sm" x-text="b.item_name || b.service_name"></p>
+                <p class="text-xs text-gray-500 mt-0.5" x-text="'Rp ' + (b.price||0).toLocaleString('id-ID')"></p>
+              </div>
+              <div class="flex flex-col items-end gap-1">
+                <span class="px-2 py-1 rounded-full text-xs font-medium" :class="statusColors[b.status] || 'bg-gray-100 text-gray-600'" x-text="statusLabels[b.status] || b.status"></span>
+                <span class="px-2 py-1 rounded-full text-xs font-medium" :class="b.is_paid ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'" x-text="b.is_paid ? 'Sudah Bayar' : 'Belum Bayar'"></span>
+              </div>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-gray-500">
+              <span x-text="'Tanggal: ' + (b.preferred_date || '-')"></span>
+              <span x-text="'Waktu: ' + (b.preferred_time || '-')"></span>
+            </div>
+            <template x-if="b.status === 'cancelled'">
+              <div class="mt-2 pt-2 border-t border-gray-100 text-right">
+                <button @click="removeBooking(b.id)" class="px-3 py-1 rounded-lg text-xs font-medium text-gray-500 bg-gray-50 hover:bg-gray-100 border border-gray-200 transition">Hapus</button>
+              </div>
+            </template>
+          </div>
+        </template>
       </div>
       <div x-show="tab==='visits'">
         ${records.length === 0 ? '<div class="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Belum ada riwayat kunjungan</div>' :
         records.map(r => {
           const doctor = store.getDoctor(r.doctor_id);
           const rxCount = store.data.prescriptions.filter(rx => rx.record_id === r.id).length;
-          return `<div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-3 overflow-hidden" x-data="{open:false}">
+          return `<div class="bg-white border border-slate-100 rounded-3xl mb-3 overflow-hidden" x-data="{open:false}">
             <div class="p-4 cursor-pointer" @click="open=!open">
               <div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center"><svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div><div><p class="font-medium text-gray-800 text-sm">${formatDate(r.visit_date)}</p><p class="text-xs text-gray-500">${doctor?.full_name || ''}</p></div></div><svg class="w-5 h-5 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></div>
               <div class="flex gap-2 mt-2"><span class="px-2 py-0.5 rounded text-xs bg-teal-50 text-teal-700">${r.diagnosis}</span>${rxCount > 0 ? `<span class="px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-700">${rxCount} resep</span>` : ''}${r.follow_up_date ? `<span class="px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">Kontrol ${formatDate(r.follow_up_date)}</span>` : ''}</div>
@@ -121,7 +205,7 @@ export function patientHistory() {
 
             if (isBooster) {
               const intervalLabel = intervalMonths >= 12 ? (intervalMonths/12)+' tahun' : intervalMonths+' bulan';
-              return `<div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-3">
+              return `<div class="bg-white border border-slate-100 rounded-3xl p-4 mb-3">
                 <div class="flex items-center justify-between mb-3">
                   <div class="flex items-center gap-2"><h4 class="font-semibold text-gray-800 text-sm">${name}</h4><span class="px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700 font-medium">Booster tiap ${intervalLabel}</span></div>
                   ${certBtn}
@@ -151,7 +235,7 @@ export function patientHistory() {
             const uniqueSchedules = [];
             allSchedules.forEach(s => { if (!uniqueSchedules.find(u => u.dose === s.dose)) uniqueSchedules.push(s); });
 
-            return `<div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-3">
+            return `<div class="bg-white border border-slate-100 rounded-3xl p-4 mb-3">
               <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-2"><h4 class="font-semibold text-gray-800 text-sm">${name}</h4><span class="px-2 py-0.5 rounded-full text-xs bg-teal-100 text-teal-700 font-medium">Seri ${completedCount}/${totalD}</span></div>
                 ${certBtn}
@@ -176,19 +260,22 @@ export function patientHistory() {
           }).join('');
         })()}
       </div>
-    </main>
-    ${patientBottomNav('history')}
-  </div>`;
+      </main>
+    </div>
+  </div>
+  ${patientBottomNav('history')}`;
 }
 
 export function patientPrescriptions() {
   const patient = getPatient();
   const prescriptions = store.getPrescriptionsByPatient(patient?.id);
   return `
-  <div class="min-h-screen bg-gray-50 pb-20">
-    ${patientHeader(patient)}
-    <main class="p-4 max-w-lg mx-auto">
-      <h2 class="text-xl font-bold text-gray-800 mb-4">Resep Saya</h2>
+  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-wash">
+    ${patientSidebar('prescriptions')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-[236px]' : 'ml-0'">
+      ${patientHeader(patient)}
+      <main class="p-4 lg:p-6 max-w-7xl mx-auto pb-24 lg:pb-6">
+      <h2 class="text-xl font-bold text-ink mb-4">Resep Saya</h2>
       ${prescriptions.length === 0 ? '<div class="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Belum ada resep</div>' :
       prescriptions.map(rx => {
         const doctor = store.getDoctor(rx.doctor_id);
@@ -197,7 +284,7 @@ export function patientPrescriptions() {
         const steps = ['sent','received','preparing','ready','completed'];
         const currentIdx = steps.indexOf(rx.status);
         const isActive = !['completed','rejected'].includes(rx.status);
-        return `<div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-3 overflow-hidden" x-data="{open:false}">
+        return `<div class="bg-white border border-slate-100 rounded-3xl mb-3 overflow-hidden" x-data="{open:false}">
           <div class="p-4 cursor-pointer" @click="open=!open">
             <div class="flex items-center justify-between mb-2"><span class="font-semibold text-sm text-gray-800">${rx.rx_number}</span><span class="px-2 py-1 rounded-full text-xs font-medium ${isActive ? 'bg-amber-100 text-amber-700' : rx.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status]}</span></div>
             ${isActive ? `<div class="flex items-center gap-1 mb-2">${steps.map((s, i) => `<div class="flex-1 h-1.5 rounded-full ${i <= currentIdx ? 'bg-teal-500' : 'bg-gray-200'}"></div>`).join('')}</div>` : ''}
@@ -210,9 +297,10 @@ export function patientPrescriptions() {
           </div>
         </div>`;
       }).join('')}
-    </main>
-    ${patientBottomNav('prescriptions')}
-  </div>`;
+      </main>
+    </div>
+  </div>
+  ${patientBottomNav('prescriptions')}`;
 }
 
 export function patientServices() {
@@ -221,18 +309,27 @@ export function patientServices() {
   const categories = ['Semua', ...new Set(services.map(s => s.category))];
   const catColors = { Vaksinasi:'bg-teal-500', Infus:'bg-cyan-500', 'Check-up':'bg-indigo-500', HomeCare:'bg-amber-500', Konsultasi:'bg-pink-500' };
   return `
-  <div class="min-h-screen bg-gray-50 pb-20" x-data="{ cat: 'Semua' }">
-    ${patientHeader(patient)}
-    <main class="p-4 max-w-lg mx-auto">
-      <h2 class="text-xl font-bold text-gray-800 mb-1">Layanan Kesehatan</h2>
-      <p class="text-sm text-gray-500 mb-4">Pilih kategori dan daftar layanan yang Anda butuhkan</p>
-      <div class="flex gap-2 overflow-x-auto pb-2 mb-4 no-scrollbar">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, cat: 'Semua' }" class="min-h-screen bg-wash">
+    ${patientSidebar('services')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-[236px]' : 'ml-0'">
+      <div class="hidden lg:block">${patientHeader(patient)}</div>
+      <div class="lg:hidden bg-gradient-to-b from-[#2b7ee0] to-brand-dark px-5 pt-5 pb-6 rounded-b-[28px]">
+        <div class="text-[17px] font-extrabold text-white leading-tight">Layanan Kami</div>
+        <div class="text-[11.5px] text-white/70 font-medium">Pilih & booking langsung</div>
+        <div class="flex gap-2.5 overflow-x-auto mt-4">
+          ${categories.map(c => `<button @click="cat='${c}'" :class="cat==='${c}' ? 'bg-white text-brand-dark' : 'bg-white/[.18] text-white'" class="shrink-0 text-[12.5px] font-bold px-4 py-2 rounded-full transition whitespace-nowrap">${c}</button>`).join('')}
+        </div>
+      </div>
+      <main class="p-4 lg:p-6 max-w-7xl mx-auto pb-24 lg:pb-6">
+      <h2 class="hidden lg:block text-xl font-bold text-ink mb-1">Layanan Kesehatan</h2>
+      <p class="hidden lg:block text-sm text-gray-500 mb-4">Pilih kategori dan daftar layanan yang Anda butuhkan</p>
+      <div class="hidden lg:flex gap-2 overflow-x-auto pb-2 mb-4 no-scrollbar">
         ${categories.map(c => `<button @click="cat='${c}'" :class="cat==='${c}' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition flex-shrink-0">${c}</button>`).join('')}
       </div>
       <div class="space-y-3">
         ${services.map(s => `
         <template x-if="cat==='Semua' || cat==='${s.category}'">
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
             <div class="relative"><img src="${s.image_url}" alt="${s.name}" class="w-full h-32 object-cover"><div class="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div><div class="absolute bottom-3 left-3"><span class="px-2 py-1 rounded-full text-xs text-white font-medium ${catColors[s.category] || 'bg-gray-500'}">${s.category}</span></div></div>
             <div class="p-4">
               <h4 class="font-semibold text-gray-800">${s.name}</h4>
@@ -243,14 +340,15 @@ export function patientServices() {
                   <div><p class="text-sm font-medium text-gray-800 group-hover:text-teal-700">${item.name}</p><p class="text-xs text-gray-400">${item.desc}</p></div>
                   <div class="text-right flex-shrink-0 ml-3"><p class="text-sm font-bold text-teal-600">Rp ${item.price.toLocaleString('id-ID')}</p><span class="text-xs text-teal-500">Daftar &rarr;</span></div>
                 </a>`).join('')}
-              </div>` : `<a href="#/patient/booking/${s.id}/0" class="mt-3 block w-full py-2.5 rounded-xl text-sm font-medium text-white text-center" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Daftar Layanan — Rp ${(s.price||0).toLocaleString('id-ID')}</a>`}
+              </div>` : `<a href="#/patient/booking/${s.id}/0" class="mt-3 block w-full py-2.5 rounded-xl text-sm font-medium text-white text-center" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Daftar Layanan — Rp ${(s.price||0).toLocaleString('id-ID')}</a>`}
             </div>
           </div>
         </template>`).join('')}
       </div>
-    </main>
-    ${patientBottomNav('services')}
-  </div>`;
+      </main>
+    </div>
+  </div>
+  ${patientBottomNav('services')}`;
 }
 
 export function patientBooking(params) {
@@ -259,14 +357,15 @@ export function patientBooking(params) {
   if (!service) return '<div class="min-h-screen flex items-center justify-center text-gray-400">Layanan tidak ditemukan</div>';
   const itemIdx = parseInt(params.itemIdx) || 0;
   const item = (service.items && service.items[itemIdx]) || { name: service.name, price: service.price || 0, desc: service.description };
-  const adminWA = '6281234567890';
+  const adminWA = CONFIG.CLINIC_WHATSAPP;
 
   return `
-  <div class="min-h-screen bg-gray-50 pb-20" x-data="{
+  <div class="min-h-screen bg-wash pb-20" x-data="{
     preferred_date: '', preferred_time: 'Pagi (08:00-12:00)', notes: '',
     submitting: false, submitted: false,
     submit() {
       if (!this.preferred_date) { alert('Pilih tanggal yang diinginkan'); return; }
+      if (!'${patient?.id || ''}') { alert('Data profil pasien Anda tidak ditemukan, tidak bisa mendaftar. Coba logout lalu login kembali, atau hubungi admin.'); return; }
       this.submitting = true;
       const self = this;
       setTimeout(function() {
@@ -284,13 +383,13 @@ export function patientBooking(params) {
       return 'https://wa.me/${adminWA}?text=' + msg;
     }
   }">
-    <header class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 py-3 flex items-center gap-3">
-      <a href="#/patient/services" class="p-2 rounded-lg hover:bg-gray-100 transition"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></a>
-      <h1 class="font-bold text-gray-800 text-sm">Pendaftaran Layanan</h1>
+    <header class="sticky top-0 z-30 h-[66px] bg-white border-b border-slate-100 px-4 flex items-center gap-3">
+      <a href="#/patient/services" class="p-2 rounded-xl hover:bg-wash transition"><span class="ms text-[20px] text-muted">arrow_back</span></a>
+      <h1 class="font-bold text-ink text-sm">Pendaftaran Layanan</h1>
     </header>
     <main class="p-4 max-w-lg mx-auto">
       <!-- Service info -->
-      <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden mb-4">
+      <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden mb-4">
         <img src="${service.image_url}" alt="${service.name}" class="w-full h-36 object-cover">
         <div class="p-4">
           <span class="px-2 py-0.5 rounded-full text-xs bg-teal-50 text-teal-700 font-medium">${service.category}</span>
@@ -300,7 +399,7 @@ export function patientBooking(params) {
         </div>
       </div>
       <!-- Booking form -->
-      <div x-show="!submitted" class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+      <div x-show="!submitted" class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
         <h4 class="font-semibold text-gray-800 mb-4">Pilih Jadwal</h4>
         <div class="space-y-3">
           <div><label class="block text-xs text-gray-500 mb-1">Tanggal yang Diinginkan *</label><input type="date" x-model="preferred_date" :min="new Date().toISOString().split('T')[0]" class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
@@ -311,7 +410,7 @@ export function patientBooking(params) {
           </div>
           <div><label class="block text-xs text-gray-500 mb-1">Catatan Tambahan</label><textarea x-model="notes" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Opsional: keluhan, permintaan khusus..."></textarea></div>
         </div>
-        <button @click="submit()" :disabled="submitting || !preferred_date" class="w-full mt-4 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!submitting">Daftar Sekarang</span><span x-show="submitting" x-cloak>Memproses...</span></button>
+        <button @click="submit()" :disabled="submitting || !preferred_date" class="w-full mt-4 py-3 rounded-xl text-sm font-semibold text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!submitting">Daftar Sekarang</span><span x-show="submitting" x-cloak>Memproses...</span></button>
       </div>
       <!-- Success -->
       <div x-show="submitted" x-cloak class="bg-white rounded-xl border border-green-200 shadow-sm p-6 text-center mb-4">
@@ -337,8 +436,12 @@ export function patientBooking(params) {
 export function patientProfile() {
   const patient = getPatient();
   const user = getUser();
+  const recordsCount = store.getRecords(patient?.id).length;
+  const upcomingCount = store.getUpcomingAppointments(patient?.id).length;
+  const adminWA = CONFIG.CLINIC_WHATSAPP;
   return `
-  <div class="min-h-screen bg-gray-50 pb-20" x-data="{
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024,
     editing: false, saving: false, saved: false,
     form: { phone:'${(patient?.phone||'').replace(/'/g,"\\'")}', address:'${(patient?.address||'').replace(/'/g,"\\'")}', emergency_contact:'${(patient?.emergency_contact||'').replace(/'/g,"\\'")}', allergies:'${(patient?.allergies||'').replace(/'/g,"\\'")}' },
     saveProfile() {
@@ -350,16 +453,40 @@ export function patientProfile() {
         setTimeout(function(){ self.saved = false; }, 2000);
       }, 400);
     }
-  }">
-    ${patientHeader(patient)}
-    <main class="p-4 max-w-lg mx-auto">
-      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-4 text-center">
-        <div class="w-20 h-20 rounded-full mx-auto flex items-center justify-center text-2xl font-bold text-white mb-3" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${patient?.full_name?.split(' ').map(n=>n[0]).join('').slice(0,2) || 'P'}</div>
+  }" class="min-h-screen bg-wash">
+    ${patientSidebar('profile')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-[236px]' : 'ml-0'">
+      <div class="hidden lg:block">${patientHeader(patient)}</div>
+      <div class="lg:hidden bg-gradient-to-b from-[#2b7ee0] to-brand-dark px-5 pt-5 pb-8 rounded-b-[28px]">
+        <div class="flex items-center justify-between">
+          <div class="text-[17px] font-extrabold text-white">Profil Saya</div>
+          <button @click="editing=true" class="text-[11px] font-bold text-brand-dark bg-white px-3 py-1.5 rounded-full">Edit</button>
+        </div>
+        <div class="flex items-center gap-3.5 mt-4">
+          <div class="w-[62px] h-[62px] rounded-full bg-white/[.18] flex items-center justify-center border-2 border-white/35 text-white font-bold text-lg">${patient?.full_name?.split(' ').map(n=>n[0]).join('').slice(0,2) || 'P'}</div>
+          <div class="flex-1"><div class="text-[17px] font-extrabold text-white">${patient?.full_name || '-'}</div><div class="text-xs text-white/75">${user?.email || '-'}</div></div>
+        </div>
+      </div>
+      <main class="p-4 lg:p-6 max-w-7xl mx-auto pb-24 lg:pb-6">
+      <div class="lg:hidden -mt-5 mb-4 bg-white border border-slate-100 rounded-3xl p-4 flex shadow-lg shadow-slate-900/5">
+        <div class="flex-1 text-center"><div class="text-lg font-extrabold">${recordsCount}</div><div class="text-[10.5px] text-faint font-semibold">Kunjungan</div></div>
+        <div class="w-px bg-slate-100"></div>
+        <div class="flex-1 text-center"><div class="text-lg font-extrabold text-brand">${upcomingCount}</div><div class="text-[10.5px] text-faint font-semibold">Terjadwal</div></div>
+        <div class="w-px bg-slate-100"></div>
+        <div class="flex-1 text-center"><div class="text-lg font-extrabold text-[#1f9d63]">${patient?.blood_type || '-'}</div><div class="text-[10.5px] text-faint font-semibold">Gol. darah</div></div>
+      </div>
+      <div class="lg:hidden mb-4 bg-white border border-slate-100 rounded-3xl overflow-hidden">
+        <a href="#/patient/history" class="flex items-center gap-3.5 p-3.5 border-b border-slate-50"><span class="w-9 h-9 rounded-xl bg-tint flex items-center justify-center"><span class="ms text-[20px] text-brand">history</span></span><span class="flex-1 text-[13.5px] font-bold text-[#243b5e]">Riwayat Kunjungan</span><span class="ms text-[20px] text-slate-300">chevron_right</span></a>
+        <a href="#/patient/notifications" class="flex items-center gap-3.5 p-3.5 border-b border-slate-50"><span class="w-9 h-9 rounded-xl bg-[#fdeee9] flex items-center justify-center"><span class="ms text-[20px] text-[#e8452c]">notifications_active</span></span><span class="flex-1 text-[13.5px] font-bold text-[#243b5e]">Pengingat & Notifikasi</span><span class="ms text-[20px] text-slate-300">chevron_right</span></a>
+        <a href="https://wa.me/${adminWA}" target="_blank" class="flex items-center gap-3.5 p-3.5"><span class="w-9 h-9 rounded-xl bg-[#f4eefb] flex items-center justify-center"><span class="ms text-[20px] text-[#7b52c4]">help</span></span><span class="flex-1 text-[13.5px] font-bold text-[#243b5e]">Bantuan & Kontak</span><span class="ms text-[20px] text-slate-300">chevron_right</span></a>
+      </div>
+      <div class="hidden lg:block bg-white border border-slate-100 rounded-3xl p-6 mb-4 text-center">
+        <div class="w-20 h-20 rounded-full mx-auto flex items-center justify-center text-2xl font-bold text-white mb-3" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${patient?.full_name?.split(' ').map(n=>n[0]).join('').slice(0,2) || 'P'}</div>
         <h2 class="text-lg font-bold text-gray-800">${patient?.full_name || '-'}</h2>
         <p class="text-sm text-gray-500">${user?.email || '-'}</p>
       </div>
       <div x-show="saved" x-cloak class="mb-3 p-3 rounded-xl bg-green-50 border border-green-200 text-green-700 text-sm text-center font-medium">Profil berhasil diperbarui!</div>
-      <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden mb-4">
+      <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden mb-4">
         <div class="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
           <h3 class="font-semibold text-gray-800 text-sm">Data Pribadi</h3>
           <button @click="editing=!editing" class="text-xs font-medium text-teal-600 hover:text-teal-700 transition" x-text="editing ? 'Batal' : 'Edit Profil'"></button>
@@ -375,29 +502,83 @@ export function patientProfile() {
           <div class="px-4 py-3"><div class="flex justify-between items-center"><span class="text-sm text-gray-500">Riwayat Alergi</span><span x-show="!editing" class="text-sm text-gray-800 font-medium" x-text="form.allergies || '-'"></span></div><input x-show="editing" x-cloak type="text" x-model="form.allergies" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Dilaporkan oleh pasien"><p x-show="editing" class="text-xs text-amber-600 mt-1">Perubahan alergi akan ditandai sebagai "dilaporkan pasien"</p></div>
           <div class="px-4 py-3"><div class="flex justify-between items-center"><span class="text-sm text-gray-500">Kontak Darurat</span><span x-show="!editing" class="text-sm text-gray-800 font-medium text-right max-w-[60%]" x-text="form.emergency_contact || '-'"></span></div><input x-show="editing" x-cloak type="text" x-model="form.emergency_contact" class="w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Nama - No. Telepon"></div>
         </div>
-        <div x-show="editing" x-cloak class="p-4 border-t border-gray-100"><button @click="saveProfile()" :disabled="saving" class="w-full py-2.5 rounded-xl text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!saving">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span></button></div>
+        <div x-show="editing" x-cloak class="p-4 border-t border-gray-100"><button @click="saveProfile()" :disabled="saving" class="w-full py-2.5 rounded-xl text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span></button></div>
       </div>
       <button onclick="sessionStorage.clear();window.location.hash='/login';window.dispatchEvent(new CustomEvent('auth-changed'))" class="w-full py-3 rounded-xl text-sm font-medium text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition">Keluar dari Akun</button>
-    </main>
-    ${patientBottomNav('profile')}
-  </div>`;
+      </main>
+    </div>
+  </div>
+  ${patientBottomNav('profile')}`;
+}
+
+function patientSidebar(active) {
+  const patient = getPatient();
+  const unreadChat = patient ? store.getConsultationsForPatient(patient.id).reduce((s, c) => s + (c.unread_count || 0), 0) : 0;
+  const items = [
+    { id: 'home', label: 'Dashboard', icon: 'home', href: '#/patient/dashboard' },
+    { id: 'history', label: 'Riwayat', icon: 'clinical_notes', href: '#/patient/history' },
+    { id: 'services', label: 'Layanan', icon: 'medical_services', href: '#/patient/services' },
+    { id: 'prescriptions', label: 'Resep', icon: 'medication', href: '#/patient/prescriptions' },
+    { id: 'chat', label: 'Chat', icon: 'forum', href: '#/patient/chat', badge: unreadChat },
+    { id: 'profile', label: 'Profil', icon: 'person', href: '#/patient/profile' },
+  ];
+  return `
+  <aside class="fixed top-0 left-0 h-full w-[236px] bg-white border-r border-slate-100 z-40 transform transition-transform duration-300 flex flex-col" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
+    <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+      <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto">
+      <button @click="sideOpen=false" class="lg:hidden text-faint hover:text-ink"><span class="ms text-[20px]">close</span></button>
+    </div>
+    <nav class="p-3 space-y-1 flex-1">${items.map(i => `<a href="${i.href}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] transition ${active === i.id ? 'bg-tint text-brand font-bold' : 'text-muted font-semibold hover:bg-slate-50'}"><span class="ms ${active === i.id ? 'ms-fill' : ''} text-[20px] ${active === i.id ? 'text-brand' : 'text-faint'}">${i.icon}</span><span class="flex-1">${i.label}</span>${i.badge ? `<span class="w-5 h-5 rounded-full bg-[#ff5436] text-white text-[10.5px] font-bold flex items-center justify-center">${i.badge}</span>` : ''}</a>`).join('')}</nav>
+    <div class="p-3 border-t border-slate-100"><button onclick="sessionStorage.clear();window.location.hash='/login';window.dispatchEvent(new CustomEvent('auth-changed'))" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-semibold text-muted hover:bg-slate-50 hover:text-ink transition w-full"><span class="ms text-[20px] text-faint">logout</span>Keluar</button></div>
+  </aside>`;
 }
 
 function patientHeader(patient, unread = 0) {
-  return `<header class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-    <div class="flex items-center gap-2"><img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-8 w-auto"></div>
-    <a href="#/patient/notifications" class="relative p-1 hover:bg-gray-100 rounded-lg transition"><svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>${unread > 0 ? `<span class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">${unread}</span>` : ''}</a>
+  return `<header class="sticky top-0 z-30 h-[66px] bg-white border-b border-slate-100 px-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <button @click="sideOpen=!sideOpen" class="lg:hidden p-2 rounded-xl hover:bg-wash transition"><span class="ms text-[21px] text-muted">menu</span></button>
+      <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto lg:hidden">
+    </div>
+    <a href="#/patient/notifications" class="relative w-10 h-10 rounded-xl bg-wash flex items-center justify-center hover:bg-slate-100 transition"><span class="ms text-[21px] text-slate-600">notifications</span>${unread > 0 ? `<span class="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-[#ff5436] border-2 border-white"></span>` : ''}</a>
   </header>`;
 }
 
-function patientBottomNav(active) {
+export function patientBottomNav(active) {
+  const patient = getPatient();
+  const unreadChat = patient ? store.getConsultationsForPatient(patient.id).reduce((s, c) => s + (c.unread_count || 0), 0) : 0;
   const items = [
-    { id: 'home', label: 'Home', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>', href: '#/patient/dashboard' },
-    { id: 'history', label: 'Riwayat', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>', href: '#/patient/history' },
-    { id: 'prescriptions', label: 'Resep', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>', href: '#/patient/prescriptions' },
-    { id: 'profile', label: 'Profil', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>', href: '#/patient/profile' },
+    { id: 'home', icon: 'home', href: '#/patient/dashboard' },
+    { id: 'services', icon: 'medical_services', href: '#/patient/services' },
+    { id: 'fab' },
+    { id: 'chat', icon: 'forum', href: '#/patient/chat', badge: unreadChat },
+    { id: 'profile', icon: 'person', href: '#/patient/profile' },
   ];
-  return `<nav class="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 px-2 py-1 max-w-lg mx-auto">
-    <div class="flex justify-around">${items.map(i => `<a href="${i.href}" class="flex flex-col items-center py-2 px-3 rounded-lg transition ${active === i.id ? 'text-teal-600' : 'text-gray-400 hover:text-gray-600'}"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">${i.icon}</svg><span class="text-xs mt-0.5 font-medium">${i.label}</span></a>`).join('')}</div>
+  return `<nav class="lg:hidden fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[440px] px-5 pb-[calc(env(safe-area-inset-bottom)+16px)] pt-2.5 z-40">
+    <div class="flex items-center justify-around bg-ink rounded-[22px] px-2.5 py-3">
+      ${items.map(i => i.id === 'fab'
+        ? `<a href="#/patient/services" class="w-11 h-11 rounded-full bg-[#ff5436] flex items-center justify-center -mt-6 border-4 border-wash"><span class="ms text-[22px] text-white">add</span></a>`
+        : `<a href="${i.href}" class="relative ms ${active === i.id ? 'ms-fill text-white' : 'text-white/50'} text-[24px]">${i.icon}${i.badge ? `<span class="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-[#ff5436] border-2 border-ink"></span>` : ''}</a>`
+      ).join('')}
+    </div>
   </nav>`;
+}
+
+export function patientChatList() {
+  const patient = getPatient();
+  const conversations = store.getConsultationsForPatient(patient?.id);
+  return chatListPage({ sidebar: patientSidebar('chat'), header: patientHeader(patient), conversations, viewerRole: 'patient', viewerId: patient?.id, threadPathPrefix: '#/patient/chat/' });
+}
+
+export function patientChatThread(params) {
+  const patient = getPatient();
+  const consultation = store.getConsultation(params.conversationId);
+  if (!consultation) return '<div class="min-h-screen flex items-center justify-center text-gray-400">Percakapan tidak ditemukan</div>';
+  const doctor = store.getDoctor(consultation.doctor_id);
+  return chatThreadPage({ sidebar: patientSidebar('chat'), header: patientHeader(patient), consultationId: consultation.id, otherName: doctor?.full_name || 'Dokter', messages: store.getMessages(consultation.id), viewerRole: 'patient', listPath: '#/patient/chat' });
+}
+
+export function patientChatStart(params) {
+  const patient = getPatient();
+  window.__chatStartArgs = { doctorId: params.doctorId, patientId: patient?.id };
+  return `<div x-data="{}" x-init="(async () => { const c = await window.__store.getOrCreateConsultation(window.__chatStartArgs.patientId, window.__chatStartArgs.doctorId); window.location.hash = '/patient/chat/' + c.id; })()" class="min-h-screen flex items-center justify-center bg-wash"><p class="text-sm text-faint">Membuka percakapan...</p></div>`;
 }

@@ -2,6 +2,7 @@ import { store } from '../store.js';
 import { CONFIG } from '../config.js';
 import { ICD10 } from '../icd10.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
+import { chatListPage, chatThreadPage } from './chat.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -28,7 +29,7 @@ export function doctorDashboard() {
   const upcoming = store.data.appointments.filter(a => a.doctor_id === doc?.id && a.date > today && a.status === 'scheduled').slice(0, 5);
 
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-gray-50">
+  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-wash">
     ${doctorSidebar('dashboard')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -38,13 +39,13 @@ export function doctorDashboard() {
           <p class="text-gray-500 text-sm">${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${todayPatientIds.size}</p><p class="text-xs text-gray-500">Pasien Hari Ini</p></div></div></div>
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${waiting}</p><p class="text-xs text-gray-500">Antrean Aktif</p></div></div></div>
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${completed}</p><p class="text-xs text-gray-500">Selesai Hari Ini</p></div></div></div>
-          <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-purple-500 flex items-center justify-center"><svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div><div><p class="text-2xl font-bold text-gray-800">${prescriptions.length}</p><p class="text-xs text-gray-500">Resep Terkirim</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-brand flex items-center justify-center"><span class="ms text-[22px] text-white">groups</span></div><div><p class="text-2xl font-bold text-ink">${todayPatientIds.size}</p><p class="text-xs text-faint">Pasien Hari Ini</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:#e0a112"><span class="ms text-[22px] text-white">schedule</span></div><div><p class="text-2xl font-bold text-ink">${waiting}</p><p class="text-xs text-faint">Antrean Aktif</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:#1f9d63"><span class="ms text-[22px] text-white">task_alt</span></div><div><p class="text-2xl font-bold text-ink">${completed}</p><p class="text-xs text-faint">Selesai Hari Ini</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:#7b52c4"><span class="ms text-[22px] text-white">prescriptions</span></div><div><p class="text-2xl font-bold text-ink">${prescriptions.length}</p><p class="text-xs text-faint">Resep Terkirim</p></div></div></div>
         </div>
         <div class="grid lg:grid-cols-2 gap-6">
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
+          <div class="bg-white border border-slate-100 rounded-3xl">
             <div class="p-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-semibold text-gray-800">Antrean Pasien Hari Ini</h3><a href="#/doctor/patients" class="text-xs text-teal-600 hover:text-teal-700">Lihat Semua</a></div>
             <div class="divide-y divide-gray-50">
               ${todayAppts.length === 0 ? '<p class="p-4 text-gray-400 text-sm text-center">Tidak ada antrean hari ini</p>' : todayAppts.map(apt => {
@@ -53,18 +54,18 @@ export function doctorDashboard() {
                 const statusLabels = { waiting: 'Menunggu', completed: 'Selesai', scheduled: 'Terjadwal' };
                 return `<div class="p-4 hover:bg-gray-50 transition flex items-center justify-between">
                   <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${apt.queue_number || '-'}</div>
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${apt.queue_number || '-'}</div>
                     <div><p class="font-medium text-gray-800 text-sm">${patient?.full_name || 'N/A'}</p><p class="text-xs text-gray-500">${apt.time_slot} — ${apt.notes || apt.type}</p></div>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="px-2 py-1 rounded-full text-xs font-medium ${statusColors[apt.status] || 'bg-gray-100 text-gray-600'}">${statusLabels[apt.status] || apt.status}</span>
-                    ${apt.status === 'waiting' ? `<a href="#/doctor/emr/${apt.patient_id}/new" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Mulai</a>` : ''}
+                    ${apt.status === 'waiting' ? `<a href="#/doctor/emr/${apt.patient_id}/new" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Mulai</a>` : ''}
                   </div>
                 </div>`;
               }).join('')}
             </div>
           </div>
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm">
+          <div class="bg-white border border-slate-100 rounded-3xl">
             <div class="p-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-semibold text-gray-800">Kontrol Ulang Mendatang</h3><a href="#/doctor/calendar" class="text-xs text-teal-600 hover:text-teal-700">Kalender</a></div>
             <div class="divide-y divide-gray-50">
               ${upcoming.length === 0 ? '<p class="p-4 text-gray-400 text-sm text-center">Tidak ada jadwal mendatang</p>' : upcoming.map(apt => {
@@ -89,7 +90,7 @@ export function doctorPatients() {
   const doc = getDoctor();
   const patients = store.getPatients();
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', showNewForm: false, newPatient: { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123' } }" class="min-h-screen bg-gray-50">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', showNewForm: false, newPatient: { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123' } }" class="min-h-screen bg-wash">
     ${doctorSidebar('patients')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -98,10 +99,10 @@ export function doctorPatients() {
           <h2 class="text-xl font-bold text-gray-800">Manajemen Pasien</h2>
           <div class="flex gap-2">
             <div class="relative flex-1"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari nama, NIK, telepon..."></div>
-            <button @click="showNewForm = !showNewForm" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">+ Pasien Baru</button>
+            <button @click="showNewForm = !showNewForm" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Pasien Baru</button>
           </div>
         </div>
-        <div x-show="showNewForm" x-cloak x-data="{ saving: false, msg: '' }" class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6">
+        <div x-show="showNewForm" x-cloak x-data="{ saving: false, msg: '' }" class="bg-white border border-slate-100 rounded-3xl p-6 mb-6">
           <h3 class="font-semibold text-gray-800 mb-4">Registrasi Pasien Baru</h3>
           <div x-show="msg" class="mb-3 p-2 rounded-lg bg-green-50 text-green-700 text-sm" x-text="msg"></div>
           <form @submit.prevent="async function doReg(){saving=true; const r=await window.__store.register({...newPatient}); if(r.error){msg=r.error}else{msg='Pasien berhasil didaftarkan! (tersimpan di cloud)'; newPatient={full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123'}}; saving=false}; doReg()">
@@ -115,10 +116,10 @@ export function doctorPatients() {
               <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="newPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
             </div>
-            <div class="flex gap-2"><button type="submit" :disabled="saving" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Simpan</button><button type="button" @click="showNewForm=false" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button></div>
+            <div class="flex gap-2"><button type="submit" :disabled="saving" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Simpan</button><button type="button" @click="showNewForm=false" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button></div>
           </form>
         </div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full">
               <thead><tr class="bg-gray-50 border-b border-gray-100"><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Nama</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden sm:table-cell">NIK</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden md:table-cell">Gender</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden lg:table-cell">Telepon</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Aksi</th></tr></thead>
@@ -126,11 +127,11 @@ export function doctorPatients() {
                 ${patients.map(p => `
                 <template x-if="!search || '${p.full_name.toLowerCase()}'.includes(search.toLowerCase()) || '${p.nik}'.includes(search) || '${p.phone}'.includes(search)">
                   <tr class="hover:bg-gray-50 transition">
-                    <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${p.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><p class="font-medium text-gray-800 text-sm">${p.full_name}</p><p class="text-xs text-gray-400">${p.blood_type ? 'Gol. '+p.blood_type : ''} ${p.allergies && p.allergies !== '-' ? '| Alergi: '+p.allergies : ''}</p></div></div></td>
+                    <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${p.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><p class="font-medium text-gray-800 text-sm">${p.full_name}</p><p class="text-xs text-gray-400">${p.blood_type ? 'Gol. '+p.blood_type : ''} ${p.allergies && p.allergies !== '-' ? '| Alergi: '+p.allergies : ''}</p></div></div></td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.nik}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${p.gender}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${p.phone}</td>
-                    <td class="px-4 py-3"><div class="flex gap-1"><a href="#/doctor/emr/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Rekam Medis</a><a href="#/doctor/emr/${p.id}/new" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">+ Kunjungan</a></div></td>
+                    <td class="px-4 py-3"><div class="flex gap-1"><a href="#/doctor/emr/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Rekam Medis</a><a href="#/doctor/emr/${p.id}/new" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">+ Kunjungan</a><a href="#/doctor/chat/start/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">Chat</a></div></td>
                   </tr>
                 </template>`).join('')}
               </tbody>
@@ -150,16 +151,16 @@ export function doctorEMR(params) {
   if (!patient) return `<div class="min-h-screen flex items-center justify-center"><p class="text-gray-500">Pasien tidak ditemukan</p></div>`;
 
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, activeTab: 'records' }" class="min-h-screen bg-gray-50">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, activeTab: 'records' }" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="flex items-center gap-2 mb-4 text-sm text-gray-500"><a href="#/doctor/patients" class="hover:text-teal-600 transition">Pasien</a><span>/</span><span class="text-gray-800 font-medium">${patient.full_name}</span></div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6">
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-6">
           <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div class="flex items-center gap-4">
-              <div class="w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
+              <div class="w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
               <div>
                 <h2 class="text-lg font-bold text-gray-800">${patient.full_name}</h2>
                 <p class="text-sm text-gray-500">${patient.gender}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000)) + ' thn' : '-'} | NIK: ${patient.nik}</p>
@@ -175,13 +176,13 @@ export function doctorEMR(params) {
         <div class="flex gap-2 mb-4">
           <button @click="activeTab='records'" :class="activeTab==='records' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Rekam Medis (${records.length})</button>
           <button @click="activeTab='vaccinations'" :class="activeTab==='vaccinations' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Vaksinasi (${vaccinations.length})</button>
-          <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white ml-auto" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">+ Kunjungan Baru</a>
+          <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white ml-auto" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
         </div>
         <div x-show="activeTab==='records'">
           ${records.length === 0 ? '<div class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400">Belum ada rekam medis</div>' :
           records.map(r => {
             const doctor = store.getDoctor(r.doctor_id);
-            return `<div class="bg-white rounded-xl border border-gray-100 shadow-sm mb-4 overflow-hidden" x-data="{open:false}">
+            return `<div class="bg-white border border-slate-100 rounded-3xl mb-4 overflow-hidden" x-data="{open:false}">
               <div class="p-4 cursor-pointer hover:bg-gray-50 transition flex items-center justify-between" @click="open=!open">
                 <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center"><svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div><div><p class="font-medium text-gray-800">${formatDate(r.visit_date)}</p><p class="text-sm text-gray-500">${r.diagnosis} — ${doctor?.full_name || ''}</p></div></div>
                 <div class="flex items-center gap-2">${r.follow_up_date ? `<span class="px-2 py-1 rounded text-xs bg-blue-50 text-blue-700">Kontrol: ${formatDate(r.follow_up_date)}</span>` : ''}<svg class="w-5 h-5 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></div>
@@ -204,7 +205,7 @@ export function doctorEMR(params) {
             const grouped = {};
             vaccinations.forEach(v => { if (!grouped[v.vaccine_name]) grouped[v.vaccine_name] = []; grouped[v.vaccine_name].push(v); });
             return Object.entries(grouped).map(([name, doses]) => `
-              <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+              <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
                 <div class="flex items-center justify-between mb-3"><h4 class="font-semibold text-gray-800">${name}${doses[0]?.vaccine_brand ? ' ('+doses[0].vaccine_brand+')' : ''}</h4><span class="text-xs text-gray-400">${doses[0]?.vax_mode === 'booster' ? 'Booster' : 'Seri '+doses.filter(d=>d.date_given).length+'/'+doses[0]?.total_doses}</span></div>
                 <div class="space-y-3">
                   ${doses.map(d => `<div class="flex items-center gap-3 p-3 rounded-lg ${d.date_given ? 'bg-green-50' : 'bg-gray-50'}" x-data="{editing:false}">
@@ -409,7 +410,7 @@ export function doctorEMRNew(params) {
       }, 400);
     },
     savedRecordId: null
-  }" class="min-h-screen bg-gray-50">
+  }" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -417,14 +418,14 @@ export function doctorEMRNew(params) {
         <div class="flex items-center justify-between mb-6">
           <div class="flex items-center gap-2 text-sm text-gray-500"><a href="#/doctor/emr/${patient.id}" class="hover:text-teal-600 transition">${patient.full_name}</a><span>/</span><span class="text-gray-800 font-medium">Kunjungan Baru</span></div>
           <div class="flex gap-2">
-            <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${patient.id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
-          <div class="flex items-center gap-4"><div class="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><h3 class="font-bold text-gray-800">${patient.full_name}</h3><p class="text-sm text-gray-500">${patient.gender}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000))+' thn' : '-'} | Gol. ${patient.blood_type || '-'} | Alergi: ${patient.allergies || '-'}</p></div></div>
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
+          <div class="flex items-center gap-4"><div class="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><h3 class="font-bold text-gray-800">${patient.full_name}</h3><p class="text-sm text-gray-500">${patient.gender}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000))+' thn' : '-'} | Gol. ${patient.blood_type || '-'} | Alergi: ${patient.allergies || '-'}</p></div></div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-3">Tipe Kunjungan & Lokasi</h4>
           <div class="grid sm:grid-cols-3 gap-3">
             <div>
@@ -441,7 +442,7 @@ export function doctorEMRNew(params) {
           </div>
         </div>
         <div class="space-y-4">
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="bg-white border border-slate-100 rounded-3xl p-4">
             <h4 class="font-semibold text-gray-800 mb-3 flex items-center gap-2"><svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg> Vital Signs</h4>
             <div class="grid grid-cols-3 lg:grid-cols-7 gap-3">
               <div><label class="block text-xs text-gray-500 mb-1">TD (mmHg)</label><input type="text" x-model="form.vital_signs.td" class="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="120/80"></div>
@@ -456,12 +457,12 @@ export function doctorEMRNew(params) {
           <!-- KONSULTASI SECTION -->
           <template x-if="visitType==='consultation' || visitType==='both'">
             <div class="space-y-4">
-              <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+              <div class="bg-white border border-slate-100 rounded-3xl p-4">
                 <h4 class="font-semibold text-gray-800 mb-3">Anamnesis *</h4>
                 <textarea x-model="form.anamnesis" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Keluhan utama, riwayat penyakit sekarang, riwayat penyakit dahulu..."></textarea>
               </div>
               <div class="grid lg:grid-cols-2 gap-4">
-                <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                <div class="bg-white border border-slate-100 rounded-3xl p-4">
                   <h4 class="font-semibold text-gray-800 mb-3 flex items-center gap-2"><svg class="w-4 h-4 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg> Diagnosis Utama (ICD-10) *</h4>
                   <div class="relative">
                     <div class="relative"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -496,12 +497,12 @@ export function doctorEMRNew(params) {
                     <button type="button" @click="form.diagnosis_secondary='';icdSearch2=''" class="ml-auto text-blue-400 hover:text-blue-700"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
                   </div>
                 </div>
-                <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                <div class="bg-white border border-slate-100 rounded-3xl p-4">
                   <h4 class="font-semibold text-gray-800 mb-3">Terapi & Tindakan</h4>
                   <textarea x-model="form.therapy" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Rencana terapi, tindakan, edukasi pasien..."></textarea>
                 </div>
               </div>
-              <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+              <div class="bg-white border border-slate-100 rounded-3xl p-4">
                 <h4 class="font-semibold text-gray-800 mb-3">Jadwal Kontrol Ulang</h4>
                 <div class="grid sm:grid-cols-2 gap-3">
                   <div><label class="block text-xs text-gray-500 mb-1">Tanggal Kontrol</label><input type="date" x-model="form.follow_up_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
@@ -583,7 +584,7 @@ export function doctorEMRNew(params) {
             <h3 class="text-lg font-bold text-gray-800 mb-2">Rekam Medis Tersimpan!</h3>
             <p class="text-sm text-gray-500 mb-6">Apakah Anda ingin membuat e-resep untuk kunjungan ini?</p>
             <div class="flex gap-2">
-              <a :href="savedRecordId ? '#/doctor/prescriptions/new/'+savedRecordId : '#/doctor/emr/${patient.id}'" class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white text-center" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">Ya, Buat E-Resep</a>
+              <a :href="savedRecordId ? '#/doctor/prescriptions/new/'+savedRecordId : '#/doctor/emr/${patient.id}'" class="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white text-center" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Ya, Buat E-Resep</a>
               <a href="#/doctor/emr/${patient.id}" class="flex-1 py-2.5 rounded-xl text-sm font-medium text-gray-600 border border-gray-200 text-center">Nanti Saja</a>
             </div>
           </div>
@@ -597,7 +598,7 @@ export function doctorRecords() {
   const doc = getDoctor();
   const allRecords = store.getRecordsByDoctor(doc?.id);
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '' }" class="min-h-screen bg-gray-50">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '' }" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -606,7 +607,7 @@ export function doctorRecords() {
           <h2 class="text-xl font-bold text-gray-800">Rekam Medis Terbaru</h2>
           <div class="relative"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari pasien atau diagnosis..."></div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           <div class="divide-y divide-gray-50">
             ${allRecords.length === 0 ? '<p class="p-8 text-center text-gray-400">Belum ada rekam medis</p>' :
             allRecords.map(r => {
@@ -642,13 +643,13 @@ export function doctorPrescriptions() {
   const doc = getDoctor();
   const prescriptions = store.getPrescriptionsByDoctor(doc?.id);
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-gray-50">
+  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-wash">
     ${doctorSidebar('prescriptions')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <h2 class="text-xl font-bold text-gray-800 mb-6">Riwayat E-Resep</h2>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           ${prescriptions.length === 0 ? '<p class="p-8 text-center text-gray-400">Belum ada resep</p>' : `
           <div class="divide-y divide-gray-50">${prescriptions.map(rx => {
             const patient = store.getPatient(rx.patient_id);
@@ -692,7 +693,7 @@ export function doctorPrescriptionNew(params) {
   if (!record || !patient) return '<div class="p-8 text-center text-gray-500">Rekam medis tidak ditemukan</div>';
 
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}], pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', sending: false, sent: false }" class="min-h-screen bg-gray-50">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}], pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', sending: false, sent: false }" class="min-h-screen bg-wash">
     ${doctorSidebar('prescriptions')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -700,10 +701,10 @@ export function doctorPrescriptionNew(params) {
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold text-gray-800">Buat E-Resep</h2>
           <div class="flex gap-2">
-            <button @click="sending=true; setTimeout(()=>{ window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:pharmacy_id,notes:notes}, items); sending=false; sent=true; setTimeout(()=>window.location.hash='/doctor/prescriptions',1000) },500)" :disabled="sending || sent || items.some(i=>!i.drug_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
+            <button @click="sending=true; setTimeout(()=>{ window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:pharmacy_id,notes:notes}, items); sending=false; sent=true; setTimeout(()=>window.location.hash='/doctor/prescriptions',1000) },500)" :disabled="sending || sent || items.some(i=>!i.drug_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
           </div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
             <div><span class="text-gray-500">Dokter:</span><p class="font-medium text-gray-800">${doc?.full_name}</p></div>
             <div><span class="text-gray-500">SIP:</span><p class="font-medium text-gray-800">${doc?.sip_number}</p></div>
@@ -711,7 +712,7 @@ export function doctorPrescriptionNew(params) {
             <div><span class="text-gray-500">Diagnosis:</span><p class="font-medium text-gray-800">${record.diagnosis}</p></div>
           </div>
         </div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-4">Daftar Obat</h4>
           <template x-for="(item, index) in items" :key="index">
             <div class="border border-gray-100 rounded-lg p-3 mb-3 bg-gray-50/50">
@@ -736,11 +737,11 @@ export function doctorPrescriptionNew(params) {
           <button @click="items.push({drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''})" class="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 transition">+ Tambah Obat</button>
         </div>
         <div class="grid lg:grid-cols-2 gap-4">
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="bg-white border border-slate-100 rounded-3xl p-4">
             <h4 class="font-semibold text-gray-800 mb-2">Keterangan Khusus</h4>
             <textarea x-model="notes" rows="3" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Instruksi khusus untuk apoteker..."></textarea>
           </div>
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="bg-white border border-slate-100 rounded-3xl p-4">
             <h4 class="font-semibold text-gray-800 mb-2">Kirim ke Apotek Mitra</h4>
             <select x-model="pharmacy_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
               ${pharmacies.map(ph => `<option value="${ph.id}">${ph.name} — ${ph.address}</option>`).join('')}
@@ -779,7 +780,7 @@ export function doctorPrescriptionEdit(params) {
         setTimeout(function(){ window.location.hash = '/doctor/prescriptions'; }, 800);
       }, 400);
     }
-  }" class="min-h-screen bg-gray-50">
+  }" class="min-h-screen bg-wash">
     ${doctorSidebar('prescriptions')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -787,12 +788,12 @@ export function doctorPrescriptionEdit(params) {
         <div class="flex items-center justify-between mb-6">
           <div><h2 class="text-xl font-bold text-gray-800">Edit E-Resep</h2><p class="text-sm text-gray-500">${rx.rx_number} — ${patient?.full_name || 'N/A'}</p></div>
           <div class="flex gap-2">
-            <button @click="saveEdit()" :disabled="saving || saved" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveEdit()" :disabled="saving || saved" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/prescriptions" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2"><svg class="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg><p class="text-sm text-amber-800">Anda sedang mengedit resep yang sudah dikirim. Perubahan akan dikirim ulang ke apotek.</p></div>
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4">
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-4">Daftar Obat</h4>
           <template x-for="(item, index) in items" :key="index">
             <div class="border border-gray-100 rounded-lg p-3 mb-3 bg-gray-50/50">
@@ -814,8 +815,8 @@ export function doctorPrescriptionEdit(params) {
           <button @click="items.push({drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''})" class="w-full py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-teal-400 hover:text-teal-600 transition">+ Tambah Obat</button>
         </div>
         <div class="grid lg:grid-cols-2 gap-4">
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4"><h4 class="font-semibold text-gray-800 mb-2">Keterangan Khusus</h4><textarea x-model="notes" rows="3" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4"><h4 class="font-semibold text-gray-800 mb-2">Ganti Apotek Mitra</h4><select x-model="pharmacy_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${pharmacies.map(ph=>`<option value="${ph.id}">${ph.name} — ${ph.address}</option>`).join('')}</select></div>
+          <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-2">Keterangan Khusus</h4><textarea x-model="notes" rows="3" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
+          <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-2">Ganti Apotek Mitra</h4><select x-model="pharmacy_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${pharmacies.map(ph=>`<option value="${ph.id}">${ph.name} — ${ph.address}</option>`).join('')}</select></div>
         </div>
       </main>
     </div>
@@ -854,7 +855,7 @@ export function doctorEMREdit(params) {
         setTimeout(function(){ window.location.hash = '/doctor/emr/${record.patient_id}'; }, 800);
       }, 400);
     }
-  }" class="min-h-screen bg-gray-50">
+  }" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -862,20 +863,20 @@ export function doctorEMREdit(params) {
         <div class="flex items-center justify-between mb-6">
           <div><h2 class="text-xl font-bold text-gray-800">Edit Rekam Medis</h2><p class="text-sm text-gray-500">${patient?.full_name || ''} — ${formatDate(record.visit_date)}</p></div>
           <div class="flex gap-2">
-            <button @click="saveEdit()" :disabled="saving || saved || !form.anamnesis || !form.diagnosis" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveEdit()" :disabled="saving || saved || !form.anamnesis || !form.diagnosis" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${record.patient_id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
         <div class="space-y-4">
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="bg-white border border-slate-100 rounded-3xl p-4">
             <div class="grid sm:grid-cols-2 gap-3">
               <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat</label><select x-model="form.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
               <div><label class="block text-xs text-gray-500 mb-1">Jadwal Kontrol</label><input type="date" x-model="form.follow_up_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
             </div>
           </div>
-          <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4"><h4 class="font-semibold text-gray-800 mb-3">Anamnesis *</h4><textarea x-model="form.anamnesis" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
+          <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-3">Anamnesis *</h4><textarea x-model="form.anamnesis" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
           <div class="grid lg:grid-cols-2 gap-4">
-            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+            <div class="bg-white border border-slate-100 rounded-3xl p-4">
               <h4 class="font-semibold text-gray-800 mb-3">Diagnosis (ICD-10) *</h4>
               <div class="relative"><input type="text" x-model="icdSearch" @input="searchICD(icdSearch,1)" @focus="searchICD(icdSearch,1)" @click.away="icdOpen=false" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari ICD-10...">
                 <div x-show="icdOpen" x-cloak class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"><template x-for="item in icdResults" :key="item.code"><button type="button" @mousedown.prevent="selectICD(item,1)" class="w-full text-left px-3 py-2 hover:bg-teal-50 transition border-b border-gray-50"><span class="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 text-xs font-mono font-bold" x-text="item.code"></span> <span class="text-sm text-gray-800" x-text="item.name_id"></span></button></template></div>
@@ -886,7 +887,7 @@ export function doctorEMREdit(params) {
                 <div x-show="icdOpen2" x-cloak class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"><template x-for="item in icdResults2" :key="item.code"><button type="button" @mousedown.prevent="selectICD(item,2)" class="w-full text-left px-3 py-2 hover:bg-teal-50 transition border-b border-gray-50"><span class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-xs font-mono font-bold" x-text="item.code"></span> <span class="text-sm" x-text="item.name_id"></span></button></template></div>
               </div>
             </div>
-            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4"><h4 class="font-semibold text-gray-800 mb-3">Terapi & Tindakan</h4><textarea x-model="form.therapy" rows="5" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
+            <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-3">Terapi & Tindakan</h4><textarea x-model="form.therapy" rows="5" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
           </div>
         </div>
       </main>
@@ -920,7 +921,7 @@ export function doctorCalendar(params) {
 
   const apptsData = allAppts.map(a => {
     const p = store.getPatient(a.patient_id);
-    return { ...a, patient_name: p?.full_name || 'N/A', patient_id: a.patient_id };
+    return { ...a, patient_name: p?.full_name || a.patient_name || 'N/A', patient_id: a.patient_id };
   });
   window.__calendarAppts = apptsData;
 
@@ -942,14 +943,14 @@ export function doctorCalendar(params) {
     typeIcons: { visit:'🏥', vaccination:'💉', follow_up:'🔄', telemedicine:'📹' },
     statusLabels: { waiting:'Menunggu', completed:'Selesai', scheduled:'Terjadwal' },
     statusColors: { waiting:'bg-amber-100 text-amber-700', completed:'bg-green-100 text-green-700', scheduled:'bg-blue-100 text-blue-700' }
-  }" class="min-h-screen bg-gray-50">
+  }" class="min-h-screen bg-wash">
     ${doctorSidebar('calendar')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <h2 class="text-xl font-bold text-gray-800 mb-6">Kalender & Jadwal</h2>
         <div class="grid lg:grid-cols-5 gap-6">
-          <div class="lg:col-span-3 bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="lg:col-span-3 bg-white border border-slate-100 rounded-3xl p-4">
             <div class="flex items-center justify-between mb-4">
               <a href="#${prevHref}" class="p-1.5 rounded-lg hover:bg-gray-100 transition text-gray-500"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></a>
               <div class="flex items-center gap-2">
@@ -975,7 +976,7 @@ export function doctorCalendar(params) {
               }).join('')}
             </div>
           </div>
-          <div class="lg:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="lg:col-span-2 bg-white border border-slate-100 rounded-3xl p-4">
             <h3 class="font-semibold text-gray-800 mb-1">Jadwal</h3>
             <p class="text-xs text-gray-500 mb-4" x-text="selectedDateFormatted"></p>
             <div class="space-y-2">
@@ -1039,7 +1040,7 @@ export function doctorHomeCareHistory() {
     role: 'doctor',
     sidebar: doctorSidebar('homecare'),
     header: doctorHeader(doc),
-    claims, claimItemsMap,
+    claims, claimItemsMap, doctorId: doc?.id,
     newPath: '/doctor/homecare/new',
     editPath: '/doctor/homecare/edit',
   });
@@ -1063,33 +1064,58 @@ export function doctorHomeCareEdit(params) {
 }
 
 function doctorSidebar(active) {
+  const doc = getDoctor();
+  const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+  const unreadChat = doc ? store.getConsultationsForDoctor(doc.id).reduce((s, c) => s + (c.unread_count || 0), 0) : 0;
   const items = [
-    { id: 'dashboard', label: 'Dashboard', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>', href: '#/doctor/dashboard' },
-    { id: 'patients', label: 'Pasien', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>', href: '#/doctor/patients' },
-    { id: 'emr', label: 'Rekam Medis', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>', href: '#/doctor/records' },
-    { id: 'prescriptions', label: 'E-Resep', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>', href: '#/doctor/prescriptions' },
-    { id: 'homecare', label: 'BMHP & Jasa', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/>', href: '#/doctor/homecare/history' },
-    { id: 'calendar', label: 'Kalender', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>', href: '#/doctor/calendar' },
+    { id: 'dashboard', label: 'Dashboard', icon: 'grid_view', href: '#/doctor/dashboard' },
+    { id: 'patients', label: 'Pasien', icon: 'groups', href: '#/doctor/patients' },
+    { id: 'emr', label: 'Rekam Medis', icon: 'clinical_notes', href: '#/doctor/records' },
+    { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/doctor/prescriptions' },
+    { id: 'chat', label: 'Pesan', icon: 'forum', href: '#/doctor/chat', badge: unreadChat },
+    { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/doctor/homecare/history' },
+    { id: 'calendar', label: 'Kalender', icon: 'calendar_month', href: '#/doctor/calendar' },
   ];
   return `
-  <aside class="fixed top-0 left-0 h-full w-64 bg-slate-900 text-white z-40 transform transition-transform duration-300" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
-    <div class="p-4 border-b border-slate-700/50 flex items-center justify-between">
-      <div class="flex items-center gap-2"><div class="bg-white rounded-lg px-1.5 py-1"><img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-6 w-auto"></div></div>
-      <button @click="sideOpen=false" class="lg:hidden text-slate-400 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+  <aside class="fixed top-0 left-0 h-full w-[236px] bg-white border-r border-slate-100 z-40 transform transition-transform duration-300 flex flex-col" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
+    <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+      <div class="flex items-center gap-2"><img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto"></div>
+      <button @click="sideOpen=false" class="lg:hidden text-faint hover:text-ink"><span class="ms text-[20px]">close</span></button>
     </div>
-    <nav class="p-3 space-y-1">${items.map(i => `<a href="${i.href}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition ${active === i.id ? 'bg-teal-600/20 text-teal-300' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">${i.icon}</svg>${i.label}</a>`).join('')}</nav>
-    <div class="absolute bottom-0 left-0 right-0 p-3 border-t border-slate-700/50"><button onclick="sessionStorage.clear();window.location.hash='/login';window.dispatchEvent(new CustomEvent('auth-changed'))" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:bg-slate-800 hover:text-white transition w-full"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>Keluar</button></div>
+    <nav class="p-3 space-y-1 flex-1">${items.map(i => `<a href="${i.href}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] transition ${active === i.id ? 'bg-tint text-brand font-bold' : 'text-muted font-semibold hover:bg-slate-50'}"><span class="ms ${active === i.id ? 'ms-fill' : ''} text-[20px] ${active === i.id ? 'text-brand' : 'text-faint'}">${i.icon}</span><span class="flex-1">${i.label}</span>${i.badge ? `<span class="w-5 h-5 rounded-full bg-[#ff5436] text-white text-[10.5px] font-bold flex items-center justify-center">${i.badge}</span>` : ''}</a>`).join('')}</nav>
+    ${user?.role === 'owner' ? `<div class="p-3 border-t border-slate-100"><a href="#/admin/dashboard" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-semibold text-brand hover:bg-slate-50 transition w-full"><span class="ms text-[20px]">shield_person</span>Lihat sebagai SuperAdmin</a></div>` : ''}
+    <div class="p-3 border-t border-slate-100"><button onclick="sessionStorage.clear();window.location.hash='/login';window.dispatchEvent(new CustomEvent('auth-changed'))" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-semibold text-muted hover:bg-slate-50 hover:text-ink transition w-full"><span class="ms text-[20px] text-faint">logout</span>Keluar</button></div>
   </aside>`;
+}
+
+export function doctorChatList() {
+  const doc = getDoctor();
+  const conversations = store.getConsultationsForDoctor(doc?.id);
+  return chatListPage({ sidebar: doctorSidebar('chat'), header: doctorHeader(doc), conversations, viewerRole: 'doctor', viewerId: doc?.id, threadPathPrefix: '#/doctor/chat/' });
+}
+
+export function doctorChatThread(params) {
+  const doc = getDoctor();
+  const consultation = store.getConsultation(params.conversationId);
+  if (!consultation) return '<div class="min-h-screen flex items-center justify-center text-gray-400">Percakapan tidak ditemukan</div>';
+  const patient = store.getPatient(consultation.patient_id);
+  return chatThreadPage({ sidebar: doctorSidebar('chat'), header: doctorHeader(doc), consultationId: consultation.id, otherName: patient?.full_name || 'Pasien', messages: store.getMessages(consultation.id), viewerRole: 'doctor', listPath: '#/doctor/chat' });
+}
+
+export function doctorChatStart(params) {
+  const doc = getDoctor();
+  window.__chatStartArgs = { doctorId: doc?.id, patientId: params.patientId };
+  return `<div x-data="{}" x-init="(async () => { const c = await window.__store.getOrCreateConsultation(window.__chatStartArgs.patientId, window.__chatStartArgs.doctorId); window.location.hash = '/doctor/chat/' + c.id; })()" class="min-h-screen flex items-center justify-center bg-wash"><p class="text-sm text-faint">Membuka percakapan...</p></div>`;
 }
 
 function doctorHeader(doc) {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
   const unread = store.getUnreadCount(user?.id);
-  return `<header class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-    <button @click="sideOpen=!sideOpen" class="p-2 rounded-lg hover:bg-gray-100 transition"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  return `<header class="sticky top-0 z-30 h-[66px] bg-white border-b border-slate-100 px-4 flex items-center justify-between">
+    <button @click="sideOpen=!sideOpen" class="p-2 rounded-xl hover:bg-wash transition"><span class="ms text-[21px] text-muted">menu</span></button>
     <div class="flex items-center gap-3">
-      <a href="#/doctor/notifications" class="relative p-1 hover:bg-gray-100 rounded-lg transition"><svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>${unread > 0 ? `<span class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">${unread}</span>` : ''}</a>
-      <div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#3A6FC9,#E03B27)">${(doc?.full_name || 'D').split(' ').map(n=>n[0]).join('').slice(0,2)}</div><span class="text-sm font-medium text-gray-700 hidden sm:block">${doc?.full_name || 'Dokter'}</span></div>
+      <a href="#/doctor/notifications" class="relative w-10 h-10 rounded-xl bg-wash flex items-center justify-center hover:bg-slate-100 transition"><span class="ms text-[21px] text-slate-600">notifications</span>${unread > 0 ? `<span class="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-[#ff5436] border-2 border-white"></span>` : ''}</a>
+      <div class="flex items-center gap-2"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${(doc?.full_name || 'D').split(' ').map(n=>n[0]).join('').slice(0,2)}</div><span class="text-sm font-medium text-ink hidden sm:block">${doc?.full_name || 'Dokter'}</span></div>
     </div>
   </header>`;
 }

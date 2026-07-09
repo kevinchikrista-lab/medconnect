@@ -27,7 +27,7 @@ export function loginPage() {
             sessionStorage.setItem('medconnect_user', JSON.stringify(result.user));
             sessionStorage.setItem('medconnect_profile', JSON.stringify(result.profile));
             self.loading = false;
-            const routes = { superadmin: '#/admin/dashboard', doctor: '#/doctor/dashboard', patient: '#/patient/dashboard', pharmacy: '#/pharmacy/dashboard' };
+            const routes = { superadmin: '#/admin/dashboard', owner: '#/admin/dashboard', doctor: '#/doctor/dashboard', patient: '#/patient/dashboard', pharmacy: '#/pharmacy/dashboard' };
             window.location.hash = routes[result.user.role] || '#/login';
           } catch(e) { self.error = 'Gagal terhubung ke server. Coba lagi.'; self.loading = false; }
           return;
@@ -38,7 +38,7 @@ export function loginPage() {
           sessionStorage.setItem('medconnect_user', JSON.stringify(result.user));
           sessionStorage.setItem('medconnect_profile', JSON.stringify(result.profile));
           self.loading = false;
-          const routes = { superadmin: '#/admin/dashboard', doctor: '#/doctor/dashboard', patient: '#/patient/dashboard', pharmacy: '#/pharmacy/dashboard' };
+          const routes = { superadmin: '#/admin/dashboard', owner: '#/admin/dashboard', doctor: '#/doctor/dashboard', patient: '#/patient/dashboard', pharmacy: '#/pharmacy/dashboard' };
           window.location.hash = routes[result.user.role] || '#/login';
         }, 400);
       }
