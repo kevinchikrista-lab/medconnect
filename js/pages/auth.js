@@ -21,6 +21,7 @@ export function loginPage() {
             }).then(r => r.json());
             if (authResult.error) { self.error = authResult.error_description || 'Email atau password salah.'; self.loading = false; return; }
             sessionStorage.setItem('sb_token', authResult.access_token);
+            sessionStorage.setItem('sb_refresh_token', authResult.refresh_token || '');
             await window.__store.loadFromSupabase();
             const result = window.__store.login(self.email, self.password);
             if (!result) { self.error = 'Akun tidak ditemukan atau tidak aktif.'; self.loading = false; return; }
