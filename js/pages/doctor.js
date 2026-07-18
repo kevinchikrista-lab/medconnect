@@ -192,6 +192,7 @@ export function doctorEMR(params) {
           ${records.length === 0 ? '<div class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400">Belum ada rekam medis</div>' :
           records.map(r => {
             const doctor = store.getDoctor(r.doctor_id);
+            const rxList = store.getPrescriptionsByRecord(r.id);
             return `<div class="bg-white border border-slate-100 rounded-3xl mb-4 overflow-hidden" x-data="{open:false}">
               <div class="p-4 cursor-pointer hover:bg-gray-50 transition flex items-center justify-between" @click="open=!open">
                 <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center"><svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div><div><p class="font-medium text-gray-800">${formatDate(r.visit_date)}</p><p class="text-sm text-gray-500">${r.diagnosis} — ${doctor?.full_name || ''}</p></div></div>
@@ -202,7 +203,24 @@ export function doctorEMR(params) {
                   <div><h4 class="font-semibold text-gray-700 mb-1">Anamnesis</h4><p class="text-gray-600">${r.anamnesis}</p></div>
                   <div><h4 class="font-semibold text-gray-700 mb-1">Pemeriksaan Fisik</h4><p class="text-gray-600">${r.examination || '-'}</p>${r.vital_signs ? `<div class="flex flex-wrap gap-2 mt-2">${Object.entries(r.vital_signs).map(([k,v])=>`<span class="px-2 py-1 rounded bg-white border border-gray-200 text-xs">${k.toUpperCase()}: ${v}</span>`).join('')}</div>` : ''}</div>
                   <div><h4 class="font-semibold text-gray-700 mb-1">Diagnosis</h4><p class="text-gray-600 font-medium">${r.diagnosis}</p>${r.diagnosis_secondary ? `<p class="text-gray-500 text-xs mt-1">Sekunder: ${r.diagnosis_secondary}</p>` : ''}</div>
-                  <div><h4 class="font-semibold text-gray-700 mb-1">Terapi</h4><p class="text-gray-600">${r.therapy}</p></div>
+                  <div><h4 class="font-semibold text-gray-700 mb-1">Terapi Non-Farmakologis</h4><p class="text-gray-600">${r.therapy || '-'}</p></div>
+                </div>
+                ${r.follow_up_date ? `<div class="mt-4 pt-4 border-t border-gray-100"><h4 class="font-semibold text-gray-700 mb-1 text-sm">Jadwal Kontrol Ulang</h4><p class="text-sm text-blue-700 font-medium">${formatDate(r.follow_up_date)}</p>${r.follow_up_notes ? `<p class="text-sm text-gray-500 mt-0.5">${r.follow_up_notes}</p>` : ''}</div>` : ''}
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                  <h4 class="font-semibold text-gray-700 mb-2 text-sm">Terapi Farmakologis (E-Resep)</h4>
+                  ${rxList.length === 0 ? '<p class="text-sm text-gray-400">Belum ada e-resep dibuat untuk kunjungan ini</p>' : rxList.map(rx => {
+                    const rxPharmacy = store.getPharmacy(rx.pharmacy_id);
+                    const rxItems = store.getPrescriptionItems(rx.id);
+                    const statusColors = { sent:'bg-blue-100 text-blue-700', preparing:'bg-amber-100 text-amber-700', ready:'bg-green-100 text-green-700', delivering:'bg-blue-100 text-blue-700', completed:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-700' };
+                    return `<div class="bg-white border border-gray-100 rounded-xl p-3 mb-2">
+                      <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-sm font-medium text-gray-800">${rx.rx_number} — ${rxPharmacy?.name || 'N/A'}</span>
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[rx.status] || 'bg-gray-100'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status}</span>
+                      </div>
+                      ${rx.status === 'rejected' && rx.reject_reason ? `<p class="text-xs text-red-600 mb-1">Ditolak: ${rx.reject_reason}</p>` : ''}
+                      <div class="space-y-0.5">${rxItems.map(i => `<p class="text-xs text-gray-600">• ${i.is_compound ? (i.display_name || i.drug_name) + ' (Racikan)' : i.drug_name + ' ' + (i.dosage||'')} — ${i.frequency||''} ${i.time||''} (${i.quantity||'-'} ${i.unit||''})</p>`).join('')}</div>
+                    </div>`;
+                  }).join('')}
                 </div>
                 <div class="flex gap-2 mt-4"><a href="#/doctor/emr/edit/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit Rekam Medis</a><a href="#/doctor/prescriptions/new/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 transition">Buat E-Resep</a></div>
               </div>
@@ -508,7 +526,7 @@ export function doctorEMRNew(params) {
                   </div>
                 </div>
                 <div class="bg-white border border-slate-100 rounded-3xl p-4">
-                  <h4 class="font-semibold text-gray-800 mb-3">Terapi & Tindakan</h4>
+                  <h4 class="font-semibold text-gray-800 mb-3">Terapi Non-Farmakologis</h4>
                   <textarea x-model="form.therapy" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Rencana terapi, tindakan, edukasi pasien..."></textarea>
                 </div>
               </div>
@@ -934,7 +952,7 @@ export function doctorEMREdit(params) {
                 <div x-show="icdOpen2" x-cloak class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"><template x-for="item in icdResults2" :key="item.code"><button type="button" @mousedown.prevent="selectICD(item,2)" class="w-full text-left px-3 py-2 hover:bg-teal-50 transition border-b border-gray-50"><span class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-xs font-mono font-bold" x-text="item.code"></span> <span class="text-sm" x-text="item.name_id"></span></button></template></div>
               </div>
             </div>
-            <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-3">Terapi & Tindakan</h4><textarea x-model="form.therapy" rows="5" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
+            <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-3">Terapi Non-Farmakologis</h4><textarea x-model="form.therapy" rows="5" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
           </div>
         </div>
       </main>

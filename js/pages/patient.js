@@ -188,7 +188,7 @@ export function patientHistory() {
             <div x-show="open" x-cloak class="border-t border-gray-100 p-4 bg-gray-50/50 text-sm space-y-3">
               <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Keluhan</h5><p class="text-gray-600 text-sm">${r.anamnesis}</p></div>
               <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Diagnosis</h5><p class="text-gray-800 font-medium">${r.diagnosis}</p></div>
-              <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Terapi</h5><p class="text-gray-600 text-sm">${r.therapy || '-'}</p></div>
+              <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Terapi Non-Farmakologis</h5><p class="text-gray-600 text-sm">${r.therapy || '-'}</p></div>
             </div>
           </div>`;
         }).join('')}

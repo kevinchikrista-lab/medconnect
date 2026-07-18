@@ -540,6 +540,10 @@ class Store {
     return this.data.prescriptions.filter(rx => rx.patient_id === patientId).sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
 
+  getPrescriptionsByRecord(recordId) {
+    return this.data.prescriptions.filter(rx => rx.record_id === recordId).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
   getPrescriptionsByPharmacy(pharmacyId) {
     return this.data.prescriptions.filter(rx => rx.pharmacy_id === pharmacyId).sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
