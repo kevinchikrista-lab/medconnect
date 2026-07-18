@@ -22,6 +22,42 @@ function fetchWithTimeout(url, options = {}) {
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
+// Supabase access tokens expire (~1h by default). A doctor who leaves a tab
+// open past that (a late shift running past midnight, say) would otherwise
+// have every read/write silently rejected with 401 for the rest of the
+// session, since nothing here ever re-authenticates. Concurrent 401s share
+// one in-flight refresh instead of each firing their own.
+let refreshing = null;
+function refreshSession() {
+  const refreshToken = sessionStorage.getItem('sb_refresh_token');
+  if (!refreshToken) return Promise.resolve(null);
+  if (!refreshing) {
+    refreshing = fetchWithTimeout(`${SUPA_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: { 'apikey': SUPA_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    }).then(r => r.json()).then(result => {
+      if (!result.access_token) return null;
+      sessionStorage.setItem('sb_token', result.access_token);
+      if (result.refresh_token) sessionStorage.setItem('sb_refresh_token', result.refresh_token);
+      return result.access_token;
+    }).catch(() => null).finally(() => { refreshing = null; });
+  }
+  return refreshing;
+}
+
+// Fetch with the current session token; on 401 (expired access token),
+// refreshes once and retries the same request before giving up.
+async function authedFetch(url, options = {}, isRetry = false) {
+  const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
+  const res = await fetchWithTimeout(url, { ...options, headers: headers(token) });
+  if (res.status === 401 && !isRetry) {
+    const newToken = await refreshSession();
+    if (newToken) return authedFetch(url, options, true);
+  }
+  return res;
+}
+
 export const supabase = {
   // Auth
   async signUp(email, password) {
@@ -56,7 +92,6 @@ export const supabase = {
 
   // Generic CRUD
   async select(table, query = {}) {
-    const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
     let url = `${SUPA_URL}/rest/v1/${table}?`;
     const params = [];
     if (query.select) params.push(`select=${query.select}`);
@@ -70,18 +105,17 @@ export const supabase = {
     if (query.limit) params.push(`limit=${query.limit}`);
     url += params.join('&');
     try {
-      const res = await fetchWithTimeout(url, { headers: headers(token) });
+      const res = await authedFetch(url);
       if (!res.ok) return [];
       return res.json();
     } catch { return []; }
   },
 
   async insert(table, data) {
-    const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
     const body = Array.isArray(data) ? data : [data];
     try {
-      const res = await fetchWithTimeout(`${SUPA_URL}/rest/v1/${table}`, {
-        method: 'POST', headers: headers(token), body: JSON.stringify(body)
+      const res = await authedFetch(`${SUPA_URL}/rest/v1/${table}`, {
+        method: 'POST', body: JSON.stringify(body)
       });
       if (!res.ok) { const err = await res.json().catch(() => ({})); return { error: err.message || 'Insert failed' }; }
       const result = await res.json();
@@ -90,10 +124,9 @@ export const supabase = {
   },
 
   async update(table, id, data) {
-    const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
     try {
-      const res = await fetchWithTimeout(`${SUPA_URL}/rest/v1/${table}?id=eq.${id}`, {
-        method: 'PATCH', headers: headers(token), body: JSON.stringify(data)
+      const res = await authedFetch(`${SUPA_URL}/rest/v1/${table}?id=eq.${id}`, {
+        method: 'PATCH', body: JSON.stringify(data)
       });
       if (!res.ok) return { error: 'Update failed' };
       const result = await res.json();
@@ -102,25 +135,22 @@ export const supabase = {
   },
 
   async delete(table, id) {
-    const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
-    await fetchWithTimeout(`${SUPA_URL}/rest/v1/${table}?id=eq.${id}`, {
-      method: 'DELETE', headers: headers(token)
+    await authedFetch(`${SUPA_URL}/rest/v1/${table}?id=eq.${id}`, {
+      method: 'DELETE'
     }).catch(() => {});
   },
 
   async deleteWhere(table, eq) {
-    const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
     const params = Object.entries(eq).map(([k, v]) => `${k}=eq.${v}`).join('&');
-    await fetchWithTimeout(`${SUPA_URL}/rest/v1/${table}?${params}`, {
-      method: 'DELETE', headers: headers(token)
+    await authedFetch(`${SUPA_URL}/rest/v1/${table}?${params}`, {
+      method: 'DELETE'
     }).catch(() => {});
   },
 
   async rpc(fn, params = {}) {
-    const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
     try {
-      const res = await fetchWithTimeout(`${SUPA_URL}/rest/v1/rpc/${fn}`, {
-        method: 'POST', headers: headers(token), body: JSON.stringify(params)
+      const res = await authedFetch(`${SUPA_URL}/rest/v1/rpc/${fn}`, {
+        method: 'POST', body: JSON.stringify(params)
       });
       return res.json();
     } catch (e) { return { error: e.message || 'Network error' }; }
