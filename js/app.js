@@ -19,6 +19,13 @@ function render(htmlFn, params) {
   // matter how the user navigated away.
   if (window.__pagePollInterval) { clearInterval(window.__pagePollInterval); window.__pagePollInterval = null; }
 
+  // Reset any leftover scroll position (vertical or horizontal) from the
+  // previous page — the hash router swaps content in place without a real
+  // page load, so the browser otherwise keeps whatever scroll offset was
+  // last set, which can land a freshly-rendered page mid-scrolled and make
+  // its layout look broken/cut-off on the left or below the fold.
+  window.scrollTo(0, 0);
+
   const container = document.getElementById('app');
   const html = typeof htmlFn === 'function' ? htmlFn(params) : htmlFn;
 

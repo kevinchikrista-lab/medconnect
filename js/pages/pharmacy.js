@@ -166,25 +166,24 @@ export function pharmacyPrescriptions() {
         <div class="flex flex-wrap gap-2 mb-4">
           ${['','sent','preparing','ready','delivering','completed','rejected'].map(s => `<button @click="filter='${s}'" :class="filter==='${s}' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-xs font-medium transition">${s ? CONFIG.PRESCRIPTION_STATUS_LABELS[s] : 'Semua'}</button>`).join('')}
         </div>
-        <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
-          <template x-if="filteredPrescriptions.length === 0"><p class="p-8 text-center text-gray-400 text-sm">Tidak ada resep</p></template>
-          <div class="divide-y divide-gray-50">
-            <template x-for="rx in filteredPrescriptions" :key="rx.id">
-              <div class="p-4 hover:bg-gray-50 transition" x-data="{open:false}">
-                <div class="flex items-center justify-between cursor-pointer" @click="open=!open">
-                  <div>
-                    <p class="font-medium text-sm text-gray-800">
-                      <span x-text="rx.rx_number + ' — ' + patientName(rx.patient_id)"></span>
-                      <template x-if="rx.delivery_method === 'delivery'"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 align-middle">🚚 Dikirim</span></template>
-                    </p>
-                    <p class="text-xs text-gray-500"><span x-text="doctorName(rx.doctor_id) + ' | ' + formatDate((rx.created_at||'').split('T')[0]) + ' | ' + itemsFor(rx.id).length + ' obat'"></span></p>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <span class="px-2 py-1 rounded-full text-xs font-medium" :class="statusBadges[rx.status] || 'bg-gray-100'" x-text="statusLabels[rx.status] || rx.status"></span>
-                    <svg class="w-4 h-4 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                  </div>
+        <template x-if="filteredPrescriptions.length === 0"><p class="bg-white border border-slate-100 rounded-3xl p-8 text-center text-gray-400 text-sm">Tidak ada resep</p></template>
+        <div class="space-y-3">
+          <template x-for="rx in filteredPrescriptions" :key="rx.id">
+            <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm" x-data="{open:false}">
+              <div class="p-4 bg-slate-50 hover:bg-slate-100 cursor-pointer transition flex items-center justify-between" @click="open=!open">
+                <div>
+                  <p class="font-semibold text-sm text-gray-800">
+                    <span x-text="rx.rx_number + ' — ' + patientName(rx.patient_id)"></span>
+                    <template x-if="rx.delivery_method === 'delivery'"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 align-middle">🚚 Dikirim</span></template>
+                  </p>
+                  <p class="text-xs text-gray-500"><span x-text="doctorName(rx.doctor_id) + ' | ' + formatDate((rx.created_at||'').split('T')[0]) + ' | ' + itemsFor(rx.id).length + ' obat'"></span></p>
                 </div>
-                <div x-show="open" x-cloak class="mt-3 text-sm border-t border-gray-100 pt-3 space-y-3">
+                <div class="flex items-center gap-2">
+                  <span class="px-2 py-1 rounded-full text-xs font-medium" :class="statusBadges[rx.status] || 'bg-gray-100'" x-text="statusLabels[rx.status] || rx.status"></span>
+                  <svg class="w-4 h-4 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </div>
+              </div>
+              <div x-show="open" x-cloak class="p-4 border-t-2 border-gray-200 space-y-3">
                   <div class="space-y-2">
                     <template x-for="(item, idx) in itemsFor(rx.id)" :key="item.id">
                       <div>
@@ -227,10 +226,9 @@ export function pharmacyPrescriptions() {
                     <template x-if="rx.status === 'ready'"><button @click="complete(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600">Selesai</button></template>
                     <template x-if="rx.status === 'delivering'"><button @click="complete(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600">Selesai (Diterima)</button></template>
                   </div>
-                </div>
               </div>
-            </template>
-          </div>
+            </div>
+          </template>
         </div>
       </main>
     </div>

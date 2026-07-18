@@ -218,7 +218,12 @@ export function doctorEMR(params) {
                         <span class="px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[rx.status] || 'bg-gray-100'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status}</span>
                       </div>
                       ${rx.status === 'rejected' && rx.reject_reason ? `<p class="text-xs text-red-600 mb-1">Ditolak: ${rx.reject_reason}</p>` : ''}
-                      <div class="space-y-0.5">${rxItems.map(i => `<p class="text-xs text-gray-600">• ${i.is_compound ? (i.display_name || i.drug_name) + ' (Racikan)' : i.drug_name + ' ' + (i.dosage||'')} — ${i.frequency||''} ${i.time||''} (${i.quantity||'-'} ${i.unit||''})</p>`).join('')}</div>
+                      <div class="space-y-1.5">${rxItems.map(i => i.is_compound ? `
+                        <div class="rounded-lg border border-purple-200 bg-purple-50/60 p-2">
+                          <p class="text-xs font-semibold text-purple-700 mb-1">${i.display_name || i.drug_name} (Racikan)</p>
+                          <p class="text-xs text-gray-700 whitespace-pre-line leading-relaxed">${(i.compound_details || '-').trim()}</p>
+                          <p class="text-xs text-gray-500 mt-1">${i.frequency||''} ${i.time||''} (${i.quantity||'-'} ${i.unit||''})</p>
+                        </div>` : `<p class="text-xs text-gray-600">• ${i.drug_name} ${i.dosage||''} — ${i.frequency||''} ${i.time||''} (${i.quantity||'-'} ${i.unit||''})</p>`).join('')}</div>
                     </div>`;
                   }).join('')}
                 </div>
