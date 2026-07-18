@@ -76,12 +76,14 @@ export function patientDashboard() {
         <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Status Resep</h3>
         ${activePrescriptions.slice(0, 2).map(rx => {
           const pharmacy = store.getPharmacy(rx.pharmacy_id);
-          const steps = ['sent','received','preparing','ready','completed'];
+          const isDelivery = rx.delivery_method === 'delivery';
+          const steps = isDelivery ? ['sent','preparing','delivering','completed'] : ['sent','preparing','ready','completed'];
+          const stepLabels = isDelivery ? ['Kirim','Siapkan','Dikirim','Diterima'] : ['Kirim','Siapkan','Siap Diambil','Selesai'];
           const currentIdx = steps.indexOf(rx.status);
           return `<div class="bg-white border border-slate-100 rounded-3xl p-4 mb-3">
             <div class="flex items-center justify-between mb-3"><span class="font-semibold text-sm text-gray-800">${rx.rx_number}</span><span class="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status]}</span></div>
             <div class="flex items-center gap-1 mb-3">${steps.map((s, i) => `<div class="flex-1 h-1.5 rounded-full ${i <= currentIdx ? 'bg-teal-500' : 'bg-gray-200'} transition"></div>`).join('')}</div>
-            <div class="flex justify-between text-xs text-gray-400">${steps.map((s, i) => `<span class="${i <= currentIdx ? 'text-teal-600 font-medium' : ''}">${['Kirim','Terima','Siapkan','Ambil','Done'][i]}</span>`).join('')}</div>
+            <div class="flex justify-between text-xs text-gray-400">${stepLabels.map((label, i) => `<span class="${i <= currentIdx ? 'text-teal-600 font-medium' : ''}">${label}</span>`).join('')}</div>
             <p class="text-xs text-gray-500 mt-2">${pharmacy?.name || 'Apotek'}</p>
           </div>`;
         }).join('')}
@@ -281,19 +283,26 @@ export function patientPrescriptions() {
         const doctor = store.getDoctor(rx.doctor_id);
         const pharmacy = store.getPharmacy(rx.pharmacy_id);
         const items = store.getPrescriptionItems(rx.id);
-        const steps = ['sent','received','preparing','ready','completed'];
+        const isDelivery = rx.delivery_method === 'delivery';
+        const steps = isDelivery ? ['sent','preparing','delivering','completed'] : ['sent','preparing','ready','completed'];
+        const stepLabels = isDelivery ? ['Kirim','Siapkan','Dikirim','Diterima'] : ['Kirim','Siapkan','Siap Diambil','Selesai'];
         const currentIdx = steps.indexOf(rx.status);
         const isActive = !['completed','rejected'].includes(rx.status);
+        const waLink = pharmacy?.phone ? 'https://wa.me/62' + pharmacy.phone.replace(/^0/, '').replace(/\D/g, '') : null;
         return `<div class="bg-white border border-slate-100 rounded-3xl mb-3 overflow-hidden" x-data="{open:false}">
           <div class="p-4 cursor-pointer" @click="open=!open">
-            <div class="flex items-center justify-between mb-2"><span class="font-semibold text-sm text-gray-800">${rx.rx_number}</span><span class="px-2 py-1 rounded-full text-xs font-medium ${isActive ? 'bg-amber-100 text-amber-700' : rx.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status]}</span></div>
-            ${isActive ? `<div class="flex items-center gap-1 mb-2">${steps.map((s, i) => `<div class="flex-1 h-1.5 rounded-full ${i <= currentIdx ? 'bg-teal-500' : 'bg-gray-200'}"></div>`).join('')}</div>` : ''}
+            <div class="flex items-center justify-between mb-2"><span class="font-semibold text-sm text-gray-800">${rx.rx_number}${isDelivery ? ` <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 align-middle">🚚 Dikirim</span>` : ''}</span><span class="px-2 py-1 rounded-full text-xs font-medium ${isActive ? 'bg-amber-100 text-amber-700' : rx.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status]}</span></div>
+            ${isActive ? `<div class="flex items-center gap-1 mb-1">${steps.map((s, i) => `<div class="flex-1 h-1.5 rounded-full ${i <= currentIdx ? 'bg-teal-500' : 'bg-gray-200'}"></div>`).join('')}</div>
+            <div class="flex justify-between text-[10px] text-gray-400 mb-2">${stepLabels.map((label, i) => `<span class="${i <= currentIdx ? 'text-teal-600 font-medium' : ''}">${label}</span>`).join('')}</div>` : ''}
             <p class="text-xs text-gray-500">${doctor?.full_name || ''} | ${pharmacy?.name || ''} | ${formatDate(rx.created_at?.split('T')[0])}</p>
           </div>
           <div x-show="open" x-cloak class="border-t border-gray-100 p-4 bg-gray-50/50">
             <h5 class="text-xs font-semibold text-gray-600 uppercase mb-2">Daftar Obat</h5>
             ${items.map(i => { const name = i.is_compound ? (i.display_name || i.drug_name) : `${i.drug_name} ${i.dosage}`; return `<div class="flex items-start gap-2 py-1.5 text-sm"><span class="w-1.5 h-1.5 rounded-full bg-teal-500 mt-1.5 flex-shrink-0"></span><div><p class="text-gray-800 font-medium">${name}</p><p class="text-xs text-gray-500">${i.frequency} ${i.time} — ${i.quantity} ${i.unit}</p></div></div>`; }).join('')}
             ${rx.notes ? `<p class="text-xs text-gray-500 mt-2 italic">Catatan: ${rx.notes}</p>` : ''}
+            ${isDelivery && rx.delivery_address ? `<div class="mt-2 p-2 rounded-lg bg-blue-50 border border-blue-100"><p class="text-xs font-semibold text-blue-800">🚚 Dikirim ke:</p><p class="text-xs text-blue-900 whitespace-pre-line">${rx.delivery_address}</p></div>` : ''}
+            ${rx.status === 'rejected' && rx.reject_reason ? `<div class="mt-2 p-2 rounded-lg bg-red-50 border border-red-100"><p class="text-xs font-semibold text-red-800">Alasan Ditolak:</p><p class="text-xs text-red-900 whitespace-pre-line">${rx.reject_reason}</p></div>` : ''}
+            ${waLink ? `<a href="${waLink}" target="_blank" class="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-lg text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">💬 Hubungi Apotek (mau titip obat lain?)</a>` : ''}
           </div>
         </div>`;
       }).join('')}

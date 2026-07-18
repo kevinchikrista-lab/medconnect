@@ -568,15 +568,20 @@ class Store {
     return newRx;
   }
 
-  updatePrescriptionStatus(rxId, status) {
+  // reason is only meaningful (and required by the pharmacy UI) when status
+  // is 'rejected' — stored so the doctor/patient can see why.
+  updatePrescriptionStatus(rxId, status, reason) {
     const rx = this.data.prescriptions.find(r => r.id === rxId);
     if (!rx) return;
     rx.status = status;
+    const updates = { status };
+    if (status === 'rejected') { rx.reject_reason = reason || ''; updates.reject_reason = reason || ''; }
     const patient = this.getPatient(rx.patient_id);
     const statusLabel = CONFIG.PRESCRIPTION_STATUS_LABELS[status] || status;
-    if (patient) this.addNotification(patient.user_id, `Resep ${statusLabel}`, `Resep ${rx.rx_number} status: ${statusLabel}.`, 'prescription');
+    const msg = status === 'rejected' && reason ? `Resep ${rx.rx_number} ditolak apotek. Alasan: ${reason}` : `Resep ${rx.rx_number} status: ${statusLabel}.`;
+    if (patient) this.addNotification(patient.user_id, `Resep ${statusLabel}`, msg, 'prescription');
     this._save();
-    if (!CONFIG.DEMO_MODE) supabase.update('prescriptions', rxId, { status }).catch(() => {});
+    if (!CONFIG.DEMO_MODE) supabase.update('prescriptions', rxId, updates).catch(e => console.warn('Gagal update status resep:', e));
   }
 
   updatePrescription(rxId, updates) {

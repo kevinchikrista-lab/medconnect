@@ -15,6 +15,16 @@ function formatDate(d) {
   return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function calculateAge(birthDate) {
+  if (!birthDate) return null;
+  const today = new Date();
+  const bd = new Date(birthDate);
+  let age = today.getFullYear() - bd.getFullYear();
+  const m = today.getMonth() - bd.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < bd.getDate())) age--;
+  return age;
+}
+
 export function doctorDashboard() {
   const doc = getDoctor();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -694,8 +704,9 @@ export function doctorPrescriptionNew(params) {
   const pharmacies = store.getPharmacies();
   if (!record || !patient) return '<div class="p-8 text-center text-gray-500">Rekam medis tidak ditemukan</div>';
 
+  const age = calculateAge(patient.birth_date);
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}], pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', sending: false, sent: false }" class="min-h-screen bg-wash">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}], pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', delivery_method: 'pickup', delivery_address: '${(patient.address || '').replace(/'/g, "\\'")}', sending: false, sent: false }" class="min-h-screen bg-wash">
     ${doctorSidebar('prescriptions')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -703,7 +714,7 @@ export function doctorPrescriptionNew(params) {
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold text-gray-800">Buat E-Resep</h2>
           <div class="flex gap-2">
-            <button @click="sending=true; setTimeout(()=>{ window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:pharmacy_id,notes:notes}, items); sending=false; sent=true; setTimeout(()=>window.location.hash='/doctor/prescriptions',1000) },500)" :disabled="sending || sent || items.some(i=>!i.drug_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
+            <button @click="sending=true; setTimeout(()=>{ window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:pharmacy_id,notes:notes,delivery_method:delivery_method,delivery_address:delivery_method==='delivery'?delivery_address:''}, items); sending=false; sent=true; setTimeout(()=>window.location.hash='/doctor/prescriptions',1000) },500)" :disabled="sending || sent || items.some(i=>!i.drug_name) || (delivery_method==='delivery' && !delivery_address.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
           </div>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
@@ -711,6 +722,8 @@ export function doctorPrescriptionNew(params) {
             <div><span class="text-gray-500">Dokter:</span><p class="font-medium text-gray-800">${doc?.full_name}</p></div>
             <div><span class="text-gray-500">SIP:</span><p class="font-medium text-gray-800">${doc?.sip_number}</p></div>
             <div><span class="text-gray-500">Pasien:</span><p class="font-medium text-gray-800">${patient.full_name}</p></div>
+            <div><span class="text-gray-500">Umur:</span><p class="font-medium text-gray-800">${age !== null ? age + ' tahun' : '-'}</p></div>
+            <div><span class="text-gray-500">No. HP:</span><p class="font-medium text-gray-800">${patient.phone || '-'}</p></div>
             <div><span class="text-gray-500">Diagnosis:</span><p class="font-medium text-gray-800">${record.diagnosis}</p></div>
           </div>
         </div>
@@ -750,6 +763,21 @@ export function doctorPrescriptionNew(params) {
             </select>
           </div>
         </div>
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
+          <h4 class="font-semibold text-gray-800 mb-3">Pengambilan Obat</h4>
+          <div class="flex gap-3 mb-3">
+            <label class="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="delivery_method==='pickup' ? 'border-teal-400 bg-teal-50 text-teal-700 font-medium' : 'border-gray-200 text-gray-600'">
+              <input type="radio" x-model="delivery_method" value="pickup" class="text-teal-600 focus:ring-teal-400/50"> Ambil di Klinik/Apotek
+            </label>
+            <label class="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="delivery_method==='delivery' ? 'border-teal-400 bg-teal-50 text-teal-700 font-medium' : 'border-gray-200 text-gray-600'">
+              <input type="radio" x-model="delivery_method" value="delivery" class="text-teal-600 focus:ring-teal-400/50"> Dikirim ke Alamat Pasien
+            </label>
+          </div>
+          <div x-show="delivery_method === 'delivery'" x-cloak>
+            <label class="block text-xs text-gray-500 mb-1">Alamat Pengiriman *</label>
+            <textarea x-model="delivery_address" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Alamat lengkap tujuan pengiriman"></textarea>
+          </div>
+        </div>
       </main>
     </div>
   </div>`;
@@ -771,12 +799,14 @@ export function doctorPrescriptionEdit(params) {
     items: window.__editRxItems || [],
     pharmacy_id: '${rx.pharmacy_id}',
     notes: '${(rx.notes||'').replace(/'/g,"\\'")}',
+    delivery_method: '${rx.delivery_method || 'pickup'}',
+    delivery_address: '${(rx.delivery_address || patient?.address || '').replace(/'/g, "\\'")}',
     saving: false, saved: false,
     saveEdit() {
       this.saving = true;
       const self = this;
       setTimeout(function() {
-        window.__store.updatePrescription('${rx.id}', { pharmacy_id: self.pharmacy_id, notes: self.notes, status: 'sent' });
+        window.__store.updatePrescription('${rx.id}', { pharmacy_id: self.pharmacy_id, notes: self.notes, delivery_method: self.delivery_method, delivery_address: self.delivery_method==='delivery' ? self.delivery_address : '', status: 'sent' });
         window.__store.updatePrescriptionItems('${rx.id}', self.items);
         self.saving = false; self.saved = true;
         setTimeout(function(){ window.location.hash = '/doctor/prescriptions'; }, 800);
@@ -819,6 +849,21 @@ export function doctorPrescriptionEdit(params) {
         <div class="grid lg:grid-cols-2 gap-4">
           <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-2">Keterangan Khusus</h4><textarea x-model="notes" rows="3" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
           <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-2">Ganti Apotek Mitra</h4><select x-model="pharmacy_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${pharmacies.map(ph=>`<option value="${ph.id}">${ph.name} — ${ph.address}</option>`).join('')}</select></div>
+        </div>
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
+          <h4 class="font-semibold text-gray-800 mb-3">Pengambilan Obat</h4>
+          <div class="flex gap-3 mb-3">
+            <label class="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="delivery_method==='pickup' ? 'border-teal-400 bg-teal-50 text-teal-700 font-medium' : 'border-gray-200 text-gray-600'">
+              <input type="radio" x-model="delivery_method" value="pickup" class="text-teal-600 focus:ring-teal-400/50"> Ambil di Klinik/Apotek
+            </label>
+            <label class="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="delivery_method==='delivery' ? 'border-teal-400 bg-teal-50 text-teal-700 font-medium' : 'border-gray-200 text-gray-600'">
+              <input type="radio" x-model="delivery_method" value="delivery" class="text-teal-600 focus:ring-teal-400/50"> Dikirim ke Alamat Pasien
+            </label>
+          </div>
+          <div x-show="delivery_method === 'delivery'" x-cloak>
+            <label class="block text-xs text-gray-500 mb-1">Alamat Pengiriman *</label>
+            <textarea x-model="delivery_address" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Alamat lengkap tujuan pengiriman"></textarea>
+          </div>
         </div>
       </main>
     </div>
