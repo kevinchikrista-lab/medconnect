@@ -665,12 +665,14 @@ export function doctorPrescriptions() {
                 </div>
                 <span class="px-2 py-1 rounded-full text-xs font-medium ${statusColors[rx.status] || 'bg-gray-100'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status}</span>
               </div>
-              <div x-show="open" x-cloak class="mt-3 pl-13 text-sm">
-                ${items.map(i => {
-                  const label = i.is_compound ? `${i.drug_name} [Racikan: ${i.compound_details}]` : `${i.drug_name} ${i.dosage}`;
-                  return `<div class="flex items-center gap-2 py-1 text-gray-600"><span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>${label} — ${i.frequency} ${i.time} (${i.quantity} ${i.unit})</div>`;
-                }).join('')}
-                ${rx.notes ? `<p class="mt-2 text-xs text-gray-500 italic">Catatan: ${rx.notes}</p>` : ''}
+              <div x-show="open" x-cloak class="mt-3 pl-13 text-sm space-y-2">
+                ${items.map(i => i.is_compound ? `
+                <div class="rounded-lg border border-purple-200 bg-purple-50/60 p-2.5">
+                  <div class="flex items-center gap-2 mb-1"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white tracking-wide">RACIKAN</span><span class="font-medium text-gray-800">${i.drug_name}</span></div>
+                  <p class="text-xs text-gray-700 whitespace-pre-line leading-relaxed">${(i.compound_details || '-').trim()}</p>
+                  <p class="text-xs text-gray-500 mt-1">${i.frequency} ${i.time} — ${i.quantity} ${i.unit}</p>
+                </div>` : `<div class="flex items-center gap-2 py-1 text-gray-600"><span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>${i.drug_name} ${i.dosage} — ${i.frequency} ${i.time} (${i.quantity} ${i.unit})</div>`).join('')}
+                ${rx.notes ? `<p class="mt-2 text-xs text-gray-500 italic whitespace-pre-line">Catatan: ${rx.notes}</p>` : ''}
                 ${rx.cancel_reason ? `<p class="mt-1 text-xs text-red-500 italic">Alasan batal: ${rx.cancel_reason}</p>` : ''}
                 ${canEdit ? `<div class="flex gap-2 mt-3 pt-3 border-t border-gray-100">
                   <a href="#/doctor/prescriptions/edit/${rx.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg> Edit Resep</a>

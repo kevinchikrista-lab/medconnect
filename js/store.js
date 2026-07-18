@@ -1057,7 +1057,14 @@ class Store {
     } catch (e) { console.warn('Gagal memuat daftar harga BMHP/Jasa:', e); return []; }
   }
 
-  createHomeCareClaim(header, items) {
+  // Awaits the claim insert, THEN awaits every item insert (via Promise.all)
+  // before returning — the caller (homecare.js submitClaim) awaits this whole
+  // call before showing "Tersimpan!" and navigating away. Previously the item
+  // inserts fired fire-and-forget after the claim insert resolved, so
+  // navigating away (or closing the tab) right after submit could abandon
+  // them mid-flight — the claim's totals would save but its itemized
+  // breakdown would silently end up empty, as happened with a real claim.
+  async createHomeCareClaim(header, items) {
     const newClaim = { id: generateId(), status: 'pending', completed_at: null, ...header, created_at: new Date().toISOString() };
     if (!this.data.home_care_claims) this.data.home_care_claims = [];
     this.data.home_care_claims.push(newClaim);
@@ -1069,9 +1076,9 @@ class Store {
       savedItems.push(newItem);
     });
     this._save();
-    this._syncInsert('home_care_claims', newClaim).then(claim => {
-      savedItems.forEach(si => { si.claim_id = claim.id; this._syncInsert('home_care_claim_items', si); });
-    });
+    const claim = await this._syncInsert('home_care_claims', newClaim);
+    savedItems.forEach(si => { si.claim_id = claim.id; });
+    await Promise.all(savedItems.map(si => this._syncInsert('home_care_claim_items', si)));
     return newClaim;
   }
 
@@ -1111,7 +1118,7 @@ class Store {
     return (this.data.home_care_claim_items || []).filter(i => i.claim_id === claimId);
   }
 
-  updateHomeCareClaim(claimId, header, items) {
+  async updateHomeCareClaim(claimId, header, items) {
     const claim = this.data.home_care_claims.find(c => c.id === claimId);
     if (!claim) return { error: 'Klaim tidak ditemukan' };
     Object.assign(claim, header);
@@ -1124,9 +1131,9 @@ class Store {
     });
     this._save();
     if (!CONFIG.DEMO_MODE) {
-      supabase.update('home_care_claims', claimId, header).catch(() => {});
-      supabase.deleteWhere('home_care_claim_items', { claim_id: claimId }).catch(() => {});
-      savedItems.forEach(si => this._syncInsert('home_care_claim_items', si));
+      await supabase.update('home_care_claims', claimId, header).catch(e => console.warn('Gagal update klaim BMHP:', e));
+      await supabase.deleteWhere('home_care_claim_items', { claim_id: claimId }).catch(e => console.warn('Gagal hapus item klaim lama:', e));
+      await Promise.all(savedItems.map(si => this._syncInsert('home_care_claim_items', si)));
     }
     return { success: true };
   }

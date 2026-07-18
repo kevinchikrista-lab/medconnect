@@ -99,11 +99,27 @@ export function pharmacyPrescriptions() {
                     <div><p class="font-medium text-sm text-gray-800">${rx.rx_number} — ${patient?.full_name || 'N/A'}</p><p class="text-xs text-gray-500">${doctor?.full_name || ''} | ${formatDate(rx.created_at?.split('T')[0])} | ${items.length} obat</p></div>
                     <div class="flex items-center gap-2"><span class="px-2 py-1 rounded-full text-xs font-medium ${{sent:'bg-blue-100 text-blue-700',preparing:'bg-amber-100 text-amber-700',ready:'bg-green-100 text-green-700',completed:'bg-green-100 text-green-700',rejected:'bg-red-100 text-red-700',received:'bg-indigo-100 text-indigo-700'}[rx.status] || 'bg-gray-100'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status]}</span><svg class="w-4 h-4 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></div>
                   </div>
-                  <div x-show="open" x-cloak class="mt-3 text-sm border-t border-gray-100 pt-3">
-                    <div class="grid lg:grid-cols-2 gap-3">
-                      <div>${items.map(i => `<div class="flex gap-2 py-1"><span class="w-1.5 h-1.5 rounded-full bg-teal-500 mt-1.5"></span><div><p class="text-gray-800">${i.drug_name} ${i.dosage}</p><p class="text-xs text-gray-500">${i.frequency} ${i.time} — ${i.quantity} ${i.unit}</p></div></div>`).join('')}</div>
-                      <div>${rx.notes ? `<p class="text-xs text-gray-500 mb-2"><span class="font-semibold">Catatan:</span> ${rx.notes}</p>` : ''}<div class="flex gap-1 flex-wrap">${rx.status === 'sent' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','preparing');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600">Terima</button>` : ''}${rx.status === 'preparing' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','ready');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600">Siap Diambil</button>` : ''}${rx.status === 'ready' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','completed');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600">Selesai</button>` : ''}</div></div>
+                  <div x-show="open" x-cloak class="mt-3 text-sm border-t border-gray-100 pt-3 space-y-3">
+                    <div class="space-y-2">
+                      ${items.map((i, idx) => i.is_compound ? `
+                      <div class="rounded-xl border border-purple-200 bg-purple-50/60 p-3">
+                        <div class="flex items-center gap-2 mb-1.5">
+                          <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white tracking-wide">RACIKAN</span>
+                          <span class="font-semibold text-gray-800">${i.drug_name || `R/${idx + 1}`}</span>
+                        </div>
+                        <p class="text-xs text-gray-500 font-medium mb-0.5">Komposisi:</p>
+                        <p class="text-sm text-gray-800 whitespace-pre-line leading-relaxed bg-white rounded-lg border border-purple-100 p-2">${(i.compound_details || '-').trim()}</p>
+                        <p class="text-xs text-gray-500 mt-2">${i.frequency || ''} ${i.time || ''} — ${i.quantity || '-'} ${i.unit || ''}${i.duration ? ' · ' + i.duration : ''}</p>
+                        ${i.instructions ? `<p class="text-xs text-gray-500 italic mt-1">Instruksi: ${i.instructions}</p>` : ''}
+                      </div>` : `
+                      <div class="rounded-xl border border-gray-100 p-3">
+                        <p class="font-semibold text-gray-800">${i.drug_name}${i.dosage ? ' — ' + i.dosage : ''}</p>
+                        <p class="text-xs text-gray-500 mt-0.5">${i.frequency || ''} ${i.time || ''} — ${i.quantity || '-'} ${i.unit || ''}${i.duration ? ' · ' + i.duration : ''}</p>
+                        ${i.instructions ? `<p class="text-xs text-gray-500 italic mt-1">Instruksi: ${i.instructions}</p>` : ''}
+                      </div>`).join('')}
                     </div>
+                    ${rx.notes ? `<div class="rounded-xl border border-amber-200 bg-amber-50 p-3"><p class="text-xs font-semibold text-amber-800 mb-1">Catatan untuk Apoteker</p><p class="text-sm text-amber-900 whitespace-pre-line leading-relaxed">${rx.notes.trim()}</p></div>` : ''}
+                    <div class="flex gap-1 flex-wrap">${rx.status === 'sent' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','preparing');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600">Terima</button>` : ''}${rx.status === 'preparing' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','ready');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600">Siap Diambil</button>` : ''}${rx.status === 'ready' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','completed');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600">Selesai</button>` : ''}</div>
                   </div>
                 </div>
               </template>`;
