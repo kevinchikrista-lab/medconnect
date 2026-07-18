@@ -16,13 +16,14 @@ export function pharmacyDashboard() {
   const unread = store.getUnreadCount(user?.id);
   window.__pharmacyId = pharmacy?.id || '';
   window.__pharmacyPrescriptionsInitial = store.getPrescriptionsByPharmacy(pharmacy?.id);
+  window.__prescriptionStatusLabels = CONFIG.PRESCRIPTION_STATUS_LABELS;
 
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
     pharmacyId: '${pharmacy?.id || ''}',
     prescriptions: window.__pharmacyPrescriptionsInitial || [],
-    statusLabels: ${JSON.stringify(CONFIG.PRESCRIPTION_STATUS_LABELS)},
+    statusLabels: window.__prescriptionStatusLabels || {},
     statusColors: { sent: 'border-l-red-500 bg-red-50/30', received: 'border-l-indigo-500', preparing: 'border-l-amber-500 bg-amber-50/30', ready: 'border-l-green-500 bg-green-50/30', delivering: 'border-l-blue-500 bg-blue-50/30' },
     statusDots: { sent: 'bg-red-500', received: 'bg-indigo-500', preparing: 'bg-amber-500', ready: 'bg-green-500', delivering: 'bg-blue-500' },
     statusBadges: { sent: 'bg-red-100 text-red-700', received: 'bg-indigo-100 text-indigo-700', preparing: 'bg-amber-100 text-amber-700', ready: 'bg-green-100 text-green-700', delivering: 'bg-blue-100 text-blue-700' },
@@ -127,12 +128,13 @@ export function pharmacyPrescriptions() {
   const pharmacy = getPharmacy();
   window.__pharmacyId = pharmacy?.id || '';
   window.__pharmacyAllPrescriptionsInitial = store.getPrescriptionsByPharmacy(pharmacy?.id);
+  window.__prescriptionStatusLabels = CONFIG.PRESCRIPTION_STATUS_LABELS;
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024, filter: '',
     pharmacyId: '${pharmacy?.id || ''}',
     prescriptions: window.__pharmacyAllPrescriptionsInitial || [],
-    statusLabels: ${JSON.stringify(CONFIG.PRESCRIPTION_STATUS_LABELS)},
+    statusLabels: window.__prescriptionStatusLabels || {},
     statusBadges: { sent:'bg-blue-100 text-blue-700', preparing:'bg-amber-100 text-amber-700', ready:'bg-green-100 text-green-700', delivering:'bg-blue-100 text-blue-700', completed:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-700', received:'bg-indigo-100 text-indigo-700' },
     get filteredPrescriptions() { return (this.filter ? this.prescriptions.filter(rx => rx.status === this.filter) : this.prescriptions).slice().sort((a,b) => b.created_at.localeCompare(a.created_at)); },
     itemsFor(rxId) { return window.__store.getPrescriptionItems(rxId); },
