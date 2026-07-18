@@ -7,65 +7,110 @@ function getPharmacy() {
 }
 function getUser() { return JSON.parse(sessionStorage.getItem('medconnect_user')); }
 function formatDate(d) { if (!d) return '-'; return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); }
-function timeAgo(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return mins + ' menit lalu';
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return hrs + ' jam lalu';
-  return Math.floor(hrs / 24) + ' hari lalu';
-}
 
 export function pharmacyDashboard() {
   const pharmacy = getPharmacy();
   const user = getUser();
-  const prescriptions = store.getPrescriptionsByPharmacy(pharmacy?.id);
-  const incoming = prescriptions.filter(rx => rx.status === 'sent');
-  const processing = prescriptions.filter(rx => ['received','preparing','delivering'].includes(rx.status));
-  const ready = prescriptions.filter(rx => rx.status === 'ready');
-  const completed = prescriptions.filter(rx => rx.status === 'completed');
   const inventory = store.getInventory(pharmacy?.id);
   const lowStock = inventory.filter(i => i.stock <= i.min_stock);
   const unread = store.getUnreadCount(user?.id);
+  window.__pharmacyId = pharmacy?.id || '';
+  window.__pharmacyPrescriptionsInitial = store.getPrescriptionsByPharmacy(pharmacy?.id);
 
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-wash">
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024,
+    pharmacyId: '${pharmacy?.id || ''}',
+    prescriptions: window.__pharmacyPrescriptionsInitial || [],
+    statusLabels: ${JSON.stringify(CONFIG.PRESCRIPTION_STATUS_LABELS)},
+    statusColors: { sent: 'border-l-red-500 bg-red-50/30', received: 'border-l-indigo-500', preparing: 'border-l-amber-500 bg-amber-50/30', ready: 'border-l-green-500 bg-green-50/30', delivering: 'border-l-blue-500 bg-blue-50/30' },
+    statusDots: { sent: 'bg-red-500', received: 'bg-indigo-500', preparing: 'bg-amber-500', ready: 'bg-green-500', delivering: 'bg-blue-500' },
+    statusBadges: { sent: 'bg-red-100 text-red-700', received: 'bg-indigo-100 text-indigo-700', preparing: 'bg-amber-100 text-amber-700', ready: 'bg-green-100 text-green-700', delivering: 'bg-blue-100 text-blue-700' },
+    get incoming() { return this.prescriptions.filter(rx => rx.status === 'sent'); },
+    get processing() { return this.prescriptions.filter(rx => ['received','preparing','delivering'].includes(rx.status)); },
+    get ready() { return this.prescriptions.filter(rx => rx.status === 'ready'); },
+    get completedToday() { return this.prescriptions.filter(rx => rx.status === 'completed'); },
+    get activeList() { return [...this.incoming, ...this.processing, ...this.ready].sort((a,b) => b.created_at.localeCompare(a.created_at)); },
+    itemCount(rxId) { return window.__store.getPrescriptionItems(rxId).length; },
+    patientName(id) { return window.__store.getPatient(id)?.full_name || 'N/A'; },
+    doctorName(id) { return window.__store.getDoctor(id)?.full_name || 'N/A'; },
+    timeAgo(dateStr) {
+      const diff = Date.now() - new Date(dateStr).getTime();
+      const mins = Math.floor(diff / 60000);
+      if (mins < 60) return mins + ' menit lalu';
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return hrs + ' jam lalu';
+      return Math.floor(hrs / 24) + ' hari lalu';
+    },
+    init() {
+      if (window.__pagePollInterval) clearInterval(window.__pagePollInterval);
+      window.__pagePollInterval = setInterval(() => this.poll(), 6000);
+    },
+    async poll() { this.prescriptions = await window.__store.fetchPrescriptionsForPharmacy(this.pharmacyId); },
+    async accept(id) { await window.__store.updatePrescriptionStatus(id, 'preparing'); await this.poll(); },
+    async reject(id, rxNumber) {
+      const r = prompt('Alasan penolakan resep ' + rxNumber + ':');
+      if (r === null) return;
+      if (!r.trim()) { alert('Alasan penolakan wajib diisi'); return; }
+      await window.__store.updatePrescriptionStatus(id, 'rejected', r.trim());
+      await this.poll();
+    },
+    async sendNow(id) { await window.__store.updatePrescriptionStatus(id, 'delivering'); await this.poll(); },
+    async markReady(id) { await window.__store.updatePrescriptionStatus(id, 'ready'); await this.poll(); },
+    async complete(id) { await window.__store.updatePrescriptionStatus(id, 'completed'); await this.poll(); }
+  }" class="min-h-screen bg-wash">
     ${pharmacySidebar('dashboard')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${pharmacyHeader(pharmacy, unread)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="mb-6"><h2 class="text-2xl font-bold text-gray-800">${pharmacy?.name || 'Apotek'}</h2><p class="text-sm text-gray-500">${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p></div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-green flex items-center justify-center"><span class="ms text-[22px] text-white">prescriptions</span></div><div><p class="text-2xl font-bold text-ink">${incoming.length}</p><p class="text-xs text-faint">Resep Masuk</p></div></div></div>
-          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:#e0a112"><span class="ms text-[22px] text-white">pending_actions</span></div><div><p class="text-2xl font-bold text-ink">${processing.length}</p><p class="text-xs text-faint">Sedang Proses</p></div></div></div>
-          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#22b573,#158a54)"><span class="ms text-[22px] text-white">task_alt</span></div><div><p class="text-2xl font-bold text-ink">${completed.length}</p><p class="text-xs text-faint">Selesai Hari Ini</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-green flex items-center justify-center"><span class="ms text-[22px] text-white">prescriptions</span></div><div><p class="text-2xl font-bold text-ink" x-text="incoming.length"></p><p class="text-xs text-faint">Resep Masuk</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:#e0a112"><span class="ms text-[22px] text-white">pending_actions</span></div><div><p class="text-2xl font-bold text-ink" x-text="processing.length"></p><p class="text-xs text-faint">Sedang Proses</p></div></div></div>
+          <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#22b573,#158a54)"><span class="ms text-[22px] text-white">task_alt</span></div><div><p class="text-2xl font-bold text-ink" x-text="completedToday.length"></p><p class="text-xs text-faint">Selesai Hari Ini</p></div></div></div>
           <div class="bg-white rounded-xl p-4 border border-slate-100 shadow-sm"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background:${lowStock.length > 0 ? '#e8452c' : '#1b6fd6'}"><span class="ms text-[22px] text-white">warning</span></div><div><p class="text-2xl font-bold text-ink">${lowStock.length}</p><p class="text-xs text-faint">Stok Rendah</p></div></div></div>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl mb-6">
           <div class="p-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-semibold text-gray-800">Resep Masuk (Real-time)</h3><a href="#/pharmacy/prescriptions" class="text-xs text-teal-600 hover:text-teal-700">Lihat Semua</a></div>
           <div class="divide-y divide-gray-50">
-            ${[...incoming, ...processing, ...ready].length === 0 ? '<p class="p-6 text-center text-gray-400 text-sm">Tidak ada resep aktif</p>' :
-            [...incoming, ...processing, ...ready].map(rx => {
-              const patient = store.getPatient(rx.patient_id);
-              const doctor = store.getDoctor(rx.doctor_id);
-              const items = store.getPrescriptionItems(rx.id);
-              const statusColors = { sent: 'border-l-red-500 bg-red-50/30', received: 'border-l-indigo-500', preparing: 'border-l-amber-500 bg-amber-50/30', ready: 'border-l-green-500 bg-green-50/30', delivering: 'border-l-blue-500 bg-blue-50/30' };
-              const statusDots = { sent: 'bg-red-500', received: 'bg-indigo-500', preparing: 'bg-amber-500', ready: 'bg-green-500', delivering: 'bg-blue-500' };
-              const isDelivery = rx.delivery_method === 'delivery';
-              return `<div class="p-4 border-l-4 ${statusColors[rx.status] || ''} hover:bg-gray-50 transition">
+            <template x-if="activeList.length === 0"><p class="p-6 text-center text-gray-400 text-sm">Tidak ada resep aktif</p></template>
+            <template x-for="rx in activeList" :key="rx.id">
+              <div class="p-4 border-l-4 hover:bg-gray-50 transition" :class="statusColors[rx.status] || ''">
                 <div class="flex items-start justify-between mb-2">
-                  <div><div class="flex items-center gap-2 mb-1"><span class="w-2 h-2 rounded-full ${statusDots[rx.status] || 'bg-gray-400'} animate-pulse"></span><span class="font-medium text-sm text-gray-800">${rx.rx_number}</span>${isDelivery ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">🚚 Dikirim</span>` : ''}<span class="text-xs text-gray-400">${timeAgo(rx.created_at)}</span></div><p class="text-sm text-gray-700">Pasien: <span class="font-medium">${patient?.full_name || 'N/A'}</span></p><p class="text-xs text-gray-500">Dokter: ${doctor?.full_name || 'N/A'} | ${items.length} obat</p></div>
+                  <div>
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
+                      <span class="w-2 h-2 rounded-full animate-pulse" :class="statusDots[rx.status] || 'bg-gray-400'"></span>
+                      <span class="font-medium text-sm text-gray-800" x-text="rx.rx_number"></span>
+                      <span class="px-1.5 py-0.5 rounded text-[10px] font-bold" :class="statusBadges[rx.status] || 'bg-gray-100 text-gray-600'" x-text="statusLabels[rx.status] || rx.status"></span>
+                      <template x-if="rx.delivery_method === 'delivery'"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">🚚 Dikirim</span></template>
+                      <span class="text-xs text-gray-400" x-text="timeAgo(rx.created_at)"></span>
+                    </div>
+                    <p class="text-sm text-gray-700">Pasien: <span class="font-medium" x-text="patientName(rx.patient_id)"></span></p>
+                    <p class="text-xs text-gray-500"><span x-text="'Dokter: ' + doctorName(rx.doctor_id)"></span> | <span x-text="itemCount(rx.id) + ' obat'"></span></p>
+                  </div>
                   <div class="flex gap-1 flex-shrink-0">
-                    ${rx.status === 'sent' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','preparing'); window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600 hover:bg-green-700 transition">Terima</button><button onclick="const r=prompt('Alasan penolakan resep ${rx.rx_number}:'); if(r===null)return; if(!r.trim()){alert('Alasan penolakan wajib diisi'); return;} window.__store.updatePrescriptionStatus('${rx.id}','rejected', r.trim()); window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 border border-red-200 hover:bg-red-50 transition">Tolak</button>` : ''}
-                    ${rx.status === 'preparing' ? (isDelivery
-                      ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','delivering'); window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition">Kirim Sekarang</button>`
-                      : `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','ready'); window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600 hover:bg-green-700 transition">Siap Diambil</button>`) : ''}
-                    ${rx.status === 'ready' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','completed'); window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 transition">Selesai</button>` : ''}
-                    ${rx.status === 'delivering' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','completed'); window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/dashboard',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 transition">Selesai (Diterima)</button>` : ''}
+                    <template x-if="rx.status === 'sent'">
+                      <button @click="accept(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600 hover:bg-green-700 transition">Terima</button>
+                    </template>
+                    <template x-if="rx.status === 'sent'">
+                      <button @click="reject(rx.id, rx.rx_number)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 border border-red-200 hover:bg-red-50 transition">Tolak</button>
+                    </template>
+                    <template x-if="rx.status === 'preparing' && rx.delivery_method === 'delivery'">
+                      <button @click="sendNow(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition">Kirim Sekarang</button>
+                    </template>
+                    <template x-if="rx.status === 'preparing' && rx.delivery_method !== 'delivery'">
+                      <button @click="markReady(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600 hover:bg-green-700 transition">Siap Diambil</button>
+                    </template>
+                    <template x-if="rx.status === 'ready'">
+                      <button @click="complete(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 transition">Selesai</button>
+                    </template>
+                    <template x-if="rx.status === 'delivering'">
+                      <button @click="complete(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 transition">Selesai (Diterima)</button>
+                    </template>
                   </div>
                 </div>
-              </div>`;
-            }).join('')}
+              </div>
+            </template>
           </div>
         </div>
         ${lowStock.length > 0 ? `
@@ -80,9 +125,37 @@ export function pharmacyDashboard() {
 
 export function pharmacyPrescriptions() {
   const pharmacy = getPharmacy();
-  const prescriptions = store.getPrescriptionsByPharmacy(pharmacy?.id);
+  window.__pharmacyId = pharmacy?.id || '';
+  window.__pharmacyAllPrescriptionsInitial = store.getPrescriptionsByPharmacy(pharmacy?.id);
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, filter: '' }" class="min-h-screen bg-wash">
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024, filter: '',
+    pharmacyId: '${pharmacy?.id || ''}',
+    prescriptions: window.__pharmacyAllPrescriptionsInitial || [],
+    statusLabels: ${JSON.stringify(CONFIG.PRESCRIPTION_STATUS_LABELS)},
+    statusBadges: { sent:'bg-blue-100 text-blue-700', preparing:'bg-amber-100 text-amber-700', ready:'bg-green-100 text-green-700', delivering:'bg-blue-100 text-blue-700', completed:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-700', received:'bg-indigo-100 text-indigo-700' },
+    get filteredPrescriptions() { return (this.filter ? this.prescriptions.filter(rx => rx.status === this.filter) : this.prescriptions).slice().sort((a,b) => b.created_at.localeCompare(a.created_at)); },
+    itemsFor(rxId) { return window.__store.getPrescriptionItems(rxId); },
+    patientName(id) { return window.__store.getPatient(id)?.full_name || 'N/A'; },
+    doctorName(id) { return window.__store.getDoctor(id)?.full_name || ''; },
+    formatDate(d) { if (!d) return '-'; return new Date(d).toLocaleDateString('id-ID', { day:'numeric', month:'short', year:'numeric' }); },
+    init() {
+      if (window.__pagePollInterval) clearInterval(window.__pagePollInterval);
+      window.__pagePollInterval = setInterval(() => this.poll(), 6000);
+    },
+    async poll() { this.prescriptions = await window.__store.fetchPrescriptionsForPharmacy(this.pharmacyId); },
+    async accept(id) { await window.__store.updatePrescriptionStatus(id, 'preparing'); await this.poll(); },
+    async reject(id, rxNumber) {
+      const r = prompt('Alasan penolakan resep ' + rxNumber + ':');
+      if (r === null) return;
+      if (!r.trim()) { alert('Alasan penolakan wajib diisi'); return; }
+      await window.__store.updatePrescriptionStatus(id, 'rejected', r.trim());
+      await this.poll();
+    },
+    async sendNow(id) { await window.__store.updatePrescriptionStatus(id, 'delivering'); await this.poll(); },
+    async markReady(id) { await window.__store.updatePrescriptionStatus(id, 'ready'); await this.poll(); },
+    async complete(id) { await window.__store.updatePrescriptionStatus(id, 'completed'); await this.poll(); }
+  }" class="min-h-screen bg-wash">
     ${pharmacySidebar('prescriptions')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${pharmacyHeader(pharmacy)}
@@ -92,52 +165,69 @@ export function pharmacyPrescriptions() {
           ${['','sent','preparing','ready','delivering','completed','rejected'].map(s => `<button @click="filter='${s}'" :class="filter==='${s}' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-xs font-medium transition">${s ? CONFIG.PRESCRIPTION_STATUS_LABELS[s] : 'Semua'}</button>`).join('')}
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
+          <template x-if="filteredPrescriptions.length === 0"><p class="p-8 text-center text-gray-400 text-sm">Tidak ada resep</p></template>
           <div class="divide-y divide-gray-50">
-            ${prescriptions.map(rx => {
-              const patient = store.getPatient(rx.patient_id);
-              const doctor = store.getDoctor(rx.doctor_id);
-              const items = store.getPrescriptionItems(rx.id);
-              const isDelivery = rx.delivery_method === 'delivery';
-              return `<template x-if="!filter || filter === '${rx.status}'">
-                <div class="p-4 hover:bg-gray-50 transition" x-data="{open:false}">
-                  <div class="flex items-center justify-between cursor-pointer" @click="open=!open">
-                    <div><p class="font-medium text-sm text-gray-800">${rx.rx_number} — ${patient?.full_name || 'N/A'}${isDelivery ? ` <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 align-middle">🚚 Dikirim</span>` : ''}</p><p class="text-xs text-gray-500">${doctor?.full_name || ''} | ${formatDate(rx.created_at?.split('T')[0])} | ${items.length} obat</p></div>
-                    <div class="flex items-center gap-2"><span class="px-2 py-1 rounded-full text-xs font-medium ${{sent:'bg-blue-100 text-blue-700',preparing:'bg-amber-100 text-amber-700',ready:'bg-green-100 text-green-700',delivering:'bg-blue-100 text-blue-700',completed:'bg-green-100 text-green-700',rejected:'bg-red-100 text-red-700',received:'bg-indigo-100 text-indigo-700'}[rx.status] || 'bg-gray-100'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status]}</span><svg class="w-4 h-4 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></div>
+            <template x-for="rx in filteredPrescriptions" :key="rx.id">
+              <div class="p-4 hover:bg-gray-50 transition" x-data="{open:false}">
+                <div class="flex items-center justify-between cursor-pointer" @click="open=!open">
+                  <div>
+                    <p class="font-medium text-sm text-gray-800">
+                      <span x-text="rx.rx_number + ' — ' + patientName(rx.patient_id)"></span>
+                      <template x-if="rx.delivery_method === 'delivery'"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 align-middle">🚚 Dikirim</span></template>
+                    </p>
+                    <p class="text-xs text-gray-500"><span x-text="doctorName(rx.doctor_id) + ' | ' + formatDate((rx.created_at||'').split('T')[0]) + ' | ' + itemsFor(rx.id).length + ' obat'"></span></p>
                   </div>
-                  <div x-show="open" x-cloak class="mt-3 text-sm border-t border-gray-100 pt-3 space-y-3">
-                    <div class="space-y-2">
-                      ${items.map((i, idx) => i.is_compound ? `
-                      <div class="rounded-xl border border-purple-200 bg-purple-50/60 p-3">
-                        <div class="flex items-center gap-2 mb-1.5">
-                          <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white tracking-wide">RACIKAN</span>
-                          <span class="font-semibold text-gray-800">${i.drug_name || `R/${idx + 1}`}</span>
-                        </div>
-                        <p class="text-xs text-gray-500 font-medium mb-0.5">Komposisi:</p>
-                        <p class="text-sm text-gray-800 whitespace-pre-line leading-relaxed bg-white rounded-lg border border-purple-100 p-2">${(i.compound_details || '-').trim()}</p>
-                        <p class="text-xs text-gray-500 mt-2">${i.frequency || ''} ${i.time || ''} — ${i.quantity || '-'} ${i.unit || ''}${i.duration ? ' · ' + i.duration : ''}</p>
-                        ${i.instructions ? `<p class="text-xs text-gray-500 italic mt-1">Instruksi: ${i.instructions}</p>` : ''}
-                      </div>` : `
-                      <div class="rounded-xl border border-gray-100 p-3">
-                        <p class="font-semibold text-gray-800">${i.drug_name}${i.dosage ? ' — ' + i.dosage : ''}</p>
-                        <p class="text-xs text-gray-500 mt-0.5">${i.frequency || ''} ${i.time || ''} — ${i.quantity || '-'} ${i.unit || ''}${i.duration ? ' · ' + i.duration : ''}</p>
-                        ${i.instructions ? `<p class="text-xs text-gray-500 italic mt-1">Instruksi: ${i.instructions}</p>` : ''}
-                      </div>`).join('')}
-                    </div>
-                    ${isDelivery ? `<div class="rounded-xl border border-blue-200 bg-blue-50 p-3"><p class="text-xs font-semibold text-blue-800 mb-1">🚚 Alamat Pengiriman</p><p class="text-sm text-blue-900 whitespace-pre-line leading-relaxed">${(rx.delivery_address || '-').trim()}</p></div>` : ''}
-                    ${rx.notes ? `<div class="rounded-xl border border-amber-200 bg-amber-50 p-3"><p class="text-xs font-semibold text-amber-800 mb-1">Catatan untuk Apoteker</p><p class="text-sm text-amber-900 whitespace-pre-line leading-relaxed">${rx.notes.trim()}</p></div>` : ''}
-                    ${rx.status === 'rejected' && rx.reject_reason ? `<div class="rounded-xl border border-red-200 bg-red-50 p-3"><p class="text-xs font-semibold text-red-800 mb-1">Alasan Ditolak</p><p class="text-sm text-red-900 whitespace-pre-line leading-relaxed">${rx.reject_reason.trim()}</p></div>` : ''}
-                    <div class="flex gap-1 flex-wrap">
-                      ${rx.status === 'sent' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','preparing');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/prescriptions',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600">Terima</button><button onclick="const r=prompt('Alasan penolakan resep ${rx.rx_number}:'); if(r===null)return; if(!r.trim()){alert('Alasan penolakan wajib diisi'); return;} window.__store.updatePrescriptionStatus('${rx.id}','rejected', r.trim());window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/prescriptions',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 border border-red-200">Tolak</button>` : ''}
-                      ${rx.status === 'preparing' ? (isDelivery
-                        ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','delivering');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/prescriptions',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600">Kirim Sekarang</button>`
-                        : `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','ready');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/prescriptions',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600">Siap Diambil</button>`) : ''}
-                      ${rx.status === 'ready' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','completed');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/prescriptions',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600">Selesai</button>` : ''}
-                      ${rx.status === 'delivering' ? `<button onclick="window.__store.updatePrescriptionStatus('${rx.id}','completed');window.location.hash='/pharmacy/dashboard'; setTimeout(()=>window.location.hash='/pharmacy/prescriptions',50)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600">Selesai (Diterima)</button>` : ''}
-                    </div>
+                  <div class="flex items-center gap-2">
+                    <span class="px-2 py-1 rounded-full text-xs font-medium" :class="statusBadges[rx.status] || 'bg-gray-100'" x-text="statusLabels[rx.status] || rx.status"></span>
+                    <svg class="w-4 h-4 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                   </div>
                 </div>
-              </template>`;
-            }).join('')}
+                <div x-show="open" x-cloak class="mt-3 text-sm border-t border-gray-100 pt-3 space-y-3">
+                  <div class="space-y-2">
+                    <template x-for="(item, idx) in itemsFor(rx.id)" :key="item.id">
+                      <div>
+                        <template x-if="item.is_compound">
+                          <div class="rounded-xl border border-purple-200 bg-purple-50/60 p-3">
+                            <div class="flex items-center gap-2 mb-1.5">
+                              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white tracking-wide">RACIKAN</span>
+                              <span class="font-semibold text-gray-800" x-text="item.drug_name || ('R/' + (idx+1))"></span>
+                            </div>
+                            <p class="text-xs text-gray-500 font-medium mb-0.5">Komposisi:</p>
+                            <p class="text-sm text-gray-800 whitespace-pre-line leading-relaxed bg-white rounded-lg border border-purple-100 p-2" x-text="(item.compound_details || '-').trim()"></p>
+                            <p class="text-xs text-gray-500 mt-2" x-text="(item.frequency||'') + ' ' + (item.time||'') + ' — ' + (item.quantity||'-') + ' ' + (item.unit||'') + (item.duration ? ' · ' + item.duration : '')"></p>
+                            <p class="text-xs text-gray-500 italic mt-1" x-show="item.instructions" x-text="'Instruksi: ' + item.instructions"></p>
+                          </div>
+                        </template>
+                        <template x-if="!item.is_compound">
+                          <div class="rounded-xl border border-gray-100 p-3">
+                            <p class="font-semibold text-gray-800" x-text="item.drug_name + (item.dosage ? ' — ' + item.dosage : '')"></p>
+                            <p class="text-xs text-gray-500 mt-0.5" x-text="(item.frequency||'') + ' ' + (item.time||'') + ' — ' + (item.quantity||'-') + ' ' + (item.unit||'') + (item.duration ? ' · ' + item.duration : '')"></p>
+                            <p class="text-xs text-gray-500 italic mt-1" x-show="item.instructions" x-text="'Instruksi: ' + item.instructions"></p>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                  <template x-if="rx.delivery_method === 'delivery'">
+                    <div class="rounded-xl border border-blue-200 bg-blue-50 p-3"><p class="text-xs font-semibold text-blue-800 mb-1">🚚 Alamat Pengiriman</p><p class="text-sm text-blue-900 whitespace-pre-line leading-relaxed" x-text="(rx.delivery_address || '-').trim()"></p></div>
+                  </template>
+                  <template x-if="rx.notes">
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 p-3"><p class="text-xs font-semibold text-amber-800 mb-1">Catatan untuk Apoteker</p><p class="text-sm text-amber-900 whitespace-pre-line leading-relaxed" x-text="(rx.notes||'').trim()"></p></div>
+                  </template>
+                  <template x-if="rx.status === 'rejected' && rx.reject_reason">
+                    <div class="rounded-xl border border-red-200 bg-red-50 p-3"><p class="text-xs font-semibold text-red-800 mb-1">Alasan Ditolak</p><p class="text-sm text-red-900 whitespace-pre-line leading-relaxed" x-text="(rx.reject_reason||'').trim()"></p></div>
+                  </template>
+                  <div class="flex gap-1 flex-wrap">
+                    <template x-if="rx.status === 'sent'"><button @click="accept(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600">Terima</button></template>
+                    <template x-if="rx.status === 'sent'"><button @click="reject(rx.id, rx.rx_number)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 border border-red-200">Tolak</button></template>
+                    <template x-if="rx.status === 'preparing' && rx.delivery_method === 'delivery'"><button @click="sendNow(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600">Kirim Sekarang</button></template>
+                    <template x-if="rx.status === 'preparing' && rx.delivery_method !== 'delivery'"><button @click="markReady(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-green-600">Siap Diambil</button></template>
+                    <template x-if="rx.status === 'ready'"><button @click="complete(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600">Selesai</button></template>
+                    <template x-if="rx.status === 'delivering'"><button @click="complete(rx.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-teal-600">Selesai (Diterima)</button></template>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </main>

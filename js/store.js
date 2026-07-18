@@ -544,6 +544,24 @@ class Store {
     return this.data.prescriptions.filter(rx => rx.pharmacy_id === pharmacyId).sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
 
+  // Re-fetches a pharmacy's prescriptions (+ items) from Supabase — same
+  // staleness fix as fetchBookings/fetchHomeCareClaims, so a new e-resep sent
+  // by a doctor shows up on the pharmacy dashboard without a manual reload.
+  async fetchPrescriptionsForPharmacy(pharmacyId) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const [prescriptions, items] = await Promise.all([
+          supabase.select('prescriptions', { eq: { pharmacy_id: pharmacyId }, order: 'created_at.desc' }),
+          supabase.select('prescription_items'),
+        ]);
+        if (prescriptions) this.data.prescriptions = (this.data.prescriptions || []).filter(rx => rx.pharmacy_id !== pharmacyId).concat(prescriptions);
+        if (items) this.data.prescription_items = items;
+        this._save();
+      } catch (e) { console.warn('Gagal memuat resep:', e); }
+    }
+    return this.getPrescriptionsByPharmacy(pharmacyId);
+  }
+
   getPrescriptionItems(prescriptionId) {
     return this.data.prescription_items.filter(i => i.prescription_id === prescriptionId);
   }
