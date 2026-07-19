@@ -263,6 +263,24 @@ class Store {
     return next;
   }
 
+  // Sequential rx_number, resets each year. Same pattern as getNextCertNumber
+  // above — previously rx_number was `local prescriptions.length + 1`, which
+  // collides with an existing row whenever the local cache is missing any
+  // prescription (a prior failed save, another doctor's, another device's).
+  async getNextRxNumber(year) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const result = await supabase.rpc('get_next_rx_number', { p_year: year });
+        if (typeof result === 'number') return result;
+      } catch (e) { console.warn('Rx sequence RPC failed, using local fallback:', e); }
+    }
+    const key = 'medconnect_rx_seq_' + year;
+    const current = parseInt(localStorage.getItem(key) || '0', 10);
+    const next = current + 1;
+    localStorage.setItem(key, String(next));
+    return next;
+  }
+
   // Persist an issued certificate so it can be looked up later via QR verification
   async logCertificate(cert) {
     const record = { id: generateId(), ...cert, issued_at: new Date().toISOString() };
@@ -578,7 +596,9 @@ class Store {
   // patched from its client-generated 'id_...' placeholder to a real
   // Supabase UUID (see _syncInsert); if not, the insert never persisted.
   async createPrescription(rx, items) {
-    const newRx = { id: generateId(), ...rx, status: 'sent', created_at: new Date().toISOString(), rx_number: 'R-' + new Date().getFullYear() + '-' + String(this.data.prescriptions.length + 1).padStart(4, '0') };
+    const year = new Date().getFullYear();
+    const seq = await this.getNextRxNumber(year);
+    const newRx = { id: generateId(), ...rx, status: 'sent', created_at: new Date().toISOString(), rx_number: 'R-' + year + '-' + String(seq).padStart(4, '0') };
     this.data.prescriptions.push(newRx);
     const savedItems = [];
     items.forEach(item => {
