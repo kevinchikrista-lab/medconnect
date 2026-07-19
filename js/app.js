@@ -434,6 +434,7 @@ if ('serviceWorker' in navigator && !isLocalHost) {
 }
 
 // Wait for Alpine to be ready, then start the router
+let hasLoadedFromSupabase = false;
 async function startApp() {
   // Check for password recovery token from Supabase email link
   const fullHash = window.location.hash;
@@ -446,9 +447,18 @@ async function startApp() {
     }
   }
 
-  // Load data from Supabase if not in demo mode
-  if (!store.data._supabaseLoaded) {
-    store.loadFromSupabase().then(() => { store.data._supabaseLoaded = true; }).catch(() => {});
+  // Load fresh data from Supabase on every app boot (not in demo mode).
+  // This used to be guarded by `store.data._supabaseLoaded`, a flag that
+  // lives on the same object _save() persists to localStorage — so once it
+  // was set true on a given browser, it stayed true forever (surviving
+  // reloads and even logging back in on that browser), and that browser
+  // would silently keep showing whatever was cached at its very first-ever
+  // load instead of syncing anything created elsewhere afterward. Using a
+  // plain module-level flag instead means it naturally resets on every page
+  // load, the way "did we already fetch this session" was meant to work.
+  if (!hasLoadedFromSupabase) {
+    hasLoadedFromSupabase = true;
+    store.loadFromSupabase().catch(() => {});
   }
   if (window.Alpine) {
     router.init();
