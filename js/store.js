@@ -592,18 +592,30 @@ class Store {
     if (patientUser) this.addNotification(patientUser.user_id, 'Resep Dikirim', `Resep ${newRx.rx_number} telah dikirim ke apotek.`, 'prescription');
     this._save();
     if (CONFIG.DEMO_MODE) return { success: true, rx: newRx };
-    await this._syncInsert('prescriptions', newRx);
-    const success = !newRx.id.startsWith('id_');
+
+    // Bypasses _syncInsert here (unlike prescription_items below) because we
+    // need the raw server error text to show the doctor — _syncInsert only
+    // ever logs it to the console, which isn't reachable on a phone.
+    const { id, ...payload } = newRx;
+    let insertError = null;
+    try {
+      const inserted = await supabase.insert('prescriptions', payload);
+      if (inserted && inserted.id) { newRx.id = inserted.id; this._save(); }
+      else insertError = (inserted && inserted.error) || 'insert gagal tanpa keterangan';
+    } catch (e) { insertError = e.message || 'kesalahan jaringan'; }
+
+    const success = !insertError;
     if (success) {
       savedItems.forEach(si => { si.prescription_id = newRx.id; this._syncInsert('prescription_items', si); });
     } else {
+      console.warn('Gagal menyimpan ke Supabase (prescriptions):', insertError, payload);
       // Roll back the optimistic local copy so the UI doesn't keep showing a
       // prescription that doesn't actually exist on the server.
       this.data.prescriptions = this.data.prescriptions.filter(p => p.id !== newRx.id);
       this.data.prescription_items = this.data.prescription_items.filter(i => i.prescription_id !== newRx.id);
       this._save();
     }
-    return { success, rx: newRx, error: success ? null : 'Gagal menyimpan resep ke server. Cek koneksi lalu coba lagi.' };
+    return { success, rx: newRx, error: success ? null : `Gagal menyimpan resep ke server: ${insertError}` };
   }
 
   // reason is only meaningful (and required by the pharmacy UI) when status
