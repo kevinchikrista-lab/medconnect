@@ -570,7 +570,14 @@ class Store {
     return this.data.prescription_items.filter(i => i.prescription_id === prescriptionId);
   }
 
-  createPrescription(rx, items) {
+  // Async (unlike most other create* methods here) because a doctor sending a
+  // prescription needs to know the write actually reached Supabase, not just
+  // that it's sitting in the local cache — that gap is what let a "sent"
+  // prescription silently vanish once the local cache was replaced by a
+  // fresh, server-truth fetch. Success is judged by whether newRx.id got
+  // patched from its client-generated 'id_...' placeholder to a real
+  // Supabase UUID (see _syncInsert); if not, the insert never persisted.
+  async createPrescription(rx, items) {
     const newRx = { id: generateId(), ...rx, status: 'sent', created_at: new Date().toISOString(), rx_number: 'R-' + new Date().getFullYear() + '-' + String(this.data.prescriptions.length + 1).padStart(4, '0') };
     this.data.prescriptions.push(newRx);
     const savedItems = [];
@@ -584,10 +591,19 @@ class Store {
     const patientUser = this.data.patients.find(p => p.id === rx.patient_id);
     if (patientUser) this.addNotification(patientUser.user_id, 'Resep Dikirim', `Resep ${newRx.rx_number} telah dikirim ke apotek.`, 'prescription');
     this._save();
-    this._syncInsert('prescriptions', newRx).then(rx => {
-      savedItems.forEach(si => { si.prescription_id = rx.id; this._syncInsert('prescription_items', si); });
-    });
-    return newRx;
+    if (CONFIG.DEMO_MODE) return { success: true, rx: newRx };
+    await this._syncInsert('prescriptions', newRx);
+    const success = !newRx.id.startsWith('id_');
+    if (success) {
+      savedItems.forEach(si => { si.prescription_id = newRx.id; this._syncInsert('prescription_items', si); });
+    } else {
+      // Roll back the optimistic local copy so the UI doesn't keep showing a
+      // prescription that doesn't actually exist on the server.
+      this.data.prescriptions = this.data.prescriptions.filter(p => p.id !== newRx.id);
+      this.data.prescription_items = this.data.prescription_items.filter(i => i.prescription_id !== newRx.id);
+      this._save();
+    }
+    return { success, rx: newRx, error: success ? null : 'Gagal menyimpan resep ke server. Cek koneksi lalu coba lagi.' };
   }
 
   // reason is only meaningful (and required by the pharmacy UI) when status

@@ -729,7 +729,23 @@ export function doctorPrescriptionNew(params) {
 
   const age = calculateAge(patient.birth_date);
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}], pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', delivery_method: 'pickup', delivery_address: '${(patient.address || '').replace(/'/g, "\\'")}', sending: false, sent: false }" class="min-h-screen bg-wash">
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024,
+    items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}],
+    pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', delivery_method: 'pickup', delivery_address: '${(patient.address || '').replace(/'/g, "\\'")}',
+    sending: false, sent: false, error: '',
+    async send() {
+      this.sending = true; this.error = '';
+      const result = await window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:this.pharmacy_id,notes:this.notes,delivery_method:this.delivery_method,delivery_address:this.delivery_method==='delivery'?this.delivery_address:''}, this.items);
+      this.sending = false;
+      if (result.success) {
+        this.sent = true;
+        setTimeout(() => window.location.hash='/doctor/prescriptions', 1000);
+      } else {
+        this.error = result.error || 'Gagal menyimpan resep ke server. Coba lagi.';
+      }
+    }
+  }" class="min-h-screen bg-wash">
     ${doctorSidebar('prescriptions')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -737,9 +753,10 @@ export function doctorPrescriptionNew(params) {
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold text-gray-800">Buat E-Resep</h2>
           <div class="flex gap-2">
-            <button @click="sending=true; setTimeout(()=>{ window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:pharmacy_id,notes:notes,delivery_method:delivery_method,delivery_address:delivery_method==='delivery'?delivery_address:''}, items); sending=false; sent=true; setTimeout(()=>window.location.hash='/doctor/prescriptions',1000) },500)" :disabled="sending || sent || items.some(i=>!i.drug_name) || (delivery_method==='delivery' && !delivery_address.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
+            <button @click="send()" :disabled="sending || sent || items.some(i=>!i.drug_name) || (delivery_method==='delivery' && !delivery_address.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
           </div>
         </div>
+        <div x-show="error" x-cloak class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium" x-text="error"></div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
             <div><span class="text-gray-500">Dokter:</span><p class="font-medium text-gray-800">${doc?.full_name}</p></div>
