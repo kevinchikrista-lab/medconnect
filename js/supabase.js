@@ -128,7 +128,7 @@ export const supabase = {
       const res = await authedFetch(`${SUPA_URL}/rest/v1/${table}?id=eq.${id}`, {
         method: 'PATCH', body: JSON.stringify(data)
       });
-      if (!res.ok) return { error: 'Update failed' };
+      if (!res.ok) { const err = await res.json().catch(() => ({})); return { error: err.message || 'Update failed' }; }
       const result = await res.json();
       return result[0] || { success: true };
     } catch (e) { return { error: e.message || 'Network error' }; }
