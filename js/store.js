@@ -537,17 +537,22 @@ class Store {
     return { success: true };
   }
 
-  // Medical Records
+  // Medical Records — sorted by created_at (actual input time), not
+  // visit_date (a date-only field the doctor sets, with no time-of-day) so
+  // same-day records land in the order they were actually entered.
   getRecords(patientId) {
-    return this.data.medical_records.filter(r => r.patient_id === patientId).sort((a, b) => b.visit_date.localeCompare(a.visit_date));
+    return this.data.medical_records.filter(r => r.patient_id === patientId).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
 
   getRecordsByDoctor(doctorId) {
-    return this.data.medical_records.filter(r => r.doctor_id === doctorId).sort((a, b) => b.visit_date.localeCompare(a.visit_date));
+    return this.data.medical_records.filter(r => r.doctor_id === doctorId).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
 
   createRecord(record) {
-    const newRecord = { id: generateId(), ...record, visit_date: record.visit_date || new Date().toISOString().split('T')[0] };
+    // created_at is set here (not left to the DB's default now()) so the
+    // sort-by-input-time getters above have something to sort by in the
+    // local optimistic copy immediately, before the next Supabase refresh.
+    const newRecord = { id: generateId(), ...record, visit_date: record.visit_date || new Date().toISOString().split('T')[0], created_at: new Date().toISOString() };
     this.data.medical_records.push(newRecord);
     if (record.follow_up_date) {
       const apt = { id: generateId(), patient_id: record.patient_id, doctor_id: record.doctor_id, date: record.follow_up_date, time_slot: '09:00', type: 'follow_up', status: 'scheduled', queue_number: null, notes: record.follow_up_notes || 'Kontrol ulang' };
@@ -559,21 +564,32 @@ class Store {
     return newRecord;
   }
 
-  // Prescriptions
+  // Prescriptions — ordered by the linked medical record's created_at (when
+  // the patient's visit was actually recorded), not the prescription row's
+  // own created_at. A resep's own timestamp doesn't move when it's edited
+  // (updatePrescription only touches the fields passed to it), but tying
+  // the sort to the visit itself rather than to the resep row is the
+  // robust choice: it can never let editing a resep shuffle it ahead of an
+  // earlier patient in the pharmacy's queue, now or if that ever changes.
+  _rxSortTime(rx) {
+    const record = this.data.medical_records.find(r => r.id === rx.record_id);
+    return (record && record.created_at) || rx.created_at || '';
+  }
+
   getPrescriptionsByDoctor(doctorId) {
-    return this.data.prescriptions.filter(rx => rx.doctor_id === doctorId).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return this.data.prescriptions.filter(rx => rx.doctor_id === doctorId).sort((a, b) => this._rxSortTime(b).localeCompare(this._rxSortTime(a)));
   }
 
   getPrescriptionsByPatient(patientId) {
-    return this.data.prescriptions.filter(rx => rx.patient_id === patientId).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return this.data.prescriptions.filter(rx => rx.patient_id === patientId).sort((a, b) => this._rxSortTime(b).localeCompare(this._rxSortTime(a)));
   }
 
   getPrescriptionsByRecord(recordId) {
-    return this.data.prescriptions.filter(rx => rx.record_id === recordId).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return this.data.prescriptions.filter(rx => rx.record_id === recordId).sort((a, b) => this._rxSortTime(b).localeCompare(this._rxSortTime(a)));
   }
 
   getPrescriptionsByPharmacy(pharmacyId) {
-    return this.data.prescriptions.filter(rx => rx.pharmacy_id === pharmacyId).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return this.data.prescriptions.filter(rx => rx.pharmacy_id === pharmacyId).sort((a, b) => this._rxSortTime(b).localeCompare(this._rxSortTime(a)));
   }
 
   // Re-fetches a pharmacy's prescriptions (+ items) from Supabase — same
@@ -676,6 +692,10 @@ class Store {
     rx.status = status;
     const updates = { status };
     if (status === 'rejected') { rx.reject_reason = reason || ''; updates.reject_reason = reason || ''; }
+    // Recorded so "Selesai Hari Ini" on the pharmacy dashboard can filter by
+    // when a prescription actually finished, not just its status — it used
+    // to count every 'completed' prescription ever, regardless of date.
+    if (status === 'completed') { rx.completed_at = new Date().toISOString(); updates.completed_at = rx.completed_at; }
     const patient = this.getPatient(rx.patient_id);
     const statusLabel = CONFIG.PRESCRIPTION_STATUS_LABELS[status] || status;
     const msg = status === 'rejected' && reason ? `Resep ${rx.rx_number} ditolak apotek. Alasan: ${reason}` : `Resep ${rx.rx_number} status: ${statusLabel}.`;

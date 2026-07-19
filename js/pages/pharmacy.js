@@ -30,7 +30,14 @@ export function pharmacyDashboard() {
     get incoming() { return this.prescriptions.filter(rx => rx.status === 'sent'); },
     get processing() { return this.prescriptions.filter(rx => ['received','preparing','delivering'].includes(rx.status)); },
     get ready() { return this.prescriptions.filter(rx => rx.status === 'ready'); },
-    get completedToday() { return this.prescriptions.filter(rx => rx.status === 'completed'); },
+    get completedToday() {
+      // Was filtering by status alone (no date check at all), so it counted
+      // every prescription ever marked completed, not just today's. Compares
+      // local date strings (toDateString, not toISOString) so this lines up
+      // with the pharmacy's own clock/timezone, not UTC.
+      const today = new Date().toDateString();
+      return this.prescriptions.filter(rx => rx.status === 'completed' && rx.completed_at && new Date(rx.completed_at).toDateString() === today);
+    },
     get activeList() { return [...this.incoming, ...this.processing, ...this.ready].sort((a,b) => b.created_at.localeCompare(a.created_at)); },
     itemCount(rxId) { return window.__store.getPrescriptionItems(rxId).length; },
     patientName(id) { return window.__store.getPatient(id)?.full_name || 'N/A'; },
