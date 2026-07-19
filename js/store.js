@@ -624,13 +624,26 @@ class Store {
       else insertError = (inserted && inserted.error) || 'insert gagal tanpa keterangan';
     } catch (e) { insertError = e.message || 'kesalahan jaringan'; }
 
+    if (!insertError) {
+      // Awaited (unlike a plain forEach) so a partial item failure is
+      // detectable — otherwise the prescription row saves fine while its
+      // medicines silently don't, which is exactly the "1 obat here, 0 obat
+      // on another device" symptom this is fixing.
+      savedItems.forEach(si => { si.prescription_id = newRx.id; });
+      await Promise.all(savedItems.map(si => this._syncInsert('prescription_items', si)));
+      const failedItems = savedItems.filter(si => si.id.startsWith('id_'));
+      if (failedItems.length > 0) insertError = `${failedItems.length} dari ${savedItems.length} obat gagal tersimpan`;
+    }
+
     const success = !insertError;
-    if (success) {
-      savedItems.forEach(si => { si.prescription_id = newRx.id; this._syncInsert('prescription_items', si); });
-    } else {
+    if (!success) {
       console.warn('Gagal menyimpan ke Supabase (prescriptions):', insertError, payload);
       // Roll back the optimistic local copy so the UI doesn't keep showing a
-      // prescription that doesn't actually exist on the server.
+      // prescription that doesn't actually exist on the server — and if the
+      // prescription row itself DID get created before its items failed,
+      // delete it server-side too, so no other device/pharmacy ever sees a
+      // "sent" prescription with no medicines on it.
+      if (!newRx.id.startsWith('id_')) supabase.delete('prescriptions', newRx.id).catch(() => {});
       this.data.prescriptions = this.data.prescriptions.filter(p => p.id !== newRx.id);
       this.data.prescription_items = this.data.prescription_items.filter(i => i.prescription_id !== newRx.id);
       this._save();
@@ -654,25 +667,57 @@ class Store {
     if (!CONFIG.DEMO_MODE) supabase.update('prescriptions', rxId, updates).catch(e => console.warn('Gagal update status resep:', e));
   }
 
-  updatePrescription(rxId, updates) {
+  async updatePrescription(rxId, updates) {
     const rx = this.data.prescriptions.find(r => r.id === rxId);
     if (!rx) return { error: 'Resep tidak ditemukan' };
     if (!['sent','rejected'].includes(rx.status)) return { error: 'Resep sudah diproses apotek, tidak bisa diedit' };
+    const previous = {};
+    Object.keys(updates).forEach(k => { previous[k] = rx[k]; });
     Object.assign(rx, updates);
     this._save();
-    if (!CONFIG.DEMO_MODE) supabase.update('prescriptions', rxId, updates).catch(() => {});
+    if (CONFIG.DEMO_MODE) return { success: true, rx };
+    const result = await supabase.update('prescriptions', rxId, updates);
+    if (result && result.error) {
+      Object.assign(rx, previous);
+      this._save();
+      return { error: `Gagal menyimpan perubahan resep: ${result.error}` };
+    }
     return { success: true, rx };
   }
 
-  updatePrescriptionItems(rxId, newItems) {
-    this.data.prescription_items = this.data.prescription_items.filter(i => i.prescription_id !== rxId);
-    if (!CONFIG.DEMO_MODE) supabase.deleteWhere('prescription_items', { prescription_id: rxId }).catch(() => {});
-    newItems.forEach(item => {
-      const newItem = { id: generateId(), prescription_id: rxId, ...item };
-      this.data.prescription_items.push(newItem);
-      this._syncInsert('prescription_items', newItem);
-    });
+  // Inserts the new items and confirms they actually persisted BEFORE
+  // deleting the old ones (rather than delete-then-insert), so a failed
+  // save leaves the previous, still-correct items in place instead of
+  // silently leaving the prescription with zero medicines on it.
+  async updatePrescriptionItems(rxId, newItems) {
+    const oldItems = this.data.prescription_items.filter(i => i.prescription_id === rxId);
+    const savedItems = newItems.map(item => ({ id: generateId(), prescription_id: rxId, ...item }));
+
+    if (CONFIG.DEMO_MODE) {
+      this.data.prescription_items = this.data.prescription_items.filter(i => i.prescription_id !== rxId).concat(savedItems);
+      this._save();
+      return { success: true };
+    }
+
+    let error = null;
+    try {
+      await Promise.all(savedItems.map(si => this._syncInsert('prescription_items', si)));
+      const failed = savedItems.filter(si => si.id.startsWith('id_'));
+      if (failed.length > 0) error = `${failed.length} dari ${savedItems.length} obat gagal tersimpan`;
+    } catch (e) { error = e.message || 'kesalahan jaringan'; }
+
+    if (error) {
+      console.warn('Gagal menyimpan ke Supabase (prescription_items update):', error);
+      // Clean up whatever new items DID make it through so they don't sit
+      // as duplicates alongside the still-valid old ones.
+      savedItems.filter(si => !si.id.startsWith('id_')).forEach(si => supabase.delete('prescription_items', si.id).catch(() => {}));
+      return { success: false, error: `Gagal menyimpan obat: ${error}` };
+    }
+
+    await Promise.all(oldItems.map(oi => supabase.delete('prescription_items', oi.id)));
+    this.data.prescription_items = this.data.prescription_items.filter(i => i.prescription_id !== rxId).concat(savedItems);
     this._save();
+    return { success: true };
   }
 
   cancelPrescription(rxId, reason) {

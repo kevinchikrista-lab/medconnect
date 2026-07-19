@@ -841,16 +841,16 @@ export function doctorPrescriptionEdit(params) {
     notes: '${(rx.notes||'').replace(/'/g,"\\'")}',
     delivery_method: '${rx.delivery_method || 'pickup'}',
     delivery_address: '${(rx.delivery_address || patient?.address || '').replace(/'/g, "\\'")}',
-    saving: false, saved: false,
-    saveEdit() {
-      this.saving = true;
-      const self = this;
-      setTimeout(function() {
-        window.__store.updatePrescription('${rx.id}', { pharmacy_id: self.pharmacy_id, notes: self.notes, delivery_method: self.delivery_method, delivery_address: self.delivery_method==='delivery' ? self.delivery_address : '', status: 'sent' });
-        window.__store.updatePrescriptionItems('${rx.id}', self.items);
-        self.saving = false; self.saved = true;
-        setTimeout(function(){ window.location.hash = '/doctor/prescriptions'; }, 800);
-      }, 400);
+    saving: false, saved: false, error: '',
+    async saveEdit() {
+      this.saving = true; this.error = '';
+      const rxResult = await window.__store.updatePrescription('${rx.id}', { pharmacy_id: this.pharmacy_id, notes: this.notes, delivery_method: this.delivery_method, delivery_address: this.delivery_method==='delivery' ? this.delivery_address : '', status: 'sent' });
+      if (rxResult.error) { this.saving = false; this.error = rxResult.error; return; }
+      const itemsResult = await window.__store.updatePrescriptionItems('${rx.id}', this.items);
+      this.saving = false;
+      if (!itemsResult.success) { this.error = itemsResult.error; return; }
+      this.saved = true;
+      setTimeout(() => window.location.hash = '/doctor/prescriptions', 800);
     }
   }" class="min-h-screen bg-wash">
     ${doctorSidebar('prescriptions')}
@@ -864,6 +864,7 @@ export function doctorPrescriptionEdit(params) {
             <a href="#/doctor/prescriptions" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
+        <div x-show="error" x-cloak class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium" x-text="error"></div>
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2"><svg class="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg><p class="text-sm text-amber-800">Anda sedang mengedit resep yang sudah dikirim. Perubahan akan dikirim ulang ke apotek.</p></div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-4">Daftar Obat</h4>
