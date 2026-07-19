@@ -5,6 +5,18 @@ function generateId() {
   return 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// `new Date().toISOString().split('T')[0]` — used all over this codebase for
+// "today" — reads the UTC date, not the local one. WIB is UTC+7, so from
+// local midnight to 7am the UTC date is still "yesterday": a record entered
+// at, say, 00:30 WIB gets stamped with the previous day's date, and then
+// doesn't show up under "today" for the rest of that actual day. getFullYear
+// /getMonth/getDate default to the local timezone, so building the string
+// from those instead gives the date the clinic's clock actually shows.
+function todayLocal() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 // A blank "Jumlah" number input (common for compound/racikan items, where
 // the composition is described in compound_details instead) binds as the
 // empty string '', not null — and prescription_items.quantity is an INTEGER
@@ -552,7 +564,7 @@ class Store {
     // created_at is set here (not left to the DB's default now()) so the
     // sort-by-input-time getters above have something to sort by in the
     // local optimistic copy immediately, before the next Supabase refresh.
-    const newRecord = { id: generateId(), ...record, visit_date: record.visit_date || new Date().toISOString().split('T')[0], created_at: new Date().toISOString() };
+    const newRecord = { id: generateId(), ...record, visit_date: record.visit_date || todayLocal(), created_at: new Date().toISOString() };
     this.data.medical_records.push(newRecord);
     if (record.follow_up_date) {
       const apt = { id: generateId(), patient_id: record.patient_id, doctor_id: record.doctor_id, date: record.follow_up_date, time_slot: '09:00', type: 'follow_up', status: 'scheduled', queue_number: null, notes: record.follow_up_notes || 'Kontrol ulang' };
@@ -801,7 +813,7 @@ class Store {
   getAllRecords() { return this.data.medical_records; }
 
   getUpcomingAppointments(patientId) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayLocal();
     return this.data.appointments.filter(a => a.patient_id === patientId && a.date >= today && a.status === 'scheduled').sort((a, b) => a.date.localeCompare(b.date));
   }
 

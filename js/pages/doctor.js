@@ -15,6 +15,15 @@ function formatDate(d) {
   return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// new Date().toISOString().split('T')[0] reads the UTC date — WIB is
+// UTC+7, so from local midnight to 7am that's still "yesterday" in UTC,
+// which is why a record entered right after midnight local time didn't
+// show up under "today" for the rest of that actual day.
+function todayLocal() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 function calculateAge(birthDate) {
   if (!birthDate) return null;
   const today = new Date();
@@ -28,7 +37,7 @@ function calculateAge(birthDate) {
 export function doctorDashboard() {
   const doc = getDoctor();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayLocal();
   const todayAppts = store.getAppointmentsByDoctor(doc?.id, today);
   const allRecords = store.getRecordsByDoctor(doc?.id);
   const todayRecords = allRecords.filter(r => r.visit_date === today);
@@ -303,7 +312,7 @@ export function doctorEMR(params) {
                             dose_number: ${isBooster ? lastDose.dose_number + 1 : nextDoseNum},
                             total_doses: ${totalD},
                             batch_number: '',
-                            date_given: new Date().toISOString().split('T')[0],
+                            date_given: new Date().toLocaleDateString('en-CA'),
                             next_dose_date: '',
                             location: '${loc.replace(/'/g,"\\'")}',
                             ${isBooster ? 'booster_interval_months: '+boosterInterval+',' : ''}
@@ -317,7 +326,7 @@ export function doctorEMR(params) {
                             const given = new Date(self.af.date_given);
                             const next = new Date(given);
                             next.setMonth(next.getMonth() + ${boosterInterval});
-                            self.af.next_dose_date = next.toISOString().split('T')[0];
+                            self.af.next_dose_date = next.toLocaleDateString('en-CA');
                             ` : ''}
                             setTimeout(function() {
                               window.__store.createVaccination({
@@ -381,7 +390,7 @@ export function doctorEMRNew(params) {
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
     visitType: 'consultation',
-    visitDate: '${new Date().toISOString().split('T')[0]}',
+    visitDate: '${todayLocal()}',
     form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', visit_type:'consultation' },
     icdSearch: '', icdResults: [], icdOpen: false, icdSearch2: '', icdResults2: [], icdOpen2: false,
     searchICD(q, which) {
@@ -427,7 +436,7 @@ export function doctorEMRNew(params) {
             const given = new Date(self.visitDate);
             const next = new Date(given);
             next.setMonth(next.getMonth() + parseInt(vd.booster_interval_months));
-            vd.next_dose_date = next.toISOString().split('T')[0];
+            vd.next_dose_date = next.toLocaleDateString('en-CA');
             vd.total_doses = 1;
           } else {
             vd.next_dose_date = vd.dose_schedule && vd.dose_schedule.length > 0 ? vd.dose_schedule[0].date : '';
@@ -986,7 +995,7 @@ export function doctorEMREdit(params) {
 export function doctorCalendar(params) {
   const doc = getDoctor();
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = todayLocal();
   const allAppts = store.data.appointments.filter(a => a.doctor_id === doc?.id);
   const allRecords = store.getRecordsByDoctor(doc?.id);
 

@@ -6,7 +6,10 @@
 export function homeCareNewPage(ctx) {
   const { role, sidebar, header, doctorId, doctors = [], patients = [], historyPath, claimId, existingClaim, existingItems } = ctx;
   const isEdit = !!claimId;
-  const today = new Date().toISOString().split('T')[0];
+  // new Date().toISOString().split('T')[0] reads the UTC date — WIB is
+  // UTC+7, so from local midnight to 7am that's still "yesterday" in UTC.
+  const d = new Date();
+  const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   window.__homecarePatients = patients.map(p => ({ id: p.id, full_name: p.full_name, nik: p.nik || '' }));
   window.__homecareDoctors = doctors.map(d => ({ id: d.id, full_name: d.full_name }));
   window.__homecareExistingItems = (existingItems || []).map(it => ({

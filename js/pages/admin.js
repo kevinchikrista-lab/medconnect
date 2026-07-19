@@ -8,6 +8,13 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// new Date().toISOString().split('T')[0] reads the UTC date — WIB is
+// UTC+7, so from local midnight to 7am that's still "yesterday" in UTC.
+function todayLocal() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 export function adminDashboard() {
   const stats = store.getStats();
   const users = store.getUsers();
@@ -641,7 +648,7 @@ export function adminConsultationDetail(params) {
 
 export function adminCalendar(params) {
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = todayLocal();
   const doctors = store.getDoctors();
   window.__adminCalendarDoctors = doctors.map(d => ({ id: d.id, full_name: d.full_name }));
 
