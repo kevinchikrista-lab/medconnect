@@ -625,14 +625,21 @@ class Store {
     } catch (e) { insertError = e.message || 'kesalahan jaringan'; }
 
     if (!insertError) {
-      // Awaited (unlike a plain forEach) so a partial item failure is
-      // detectable — otherwise the prescription row saves fine while its
-      // medicines silently don't, which is exactly the "1 obat here, 0 obat
-      // on another device" symptom this is fixing.
+      // Batched into one insert (like the prescription row above) rather
+      // than N parallel _syncInsert calls, so a failure surfaces the real
+      // server error text instead of just "N obat gagal tersimpan" with no
+      // reason — that gap is why the doctor only ever saw a bare item count.
       savedItems.forEach(si => { si.prescription_id = newRx.id; });
-      await Promise.all(savedItems.map(si => this._syncInsert('prescription_items', si)));
-      const failedItems = savedItems.filter(si => si.id.startsWith('id_'));
-      if (failedItems.length > 0) insertError = `${failedItems.length} dari ${savedItems.length} obat gagal tersimpan`;
+      const itemPayloads = savedItems.map(({ id, ...payload }) => payload);
+      try {
+        const insertedItems = await supabase.insert('prescription_items', itemPayloads);
+        if (Array.isArray(insertedItems) && insertedItems.length === savedItems.length) {
+          insertedItems.forEach((ins, idx) => { savedItems[idx].id = ins.id; });
+          this._save();
+        } else {
+          insertError = (insertedItems && insertedItems.error) || 'obat gagal tersimpan tanpa keterangan';
+        }
+      } catch (e) { insertError = e.message || 'kesalahan jaringan saat menyimpan obat'; }
     }
 
     const success = !insertError;
@@ -699,18 +706,24 @@ class Store {
       return { success: true };
     }
 
+    // Batched into one insert rather than N parallel _syncInsert calls, both
+    // because Postgrest inserts a multi-row batch atomically (all rows or
+    // none, so there's no "some items got through" case to clean up here
+    // the way createPrescription's per-item version had to) and so a
+    // failure surfaces the real server error text instead of a bare count.
     let error = null;
+    const itemPayloads = savedItems.map(({ id, ...payload }) => payload);
     try {
-      await Promise.all(savedItems.map(si => this._syncInsert('prescription_items', si)));
-      const failed = savedItems.filter(si => si.id.startsWith('id_'));
-      if (failed.length > 0) error = `${failed.length} dari ${savedItems.length} obat gagal tersimpan`;
-    } catch (e) { error = e.message || 'kesalahan jaringan'; }
+      const insertedItems = await supabase.insert('prescription_items', itemPayloads);
+      if (Array.isArray(insertedItems) && insertedItems.length === savedItems.length) {
+        insertedItems.forEach((ins, idx) => { savedItems[idx].id = ins.id; });
+      } else {
+        error = (insertedItems && insertedItems.error) || 'obat gagal tersimpan tanpa keterangan';
+      }
+    } catch (e) { error = e.message || 'kesalahan jaringan saat menyimpan obat'; }
 
     if (error) {
       console.warn('Gagal menyimpan ke Supabase (prescription_items update):', error);
-      // Clean up whatever new items DID make it through so they don't sit
-      // as duplicates alongside the still-valid old ones.
-      savedItems.filter(si => !si.id.startsWith('id_')).forEach(si => supabase.delete('prescription_items', si.id).catch(() => {}));
       return { success: false, error: `Gagal menyimpan obat: ${error}` };
     }
 
