@@ -5,6 +5,16 @@ function generateId() {
   return 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// A blank "Jumlah" number input (common for compound/racikan items, where
+// the composition is described in compound_details instead) binds as the
+// empty string '', not null — and prescription_items.quantity is an INTEGER
+// column, so Postgres rejects that outright ('invalid input syntax for type
+// integer: ""'), failing the whole item save. Postgres accepts NULL there,
+// so normalize '' to null before it ever reaches the network request.
+function sanitizeRxItem(item) {
+  return { ...item, quantity: item.quantity === '' || item.quantity === undefined ? null : item.quantity };
+}
+
 // Parses the published Google Sheet CSV for home care BMHP/Jasa prices.
 // Handles quoted fields (commas inside item names) and looks columns up by
 // header name so re-ordering columns in the sheet doesn't break parsing.
@@ -602,7 +612,7 @@ class Store {
     this.data.prescriptions.push(newRx);
     const savedItems = [];
     items.forEach(item => {
-      const newItem = { id: generateId(), prescription_id: newRx.id, ...item };
+      const newItem = { id: generateId(), prescription_id: newRx.id, ...sanitizeRxItem(item) };
       this.data.prescription_items.push(newItem);
       savedItems.push(newItem);
     });
@@ -698,7 +708,7 @@ class Store {
   // silently leaving the prescription with zero medicines on it.
   async updatePrescriptionItems(rxId, newItems) {
     const oldItems = this.data.prescription_items.filter(i => i.prescription_id === rxId);
-    const savedItems = newItems.map(item => ({ id: generateId(), prescription_id: rxId, ...item }));
+    const savedItems = newItems.map(item => ({ id: generateId(), prescription_id: rxId, ...sanitizeRxItem(item) }));
 
     if (CONFIG.DEMO_MODE) {
       this.data.prescription_items = this.data.prescription_items.filter(i => i.prescription_id !== rxId).concat(savedItems);
