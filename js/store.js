@@ -27,6 +27,20 @@ function sanitizeRxItem(item) {
   return { ...item, quantity: item.quantity === '' || item.quantity === undefined ? null : item.quantity };
 }
 
+// Same problem as sanitizeRxItem, but for DATE columns. An empty date input
+// (e.g. no follow-up date on a visit) binds as the empty string '', and
+// Postgres rejects that for a DATE column ('invalid input syntax for type
+// date: ""'), which silently fails the whole medical_records insert — leaving
+// the record stuck on its client 'id_...' id. Any e-resep then made for that
+// visit sends that placeholder as record_id (a UUID FK) and gets rejected
+// with 'invalid input syntax for type uuid: id_...'. Normalize '' dates to
+// null so the record actually persists and gets a real UUID.
+function sanitizeRecordDates(record) {
+  const out = { ...record };
+  ['visit_date', 'follow_up_date'].forEach(k => { if (out[k] === '' || out[k] === undefined) out[k] = null; });
+  return out;
+}
+
 // Parses the published Google Sheet CSV for home care BMHP/Jasa prices.
 // Handles quoted fields (commas inside item names) and looks columns up by
 // header name so re-ordering columns in the sheet doesn't break parsing.
@@ -581,7 +595,10 @@ class Store {
       this._syncInsert('appointments', apt);
     }
     this._save();
-    await this._syncInsert('medical_records', newRecord);
+    // Insert with empty date strings normalized to null (see sanitizeRecordDates)
+    // — otherwise the whole insert fails and the record is stranded on its
+    // client placeholder id, which then breaks any e-resep made for it.
+    await this._syncInsert('medical_records', newRecord, sanitizeRecordDates(newRecord));
     return newRecord;
   }
 
@@ -644,6 +661,23 @@ class Store {
   // Supabase UUID (see _syncInsert); if not, the insert never persisted.
   async createPrescription(rx, items) {
     const year = new Date().getFullYear();
+    // Self-heal a stranded record_id: if the linked medical record never
+    // reached Supabase (its id is still a client 'id_...' placeholder — e.g. a
+    // visit saved before the empty-date fix, or while offline), inserting a
+    // prescription with that placeholder as record_id gets rejected by the
+    // UUID column ('invalid input syntax for type uuid: id_...'). Sync the
+    // record now so we store a real UUID FK. Mutates rx.record_id in place so
+    // the local prescription row and the server payload agree.
+    if (!CONFIG.DEMO_MODE && typeof rx.record_id === 'string' && rx.record_id.startsWith('id_')) {
+      const rec = this.data.medical_records.find(r => r.id === rx.record_id);
+      if (rec) {
+        await this._syncInsert('medical_records', rec, sanitizeRecordDates(rec));
+        if (typeof rec.id === 'string' && !rec.id.startsWith('id_')) rx.record_id = rec.id;
+      }
+      if (typeof rx.record_id === 'string' && rx.record_id.startsWith('id_')) {
+        return { success: false, rx: null, error: 'Gagal menyimpan resep ke server: rekam medis kunjungan ini belum tersimpan ke server. Buka kembali rekam medisnya lalu simpan ulang sebelum membuat e-resep.' };
+      }
+    }
     const seq = await this.getNextRxNumber(year);
     const newRx = { id: generateId(), ...rx, status: 'sent', created_at: new Date().toISOString(), rx_number: 'R-' + year + '-' + String(seq).padStart(4, '0') };
     this.data.prescriptions.push(newRx);
