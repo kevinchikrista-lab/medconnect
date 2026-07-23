@@ -28,16 +28,18 @@ function sanitizeRxItem(item) {
 }
 
 // Same problem as sanitizeRxItem, but for DATE columns. An empty date input
-// (e.g. no follow-up date on a visit) binds as the empty string '', and
-// Postgres rejects that for a DATE column ('invalid input syntax for type
-// date: ""'), which silently fails the whole medical_records insert — leaving
-// the record stuck on its client 'id_...' id. Any e-resep then made for that
-// visit sends that placeholder as record_id (a UUID FK) and gets rejected
-// with 'invalid input syntax for type uuid: id_...'. Normalize '' dates to
-// null so the record actually persists and gets a real UUID.
-function sanitizeRecordDates(record) {
+// (e.g. no follow-up date on a visit, or a vaccination with no next dose)
+// binds as the empty string '', and Postgres rejects that for a DATE column
+// ('invalid input syntax for type date: ""'), which silently fails the whole
+// insert (_syncInsert only console.warns the error) — so the row never reaches
+// Supabase and stays stuck on its client 'id_...' id. For medical_records that
+// also breaks any e-resep made for the visit, since the placeholder id gets
+// sent as record_id into a UUID FK column ('invalid input syntax for type
+// uuid: id_...'). Normalize '' (and undefined) dates to null on the given
+// columns so the row actually persists and gets a real UUID.
+function sanitizeDates(record, keys) {
   const out = { ...record };
-  ['visit_date', 'follow_up_date'].forEach(k => { if (out[k] === '' || out[k] === undefined) out[k] = null; });
+  keys.forEach(k => { if (out[k] === '' || out[k] === undefined) out[k] = null; });
   return out;
 }
 
@@ -595,10 +597,10 @@ class Store {
       this._syncInsert('appointments', apt);
     }
     this._save();
-    // Insert with empty date strings normalized to null (see sanitizeRecordDates)
+    // Insert with empty date strings normalized to null (see sanitizeDates)
     // — otherwise the whole insert fails and the record is stranded on its
     // client placeholder id, which then breaks any e-resep made for it.
-    await this._syncInsert('medical_records', newRecord, sanitizeRecordDates(newRecord));
+    await this._syncInsert('medical_records', newRecord, sanitizeDates(newRecord, ['visit_date', 'follow_up_date']));
     return newRecord;
   }
 
@@ -671,7 +673,7 @@ class Store {
     if (!CONFIG.DEMO_MODE && typeof rx.record_id === 'string' && rx.record_id.startsWith('id_')) {
       const rec = this.data.medical_records.find(r => r.id === rx.record_id);
       if (rec) {
-        await this._syncInsert('medical_records', rec, sanitizeRecordDates(rec));
+        await this._syncInsert('medical_records', rec, sanitizeDates(rec, ['visit_date', 'follow_up_date']));
         if (typeof rec.id === 'string' && !rec.id.startsWith('id_')) rx.record_id = rec.id;
       }
       if (typeof rx.record_id === 'string' && rx.record_id.startsWith('id_')) {
@@ -869,7 +871,10 @@ class Store {
     const newVax = { id: generateId(), ...vax };
     this.data.vaccinations.push(newVax);
     this._save();
-    this._syncInsert('vaccinations', newVax);
+    // next_dose_date is empty for a series with no scheduled next dose (and
+    // date_given could be blank too) — null them so Postgres doesn't reject the
+    // DATE columns and silently drop the whole vaccination insert.
+    this._syncInsert('vaccinations', newVax, sanitizeDates(newVax, ['date_given', 'next_dose_date']));
     return newVax;
   }
 
@@ -905,7 +910,7 @@ class Store {
       this.addNotification(u.id, 'Pendaftaran Layanan Baru', `${booking.patient_name || 'Pasien'} mendaftar: ${booking.item_name || booking.service_name}. Tanggal: ${booking.preferred_date}`, 'system')
     );
     this._save();
-    this._syncInsert('bookings', b);
+    this._syncInsert('bookings', b, sanitizeDates(b, ['preferred_date']));
     return b;
   }
 
