@@ -560,7 +560,16 @@ class Store {
     return this.data.medical_records.filter(r => r.doctor_id === doctorId).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
 
-  createRecord(record) {
+  // Async (like createPrescription) so callers can wait for the server write
+  // to land before using the record's id as a foreign key. createRecord used
+  // to return immediately with the client-generated 'id_...' placeholder while
+  // the real Supabase insert ran fire-and-forget — but the EMR "Buat E-Resep"
+  // flow takes that returned id straight into createPrescription as record_id,
+  // a UUID FK column. If the placeholder hadn't been patched to a real UUID
+  // yet, Supabase rejected the prescription with "invalid input syntax for
+  // type uuid: id_...". Awaiting the insert here means newRecord.id is the real
+  // UUID by the time we return.
+  async createRecord(record) {
     // created_at is set here (not left to the DB's default now()) so the
     // sort-by-input-time getters above have something to sort by in the
     // local optimistic copy immediately, before the next Supabase refresh.
@@ -572,7 +581,7 @@ class Store {
       this._syncInsert('appointments', apt);
     }
     this._save();
-    this._syncInsert('medical_records', newRecord);
+    await this._syncInsert('medical_records', newRecord);
     return newRecord;
   }
 
