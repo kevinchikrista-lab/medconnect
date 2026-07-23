@@ -82,12 +82,14 @@ export function adminUsers() {
               <div class="mb-3"><label class="block text-xs text-gray-600 mb-1">Role *</label><select x-model="newUser.role" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih Role</option><option value="doctor">Dokter</option>${canCreateOwner ? `<option value="owner">Owner (SuperAdmin + Dokter)</option>` : ''}<option value="patient">Pasien</option><option value="pharmacy">Apotek Mitra</option></select></div>
               <div class="grid grid-cols-2 gap-3 mb-3">
                 <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1" x-text="newUser.role==='pharmacy' ? 'Nama Apotek *' : 'Nama Lengkap *'"></label><input type="text" x-model="newUser.full_name" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-                <div><label class="block text-xs text-gray-600 mb-1">Email *</label><input type="email" x-model="newUser.email" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-                <div><label class="block text-xs text-gray-600 mb-1">Password *</label><input type="text" x-model="newUser.password" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Email <span class="text-gray-400">(opsional)</span></label><input type="email" x-model="newUser.email" placeholder="Kosongkan jika tanpa login" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Password <span class="text-gray-400" x-text="newUser.email && newUser.email.trim() ? '' : '(diabaikan tanpa email)'"></span></label><input type="text" x-model="newUser.password" :disabled="!(newUser.email && newUser.email.trim())" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 disabled:bg-gray-50 disabled:text-gray-400"></div>
                 <div><label class="block text-xs text-gray-600 mb-1">Telepon</label><input type="tel" x-model="newUser.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
                 <template x-if="newUser.role==='doctor' || newUser.role==='owner'"><div><label class="block text-xs text-gray-600 mb-1">SIP</label><input type="text" x-model="newUser.sip_number" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
                 <template x-if="newUser.role==='doctor' || newUser.role==='owner'"><div><label class="block text-xs text-gray-600 mb-1">Spesialisasi</label><input type="text" x-model="newUser.specialization" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
                 <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">NIK</label><input type="text" x-model="newUser.nik" maxlength="16" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
+                <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label><input type="date" x-model="newUser.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
+                <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label><select x-model="newUser.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option><option>Laki-laki</option><option>Perempuan</option></select></div></template>
                 <template x-if="newUser.role==='pharmacy'"><div><label class="block text-xs text-gray-600 mb-1">No. SIPA</label><input type="text" x-model="newUser.license_no" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
                 <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newUser.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
@@ -145,7 +147,7 @@ export function adminUsers() {
               <tr class="hover:bg-gray-50 transition">
                 <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-medium" :class="{'bg-teal-100 text-teal-700': user.role==='doctor', 'bg-amber-100 text-amber-700': user.role==='owner', 'bg-blue-100 text-blue-700': user.role==='patient', 'bg-purple-100 text-purple-700': user.role==='pharmacy'}" x-text="user.role==='doctor'?'Dokter':user.role==='owner'?'Owner':user.role==='patient'?'Pasien':'Apotek'"></span></td>
                 <td class="px-4 py-3 text-sm font-medium text-gray-800" x-text="user.profile?.full_name || user.profile?.name || '-'"></td>
-                <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell" x-text="user.email"></td>
+                <td class="px-4 py-3 text-sm hidden sm:table-cell"><span x-show="!user.no_email" class="text-gray-600" x-text="user.email"></span><span x-show="user.no_email" x-cloak class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">Tanpa email — belum bisa login</span></td>
                 <td class="px-4 py-3 hidden md:table-cell"><span class="w-2 h-2 rounded-full inline-block" :class="user.is_active ? 'bg-green-500' : 'bg-red-500'"></span><span class="text-xs ml-1" x-text="user.is_active ? 'Aktif' : 'Nonaktif'"></span></td>
                 <td class="px-4 py-3"><div class="flex gap-1">
                   <button @click="editingUser=user; newEmail=user.email; editMsg=''" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Email</button>
@@ -177,7 +179,7 @@ export function adminUsersData() {
       const vax = window.__store.getVaccinations(user.profile.id);
       return [...new Set(vax.map(v => v.vaccine_name))];
     },
-    newUser: { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', license_no: '', address: '' },
+    newUser: { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', birth_date: '', gender: '', license_no: '', address: '' },
     get filteredUsers() {
       let users = store.getUsers(this.filter || undefined);
       if (this.search) {
@@ -188,7 +190,11 @@ export function adminUsersData() {
     },
     async createUser() {
       this.createMsg = ''; this.creating = true;
-      if (!this.newUser.role || !this.newUser.full_name || !this.newUser.email) { this.createMsg = 'Lengkapi data wajib'; this.creating = false; return; }
+      // Only Role and Nama Lengkap are mandatory now — email (and everything
+      // else) is optional. A blank email means a login-less account.
+      if (!this.newUser.role || !this.newUser.full_name) { this.createMsg = 'Role dan Nama Lengkap wajib diisi'; this.creating = false; return; }
+      const hasEmail = !!(this.newUser.email && this.newUser.email.trim());
+      const email = hasEmail ? this.newUser.email.trim() : store.makePlaceholderEmail();
       // Defense in depth: the role dropdown already hides "Owner" for non-Owner
       // accounts, but this blocks it here too in case someone forces the value
       // via devtools — only an existing Owner may create another Owner, except
@@ -198,13 +204,20 @@ export function adminUsersData() {
       if (this.newUser.role === 'owner' && currentUser?.role !== 'owner' && ownerAlreadyExists) { this.createMsg = 'Hanya akun Owner yang bisa membuat akun Owner baru'; this.creating = false; return; }
       if (!CONFIG.DEMO_MODE) {
         try {
-          const authRes = await fetch(CONFIG.SUPABASE_URL + '/auth/v1/signup', {
-            method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: this.newUser.email, password: this.newUser.password })
-          }).then(r => r.json());
-          const authId = authRes.user?.id || null;
-          if (authRes.error) { this.createMsg = authRes.error.message || authRes.msg || 'Gagal buat auth user'; this.creating = false; return; }
-          const profileData = { email: this.newUser.email, role: this.newUser.role, is_active: true };
+          // Create an auth login only when an email was provided. Without one,
+          // there's nothing to log in with (and a synthetic address can't
+          // receive Supabase's confirmation mail), so we skip signup and leave
+          // auth_id null — an admin can add the email later to enable login.
+          let authId = null;
+          if (hasEmail) {
+            const authRes = await fetch(CONFIG.SUPABASE_URL + '/auth/v1/signup', {
+              method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, password: this.newUser.password || 'default123' })
+            }).then(r => r.json());
+            if (authRes.error) { this.createMsg = authRes.error.message || authRes.msg || 'Gagal buat auth user'; this.creating = false; return; }
+            authId = authRes.user?.id || null;
+          }
+          const profileData = { email, role: this.newUser.role, is_active: true };
           if (authId) profileData.auth_id = authId;
           const profileRes = await supabase.insert('profiles', profileData);
           if (profileRes.error) { this.createMsg = profileRes.error; this.creating = false; return; }
@@ -212,12 +225,12 @@ export function adminUsersData() {
           if (this.newUser.role === 'doctor' || this.newUser.role === 'owner') {
             await supabase.insert('doctors', { profile_id: profileId, full_name: this.newUser.full_name, sip_number: this.newUser.sip_number || '', specialization: this.newUser.specialization || '', phone: this.newUser.phone || '', is_available: true });
           } else if (this.newUser.role === 'patient') {
-            await supabase.insert('patients', { profile_id: profileId, full_name: this.newUser.full_name, nik: this.newUser.nik || '', phone: this.newUser.phone || '', address: this.newUser.address || '', allergies: '-', emergency_contact: '' });
+            await supabase.insert('patients', { profile_id: profileId, full_name: this.newUser.full_name, nik: this.newUser.nik || '', birth_date: this.newUser.birth_date || null, gender: this.newUser.gender || '', phone: this.newUser.phone || '', address: this.newUser.address || '', allergies: '-', emergency_contact: '' });
           } else if (this.newUser.role === 'pharmacy') {
             await supabase.insert('pharmacies', { profile_id: profileId, name: this.newUser.full_name, phone: this.newUser.phone || '', address: this.newUser.address || '', license_no: this.newUser.license_no || '', operating_hours: '' });
           }
           await window.__store.loadFromSupabase();
-          this.createMsg = 'User berhasil dibuat! (tersimpan di cloud)';
+          this.createMsg = hasEmail ? 'User berhasil dibuat! (tersimpan di cloud)' : 'Akun dibuat tanpa email — belum bisa login. Tambahkan email lewat tombol "Email" pada baris user untuk mengaktifkan login.';
         } catch(e) { this.createMsg = 'Error: ' + e.message; }
       } else {
         const result = store.createUser({ ...this.newUser, name: this.newUser.full_name });
@@ -229,19 +242,35 @@ export function adminUsersData() {
     },
     async saveEmail() {
       this.editMsg = '';
-      if (!this.newEmail) { this.editMsg = 'Email tidak boleh kosong'; return; }
+      const newEmail = (this.newEmail || '').trim();
+      if (!newEmail) { this.editMsg = 'Email tidak boleh kosong'; return; }
       if (!CONFIG.DEMO_MODE) {
         try {
-          await supabase.update('profiles', this.editingUser.id, { email: this.newEmail });
+          // If this account has no auth login yet — created without an email —
+          // create the Supabase Auth user now (with a temporary password) and
+          // link it, so the person can actually log in. Accounts that already
+          // have a login just get their profile email updated.
+          const needsLogin = !this.editingUser.auth_id || this.editingUser.no_email;
+          const update = { email: newEmail };
+          if (needsLogin) {
+            const authRes = await fetch(CONFIG.SUPABASE_URL + '/auth/v1/signup', {
+              method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: newEmail, password: 'default123' })
+            }).then(r => r.json());
+            if (authRes.error) { this.editMsg = authRes.error.message || authRes.msg || 'Gagal mengaktifkan login'; return; }
+            if (authRes.user?.id) update.auth_id = authRes.user.id;
+          }
+          const res = await supabase.update('profiles', this.editingUser.id, update);
+          if (res && res.error) { this.editMsg = res.error; return; }
           await window.__store.loadFromSupabase();
-          this.editMsg = 'Email berhasil diubah! (tersimpan di cloud)';
-          this.editingUser.email = this.newEmail;
+          this.editMsg = needsLogin ? 'Email diset & login diaktifkan. Password sementara: default123 — gunakan "Reset Pass" untuk menggantinya.' : 'Email berhasil diubah! (tersimpan di cloud)';
+          this.editingUser.email = newEmail;
         } catch(e) { this.editMsg = 'Error: ' + e.message; }
       } else {
-        const result = store.updateUserEmail(this.editingUser.id, this.newEmail);
+        const result = store.updateUserEmail(this.editingUser.id, newEmail);
         if (result.error) { this.editMsg = result.error; return; }
         this.editMsg = 'Email berhasil diubah!';
-        this.editingUser.email = this.newEmail;
+        this.editingUser.email = newEmail;
       }
     },
     toggleDoctorListing(user) {

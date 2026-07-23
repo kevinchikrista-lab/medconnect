@@ -5,6 +5,21 @@ function generateId() {
   return 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// An account can be created without an email — a walk-in clinic often has no
+// email to record for a patient, and the same is allowed for any role. But
+// profiles.email is UNIQUE NOT NULL in the schema, so we can't store a real
+// blank: we stamp a unique placeholder in a reserved domain instead. Such an
+// account has no auth login yet; an admin can later set a real email (which is
+// when an actual Supabase Auth login gets created). isPlaceholderEmail lets the
+// UI recognize these accounts and the email-fix flow know a login is missing.
+const NO_EMAIL_DOMAIN = 'no-email.myprima.local';
+function placeholderEmail() {
+  return 'akun_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) + '@' + NO_EMAIL_DOMAIN;
+}
+function isPlaceholderEmail(email) {
+  return typeof email === 'string' && email.endsWith('@' + NO_EMAIL_DOMAIN);
+}
+
 // `new Date().toISOString().split('T')[0]` — used all over this codebase for
 // "today" — reads the UTC date, not the local one. WIB is UTC+7, so from
 // local midnight to 7am the UTC date is still "yesterday": a record entered
@@ -25,6 +40,22 @@ function todayLocal() {
 // so normalize '' to null before it ever reaches the network request.
 function sanitizeRxItem(item) {
   return { ...item, quantity: item.quantity === '' || item.quantity === undefined ? null : item.quantity };
+}
+
+// Same problem as sanitizeRxItem, but for DATE columns. An empty date input
+// (e.g. no follow-up date on a visit, or a vaccination with no next dose)
+// binds as the empty string '', and Postgres rejects that for a DATE column
+// ('invalid input syntax for type date: ""'), which silently fails the whole
+// insert (_syncInsert only console.warns the error) — so the row never reaches
+// Supabase and stays stuck on its client 'id_...' id. For medical_records that
+// also breaks any e-resep made for the visit, since the placeholder id gets
+// sent as record_id into a UUID FK column ('invalid input syntax for type
+// uuid: id_...'). Normalize '' (and undefined) dates to null on the given
+// columns so the row actually persists and gets a real UUID.
+function sanitizeDates(record, keys) {
+  const out = { ...record };
+  keys.forEach(k => { if (out[k] === '' || out[k] === undefined) out[k] = null; });
+  return out;
 }
 
 // Parses the published Google Sheet CSV for home care BMHP/Jasa prices.
@@ -368,7 +399,7 @@ class Store {
         supabase.select('articles'),
       ]);
       // Map Supabase data to local format
-      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, password: '***', created_at: p.created_at }));
+      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, auth_id: p.auth_id || null, no_email: isPlaceholderEmail(p.email), has_login: !!p.auth_id, password: '***', created_at: p.created_at }));
       if (doctors.length) this.data.doctors = doctors.map(d => ({ ...d, user_id: d.profile_id }));
       if (patients.length) this.data.patients = patients.map(p => ({ ...p, user_id: p.profile_id }));
       if (pharmacies.length) this.data.pharmacies = pharmacies.map(p => ({ ...p, user_id: p.profile_id }));
@@ -414,21 +445,31 @@ class Store {
   }
 
   async register(userData) {
-    const exists = this.data.users.find(u => u.email === userData.email);
-    if (exists) return { error: 'Email sudah terdaftar' };
+    // Email is optional. When given, it must be unique (it's the login); when
+    // blank, we register a login-less account under a unique placeholder email.
+    const hasEmail = !!(userData.email && userData.email.trim());
+    const email = hasEmail ? userData.email.trim() : placeholderEmail();
+    if (hasEmail && this.data.users.find(u => u.email === email)) return { error: 'Email sudah terdaftar' };
 
     if (!CONFIG.DEMO_MODE) {
       try {
-        // 1. Create auth user di Supabase
-        const authRes = await fetch(CONFIG.SUPABASE_URL + '/auth/v1/signup', {
-          method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: userData.email, password: userData.password || 'default123' })
-        }).then(r => r.json());
-        const authId = authRes.user?.id || null;
+        // 1. Create auth user di Supabase — only when an email was provided.
+        // Without an email there's nothing to log in with, so we skip auth
+        // entirely (a synthetic address can't receive Supabase's confirmation
+        // mail anyway) and leave auth_id null; an admin adds the login later.
+        let authId = null;
+        if (hasEmail) {
+          const authRes = await fetch(CONFIG.SUPABASE_URL + '/auth/v1/signup', {
+            method: 'POST', headers: { 'apikey': CONFIG.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password: userData.password || 'default123' })
+          }).then(r => r.json());
+          if (authRes.error) return { error: authRes.error.message || authRes.msg || 'Gagal membuat akun login' };
+          authId = authRes.user?.id || null;
+        }
 
         // 2. Create profile di Supabase
         const profileRes = await supabase.insert('profiles', {
-          email: userData.email, role: 'patient', is_active: true, auth_id: authId
+          email, role: 'patient', is_active: true, auth_id: authId
         });
         if (profileRes.error) return { error: profileRes.error };
         const profileId = profileRes.id;
@@ -445,15 +486,15 @@ class Store {
         // 4. Reload data dari Supabase
         await this.loadFromSupabase();
 
-        const user = this.data.users.find(u => u.email === userData.email);
+        const user = this.data.users.find(u => u.email === email);
         const patient = this.data.patients.find(p => p.user_id === profileId);
-        return { user: user || { id: profileId, email: userData.email, role: 'patient' }, profile: patient };
+        return { user: user || { id: profileId, email, role: 'patient' }, profile: patient };
       } catch(e) { return { error: 'Gagal menyimpan ke server: ' + e.message }; }
     }
 
     // Demo mode: localStorage only
     const userId = generateId();
-    const user = { id: userId, email: userData.email, password: userData.password, role: 'patient', is_active: true, created_at: new Date().toISOString().split('T')[0] };
+    const user = { id: userId, email, password: userData.password, role: 'patient', is_active: true, created_at: new Date().toISOString().split('T')[0] };
     this.data.users.push(user);
     const patient = { id: generateId(), user_id: userId, full_name: userData.full_name, nik: userData.nik, birth_date: userData.birth_date, gender: userData.gender, phone: userData.phone, address: userData.address, blood_type: userData.blood_type || '', allergies: userData.allergies || '-', emergency_contact: userData.emergency_contact || '' };
     this.data.patients.push(patient);
@@ -483,15 +524,17 @@ class Store {
   }
 
   createUser(userData) {
-    const exists = this.data.users.find(u => u.email === userData.email);
-    if (exists) return { error: 'Email sudah terdaftar' };
+    // Email optional (see register): blank → unique placeholder, no login.
+    const hasEmail = !!(userData.email && userData.email.trim());
+    const email = hasEmail ? userData.email.trim() : placeholderEmail();
+    if (hasEmail && this.data.users.find(u => u.email === email)) return { error: 'Email sudah terdaftar' };
     if (userData.role === 'owner') {
       const currentUser = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
       const ownerAlreadyExists = this.data.users.some(u => u.role === 'owner');
       if (currentUser?.role !== 'owner' && ownerAlreadyExists) return { error: 'Hanya akun Owner yang bisa membuat akun Owner baru' };
     }
     const userId = generateId();
-    const user = { id: userId, email: userData.email, password: userData.password || 'default123', role: userData.role, is_active: true, created_at: new Date().toISOString().split('T')[0] };
+    const user = { id: userId, email, password: userData.password || 'default123', role: userData.role, is_active: true, no_email: !hasEmail, created_at: new Date().toISOString().split('T')[0] };
     this.data.users.push(user);
     if (userData.role === 'doctor' || userData.role === 'owner') {
       this.data.doctors.push({ id: generateId(), user_id: userId, full_name: userData.full_name, sip_number: userData.sip_number || '', specialization: userData.specialization || '', phone: userData.phone || '', is_available: true, schedule: { mon: '08:00-16:00', tue: '08:00-16:00', wed: '08:00-16:00', thu: '08:00-16:00', fri: '08:00-16:00', sat: null, sun: null } });
@@ -503,6 +546,11 @@ class Store {
     this._save();
     return { user };
   }
+
+  // Exposed so the admin/doctor UI shares one definition of the reserved
+  // placeholder-email scheme used for accounts created without an email.
+  makePlaceholderEmail() { return placeholderEmail(); }
+  isPlaceholderEmail(email) { return isPlaceholderEmail(email); }
 
   updateUserEmail(userId, newEmail) {
     const user = this.data.users.find(u => u.id === userId);
@@ -560,7 +608,16 @@ class Store {
     return this.data.medical_records.filter(r => r.doctor_id === doctorId).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
 
-  createRecord(record) {
+  // Async (like createPrescription) so callers can wait for the server write
+  // to land before using the record's id as a foreign key. createRecord used
+  // to return immediately with the client-generated 'id_...' placeholder while
+  // the real Supabase insert ran fire-and-forget — but the EMR "Buat E-Resep"
+  // flow takes that returned id straight into createPrescription as record_id,
+  // a UUID FK column. If the placeholder hadn't been patched to a real UUID
+  // yet, Supabase rejected the prescription with "invalid input syntax for
+  // type uuid: id_...". Awaiting the insert here means newRecord.id is the real
+  // UUID by the time we return.
+  async createRecord(record) {
     // created_at is set here (not left to the DB's default now()) so the
     // sort-by-input-time getters above have something to sort by in the
     // local optimistic copy immediately, before the next Supabase refresh.
@@ -572,7 +629,10 @@ class Store {
       this._syncInsert('appointments', apt);
     }
     this._save();
-    this._syncInsert('medical_records', newRecord);
+    // Insert with empty date strings normalized to null (see sanitizeDates)
+    // — otherwise the whole insert fails and the record is stranded on its
+    // client placeholder id, which then breaks any e-resep made for it.
+    await this._syncInsert('medical_records', newRecord, sanitizeDates(newRecord, ['visit_date', 'follow_up_date']));
     return newRecord;
   }
 
@@ -635,6 +695,23 @@ class Store {
   // Supabase UUID (see _syncInsert); if not, the insert never persisted.
   async createPrescription(rx, items) {
     const year = new Date().getFullYear();
+    // Self-heal a stranded record_id: if the linked medical record never
+    // reached Supabase (its id is still a client 'id_...' placeholder — e.g. a
+    // visit saved before the empty-date fix, or while offline), inserting a
+    // prescription with that placeholder as record_id gets rejected by the
+    // UUID column ('invalid input syntax for type uuid: id_...'). Sync the
+    // record now so we store a real UUID FK. Mutates rx.record_id in place so
+    // the local prescription row and the server payload agree.
+    if (!CONFIG.DEMO_MODE && typeof rx.record_id === 'string' && rx.record_id.startsWith('id_')) {
+      const rec = this.data.medical_records.find(r => r.id === rx.record_id);
+      if (rec) {
+        await this._syncInsert('medical_records', rec, sanitizeDates(rec, ['visit_date', 'follow_up_date']));
+        if (typeof rec.id === 'string' && !rec.id.startsWith('id_')) rx.record_id = rec.id;
+      }
+      if (typeof rx.record_id === 'string' && rx.record_id.startsWith('id_')) {
+        return { success: false, rx: null, error: 'Gagal menyimpan resep ke server: rekam medis kunjungan ini belum tersimpan ke server. Buka kembali rekam medisnya lalu simpan ulang sebelum membuat e-resep.' };
+      }
+    }
     const seq = await this.getNextRxNumber(year);
     const newRx = { id: generateId(), ...rx, status: 'sent', created_at: new Date().toISOString(), rx_number: 'R-' + year + '-' + String(seq).padStart(4, '0') };
     this.data.prescriptions.push(newRx);
@@ -826,7 +903,10 @@ class Store {
     const newVax = { id: generateId(), ...vax };
     this.data.vaccinations.push(newVax);
     this._save();
-    this._syncInsert('vaccinations', newVax);
+    // next_dose_date is empty for a series with no scheduled next dose (and
+    // date_given could be blank too) — null them so Postgres doesn't reject the
+    // DATE columns and silently drop the whole vaccination insert.
+    this._syncInsert('vaccinations', newVax, sanitizeDates(newVax, ['date_given', 'next_dose_date']));
     return newVax;
   }
 
@@ -862,7 +942,7 @@ class Store {
       this.addNotification(u.id, 'Pendaftaran Layanan Baru', `${booking.patient_name || 'Pasien'} mendaftar: ${booking.item_name || booking.service_name}. Tanggal: ${booking.preferred_date}`, 'system')
     );
     this._save();
-    this._syncInsert('bookings', b);
+    this._syncInsert('bookings', b, sanitizeDates(b, ['preferred_date']));
     return b;
   }
 

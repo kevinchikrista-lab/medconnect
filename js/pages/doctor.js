@@ -124,14 +124,14 @@ export function doctorPatients() {
         <div x-show="showNewForm" x-cloak x-data="{ saving: false, msg: '' }" class="bg-white border border-slate-100 rounded-3xl p-6 mb-6">
           <h3 class="font-semibold text-gray-800 mb-4">Registrasi Pasien Baru</h3>
           <div x-show="msg" class="mb-3 p-2 rounded-lg bg-green-50 text-green-700 text-sm" x-text="msg"></div>
-          <form @submit.prevent="async function doReg(){saving=true; const r=await window.__store.register({...newPatient}); if(r.error){msg=r.error}else{msg='Pasien berhasil didaftarkan! (tersimpan di cloud)'; newPatient={full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123'}}; saving=false}; doReg()">
+          <form @submit.prevent="async function doReg(){saving=true; const hadEmail=!!(newPatient.email&&newPatient.email.trim()); const r=await window.__store.register({...newPatient}); if(r.error){msg=r.error}else{msg=hadEmail?'Pasien berhasil didaftarkan! (tersimpan di cloud)':'Pasien didaftarkan tanpa email — rekam medis & resep tetap bisa dibuat. Untuk login pasien, admin bisa menambahkan email nanti.'; newPatient={full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123'}}; saving=false}; doReg()">
             <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
               <div><label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label><input type="text" x-model="newPatient.full_name" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-              <div><label class="block text-xs text-gray-600 mb-1">NIK *</label><input type="text" x-model="newPatient.nik" maxlength="16" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-              <div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label><input type="date" x-model="newPatient.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">NIK <span class="text-gray-400">(opsional)</span></label><input type="text" x-model="newPatient.nik" maxlength="16" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir <span class="text-gray-400">(opsional)</span></label><input type="date" x-model="newPatient.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label><select x-model="newPatient.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option><option>Laki-laki</option><option>Perempuan</option></select></div>
               <div><label class="block text-xs text-gray-600 mb-1">Telepon</label><input type="tel" x-model="newPatient.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-              <div><label class="block text-xs text-gray-600 mb-1">Email *</label><input type="email" x-model="newPatient.email" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Email <span class="text-gray-400">(opsional)</span></label><input type="email" x-model="newPatient.email" placeholder="Kosongkan jika tanpa login" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="newPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
             </div>
@@ -424,11 +424,11 @@ export function doctorEMRNew(params) {
     saveRecord() {
       this.saving = true;
       const self = this;
-      setTimeout(function() {
+      setTimeout(async function() {
         self.form.visit_type = self.visitType;
         var result = null;
         if (self.visitType === 'consultation' || self.visitType === 'both') {
-          result = window.__store.createRecord({patient_id:'${patient.id}', doctor_id:'${doc?.id}', ...self.form, visit_date: self.visitDate});
+          result = await window.__store.createRecord({patient_id:'${patient.id}', doctor_id:'${doc?.id}', ...self.form, visit_date: self.visitDate});
         }
         if (self.visitType === 'vaccination' || self.visitType === 'both') {
           const vd = {...self.vaxForm};
@@ -448,7 +448,12 @@ export function doctorEMRNew(params) {
             window.__store.createRecord({patient_id:'${patient.id}', doctor_id:'${doc?.id}', visit_type:'vaccination', visit_date: self.visitDate, location:vd.location, anamnesis:'Vaksinasi '+vd.vaccine_name+' '+vd.vaccine_brand+modeLabel, diagnosis:'Vaksinasi '+vd.vaccine_name, therapy:'Pemberian vaksin '+vd.vaccine_brand+modeLabel, vital_signs:self.form.vital_signs, follow_up_date:followDate, follow_up_notes:vd.vax_mode==='booster'?'Booster berikutnya':'Vaksin dosis berikutnya', notes:'Batch: '+vd.batch_number });
           }
         }
-        self.saving = false; self.saved = true; self.savedRecordId = (result && result.id) ? result.id : null;
+        // Only offer "Buat E-Resep" with a real synced UUID. If the record
+        // insert didn't reach the server (still an 'id_...' placeholder, e.g.
+        // offline), fall back to the EMR list — creating a prescription with a
+        // placeholder record_id would be rejected by Supabase's UUID column.
+        const savedId = result && result.id ? String(result.id) : '';
+        self.saving = false; self.saved = true; self.savedRecordId = savedId && !savedId.startsWith('id_') ? savedId : null;
       }, 400);
     },
     savedRecordId: null
