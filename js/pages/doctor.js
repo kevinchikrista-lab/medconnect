@@ -3,6 +3,7 @@ import { CONFIG } from '../config.js';
 import { ICD10 } from '../icd10.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 import { chatListPage, chatThreadPage } from './chat.js';
+import { waButton, waHref, waKontrolMsg, waVaksinMsg } from '../wa.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -159,12 +160,13 @@ export function doctorDashboard() {
             <div class="divide-y divide-gray-50">
               ${upcoming.length === 0 ? '<p class="p-4 text-gray-400 text-sm text-center">Tidak ada jadwal mendatang</p>' : upcoming.map(apt => {
                 const patient = store.getPatient(apt.patient_id);
-                return `<div class="p-4 hover:bg-gray-50 transition flex items-center justify-between">
-                  <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center"><span class="text-blue-600 text-xs font-bold">${new Date(apt.date).getDate()}<br>${new Date(apt.date).toLocaleDateString('id-ID',{month:'short'})}</span></div>
-                    <div><p class="font-medium text-gray-800 text-sm">${patient?.full_name || 'N/A'}</p><p class="text-xs text-gray-500">${apt.notes || 'Kontrol ulang'}</p></div>
+                const wa = waButton(patient?.phone, waKontrolMsg(patient?.full_name, formatDate(apt.date) + (apt.time_slot ? ' jam ' + apt.time_slot : ''), apt.notes), 'Ingatkan');
+                return `<div class="p-4 hover:bg-gray-50 transition flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0"><span class="text-blue-600 text-xs font-bold text-center leading-tight">${new Date(apt.date).getDate()}<br>${new Date(apt.date).toLocaleDateString('id-ID',{month:'short'})}</span></div>
+                    <div class="min-w-0"><p class="font-medium text-gray-800 text-sm truncate">${patient?.full_name || 'N/A'}</p><p class="text-xs text-gray-500 truncate">${apt.notes || 'Kontrol ulang'}${apt.time_slot ? ' • '+apt.time_slot : ''}</p></div>
                   </div>
-                  <span class="text-xs text-gray-400">${apt.time_slot}</span>
+                  ${wa || `<span class="text-xs text-gray-300">no HP -</span>`}
                 </div>`;
               }).join('')}
             </div>
@@ -328,7 +330,7 @@ export function doctorEMR(params) {
                   <div><h4 class="font-semibold text-gray-700 mb-1">Diagnosis</h4><p class="text-gray-600 font-medium">${r.diagnosis}</p>${r.diagnosis_secondary ? `<p class="text-gray-500 text-xs mt-1">Sekunder: ${r.diagnosis_secondary}</p>` : ''}</div>
                   <div><h4 class="font-semibold text-gray-700 mb-1">Terapi Non-Farmakologis</h4><p class="text-gray-600">${r.therapy || '-'}</p></div>
                 </div>
-                ${r.follow_up_date ? `<div class="mt-4 pt-4 border-t border-gray-100"><h4 class="font-semibold text-gray-700 mb-1 text-sm">Jadwal Kontrol Ulang</h4><p class="text-sm text-blue-700 font-medium">${formatDate(r.follow_up_date)}</p>${r.follow_up_notes ? `<p class="text-sm text-gray-500 mt-0.5">${r.follow_up_notes}</p>` : ''}</div>` : ''}
+                ${r.follow_up_date ? `<div class="mt-4 pt-4 border-t border-gray-100"><div class="flex items-start justify-between gap-2 flex-wrap"><div><h4 class="font-semibold text-gray-700 mb-1 text-sm">Jadwal Kontrol Ulang</h4><p class="text-sm text-blue-700 font-medium">${formatDate(r.follow_up_date)}</p>${r.follow_up_notes ? `<p class="text-sm text-gray-500 mt-0.5">${r.follow_up_notes}</p>` : ''}</div>${waButton(patient.phone, waKontrolMsg(patient.full_name, formatDate(r.follow_up_date), r.follow_up_notes), 'Ingatkan via WA')}</div></div>` : ''}
                 <div class="mt-4 pt-4 border-t border-gray-100">
                   <h4 class="font-semibold text-gray-700 mb-2 text-sm">Terapi Farmakologis (E-Resep)</h4>
                   ${rxList.length === 0 ? '<p class="text-sm text-gray-400">Belum ada e-resep dibuat untuk kunjungan ini</p>' : rxList.map(rx => {
@@ -1388,7 +1390,9 @@ export function doctorCalendar(params) {
 
   const apptsData = allAppts.map(a => {
     const p = store.getPatient(a.patient_id);
-    return { ...a, patient_name: p?.full_name || a.patient_name || 'N/A', patient_id: a.patient_id };
+    const name = p?.full_name || a.patient_name || 'N/A';
+    const dateLabel = formatDate(a.date) + (a.time_slot ? ' jam ' + a.time_slot : '');
+    return { ...a, patient_name: name, patient_id: a.patient_id, wa: waHref(p?.phone, waKontrolMsg(name, dateLabel, a.notes)) };
   });
   window.__calendarAppts = apptsData;
 
@@ -1458,8 +1462,9 @@ export function doctorCalendar(params) {
                     </div>
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="statusColors[apt.status] || 'bg-gray-100 text-gray-600'" x-text="statusLabels[apt.status] || apt.status"></span>
                   </div>
-                  <div class="flex gap-1 mt-2" x-show="apt.status === 'waiting' || apt.status === 'scheduled'">
-                    <a :href="'#/doctor/emr/'+apt.patient_id+'/new'" class="px-2 py-1 rounded text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 transition">Mulai Konsultasi</a>
+                  <div class="flex gap-2 mt-2 flex-wrap">
+                    <a x-show="apt.status === 'waiting' || apt.status === 'scheduled'" :href="'#/doctor/emr/'+apt.patient_id+'/new'" class="px-2 py-1 rounded text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 transition">Mulai Konsultasi</a>
+                    <a x-show="apt.wa" :href="apt.wa" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a>
                   </div>
                 </div>
               </template>

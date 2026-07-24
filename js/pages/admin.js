@@ -2,6 +2,7 @@ import { store } from '../store.js';
 import { CONFIG } from '../config.js';
 import { supabase } from '../supabase.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
+import { waHref, waKontrolMsg } from '../wa.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -737,14 +738,16 @@ export function adminCalendar(params) {
   const apptsData = store.getAllAppointments().map(a => {
     const p = store.getPatient(a.patient_id);
     const doc = store.getDoctor(a.doctor_id);
-    return { ...a, patient_name: p?.full_name || a.patient_name || 'N/A', doctor_name: doc?.full_name || '-' };
+    const name = p?.full_name || a.patient_name || 'N/A';
+    return { ...a, patient_name: name, doctor_name: doc?.full_name || '-', wa: waHref(p?.phone, waKontrolMsg(name, formatDate(a.date) + (a.time_slot ? ' jam ' + a.time_slot : ''), a.notes)) };
   });
   window.__adminCalendarAppts = apptsData;
 
   const recordsData = store.getAllRecords().filter(r => r.follow_up_date).map(r => {
     const p = store.getPatient(r.patient_id);
     const doc = store.getDoctor(r.doctor_id);
-    return { id: r.id, patient_id: r.patient_id, patient_name: p?.full_name || 'N/A', doctor_name: doc?.full_name || '-', follow_up_date: r.follow_up_date, follow_up_notes: r.follow_up_notes, diagnosis: r.diagnosis };
+    const name = p?.full_name || 'N/A';
+    return { id: r.id, patient_id: r.patient_id, patient_name: name, doctor_name: doc?.full_name || '-', follow_up_date: r.follow_up_date, follow_up_notes: r.follow_up_notes, diagnosis: r.diagnosis, wa: waHref(p?.phone, waKontrolMsg(name, formatDate(r.follow_up_date), r.follow_up_notes)) };
   });
   window.__adminCalendarFollowUps = recordsData;
 
@@ -849,11 +852,12 @@ export function adminCalendar(params) {
                     </div>
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="statusColors[apt.status] || 'bg-gray-100 text-gray-600'" x-text="statusLabels[apt.status] || apt.status"></span>
                   </div>
+                  <div class="mt-2" x-show="apt.wa"><a :href="apt.wa" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a></div>
                 </div>
               </template>
               <template x-if="selectedFollowUps.length > 0"><p class="text-xs font-semibold text-orange-600 uppercase pt-2" x-show="selectedAppts.length > 0 || selectedVisits.length > 0">Follow Up Pasien</p></template>
               <template x-for="f in selectedFollowUps" :key="f.id">
-                <a :href="'#/admin/dashboard'" class="block p-3 rounded-lg bg-orange-50/50 border border-orange-100">
+                <div class="p-3 rounded-lg bg-orange-50/50 border border-orange-100">
                   <div class="flex items-center gap-3">
                     <span class="text-lg">🔄</span>
                     <div class="flex-1">
@@ -862,7 +866,8 @@ export function adminCalendar(params) {
                     </div>
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">Follow Up</span>
                   </div>
-                </a>
+                  <div class="mt-2" x-show="f.wa"><a :href="f.wa" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a></div>
+                </div>
               </template>
             </div>
           </div>
