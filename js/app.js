@@ -8,6 +8,7 @@ import { patientDashboard, patientHistory, patientPrescriptions, patientServices
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
 import { verifyPage } from './pages/verify.js';
+import { konfirmasiPage } from './pages/konfirmasi.js';
 import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pages/landing.js';
 import { issueSKD, printSKDById, renderSKDInto, SKD_LOADING_DOC } from './skd.js';
 
@@ -18,6 +19,7 @@ window.__generateSKD = issueSKD; // backward-compatible alias
 window.__printSKD = printSKDById;
 window.__renderSKDInto = renderSKDInto;
 window.__skdLoadingDoc = SKD_LOADING_DOC;
+window.__logWaReminder = (table, id) => store.logWaReminder(table, id);
 
 function render(htmlFn, params) {
   // The hash router has no "unmount" hook, so this is the one chokepoint every
@@ -57,6 +59,10 @@ router.beforeEach = (path, meta) => {
   // Verification page: always accessible to everyone, logged in or not (e.g. someone
   // scanning the QR code on a printed certificate, with no MedConnect account at all).
   if (path.startsWith('/verify')) return true;
+
+  // Public appointment-confirmation page reached from the WhatsApp reminder
+  // link — accessible to patients who aren't logged in.
+  if (path.startsWith('/konfirmasi')) return true;
 
   // Article detail pages and guest booking: public, accessible regardless of
   // login state (unlike /login etc. below, a logged-in doctor/patient
@@ -118,6 +124,7 @@ router.add('/register', () => render(registerPage));
 router.add('/forgot-password', () => render(forgotPasswordPage));
 router.add('/reset-password', () => render(resetPasswordPage));
 router.add('/verify/:certId', (p) => render(verifyPage, p));
+router.add('/konfirmasi/:apptId', (p) => render(konfirmasiPage, p));
 
 // Admin
 router.add('/admin/dashboard', () => render(adminDashboard));

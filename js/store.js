@@ -482,6 +482,48 @@ class Store {
     return { success: true };
   }
 
+  // ---- Konfirmasi kehadiran pasien (public confirmation page) ----
+  async getAppointmentForConfirm(id) {
+    if (CONFIG.DEMO_MODE) {
+      const a = (this.data.appointments || []).find(x => x.id === id);
+      if (!a) return null;
+      const p = this.getPatient(a.patient_id); const d = this.getDoctor(a.doctor_id);
+      return { ...a, patient_name: p?.full_name || '', doctor_name: d?.full_name || '' };
+    }
+    try {
+      const rows = await supabase.rpc('get_appointment_for_confirm', { p_id: id });
+      if (Array.isArray(rows) && rows[0]) return rows[0];
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  async submitAppointmentResponse(id, response, date, time, note) {
+    if (CONFIG.DEMO_MODE) {
+      const a = (this.data.appointments || []).find(x => x.id === id);
+      if (a) { a.patient_response = response; a.patient_response_at = new Date().toISOString(); a.proposed_date = date || null; a.proposed_time = time || ''; a.response_note = note || ''; this._save(); }
+      return { success: true };
+    }
+    try {
+      await supabase.rpc('submit_appointment_response', { p_id: id, p_response: response, p_date: date || null, p_time: time || null, p_note: note || null });
+      return { success: true };
+    } catch (e) { return { error: e.message || 'Gagal menyimpan respons' }; }
+  }
+
+  // Record that a WhatsApp reminder was sent for an appointment/record.
+  // Increments the counter + timestamp; returns the new count.
+  logWaReminder(table, id) {
+    const arr = table === 'appointments' ? this.data.appointments : this.data.medical_records;
+    const item = (arr || []).find(x => x.id === id);
+    if (!item) return 0;
+    item.wa_reminder_count = (item.wa_reminder_count || 0) + 1;
+    item.wa_last_sent_at = new Date().toISOString();
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      supabase.update(table, id, { wa_reminder_count: item.wa_reminder_count, wa_last_sent_at: item.wa_last_sent_at }).catch(() => {});
+    }
+    return item.wa_reminder_count;
+  }
+
   // ---- Lab & Radiologi (hasil penunjang) ----
   async getLabResults(patientId) {
     if (!CONFIG.DEMO_MODE) {
