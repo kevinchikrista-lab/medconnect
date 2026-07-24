@@ -359,6 +359,35 @@ class Store {
     return (this.data.certificates || []).find(c => c.id === id) || null;
   }
 
+  // Sequential letter number per (series, year) — e.g. series 'SKD' for a
+  // Surat Keterangan Dokter. Same RPC-with-local-fallback pattern as the rx/
+  // cert numbers above, so it stays unique across devices when online.
+  async getNextDocNumber(series, year) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const result = await supabase.rpc('get_next_doc_number', { p_series: series, p_year: year });
+        if (typeof result === 'number') return result;
+      } catch (e) { console.warn('Doc sequence RPC failed, using local fallback:', e); }
+    }
+    const key = 'medconnect_doc_seq_' + series + '_' + year;
+    const current = parseInt(localStorage.getItem(key) || '0', 10);
+    const next = current + 1;
+    localStorage.setItem(key, String(next));
+    return next;
+  }
+
+  // Remember the clinic's medical-record number on the patient so it prefills
+  // on the next letter. Best-effort — a failure here never blocks issuing.
+  updatePatientRmNumber(patientId, rmNumber) {
+    const p = this.data.patients.find(x => x.id === patientId);
+    if (!p || !rmNumber || p.rm_number === rmNumber) return;
+    p.rm_number = rmNumber;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(patientId).startsWith('id_')) {
+      supabase.update('patients', patientId, { rm_number: rmNumber }).catch(() => {});
+    }
+  }
+
   // One certificate number/QR per patient+vaccine pair — re-downloading reuses
   // the same record instead of minting a new sequential number each time.
   async getCertificateForPatientVaccine(patientId, vaccineName) {

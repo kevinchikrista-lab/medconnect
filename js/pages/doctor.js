@@ -169,8 +169,25 @@ export function doctorEMR(params) {
   const vaccinations = store.getVaccinations(params.patientId);
   if (!patient) return `<div class="min-h-screen flex items-center justify-center"><p class="text-gray-500">Pasien tidak ditemukan</p></div>`;
 
+  // Prefill the Surat Keterangan form from the latest visit's vital signs +
+  // diagnosis, so the doctor rarely has to retype anything (all still editable).
+  const q = (s) => String(s == null ? '' : s).replace(/'/g, "\\'");
+  const latestVs = (records[0] && records[0].vital_signs) || {};
+  const skdPrefill = {
+    no_rm: q(patient.rm_number || ''),
+    bb: q(latestVs.bb || ''), tb: q(latestVs.tb || ''), td: q(latestVs.td || ''), nadi: q(latestVs.nadi || ''),
+    diagnosis: q(records[0] && records[0].diagnosis || ''), today: todayLocal(),
+  };
+
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, activeTab: 'records' }" class="min-h-screen bg-wash">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, activeTab: 'records',
+    skdOpen: false, skdType: 'sehat',
+    skd: { no_rm: '${skdPrefill.no_rm}', letter_date: '${skdPrefill.today}',
+      berat_badan: '${skdPrefill.bb}', tinggi_badan: '${skdPrefill.tb}', tekanan_darah: '${skdPrefill.td}', nadi: '${skdPrefill.nadi}',
+      keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
+      diagnosis: '${skdPrefill.diagnosis}', rest_days: '', from_date: '${skdPrefill.today}', to_date: '' },
+    submitSKD() { window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, ...this.skd }); this.skdOpen = false; }
+  }" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -195,7 +212,8 @@ export function doctorEMR(params) {
         <div class="flex gap-2 mb-4">
           <button @click="activeTab='records'" :class="activeTab==='records' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Rekam Medis (${records.length})</button>
           <button @click="activeTab='vaccinations'" :class="activeTab==='vaccinations' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Vaksinasi (${vaccinations.length})</button>
-          <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white ml-auto" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
+          <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition ml-auto">Surat Keterangan</button>
+          <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
         </div>
         <div x-show="activeTab==='records'">
           ${records.length === 0 ? '<div class="bg-white rounded-xl border border-gray-100 p-8 text-center text-gray-400">Belum ada rekam medis</div>' :
@@ -374,6 +392,54 @@ export function doctorEMR(params) {
                 </div>
               </div>`).join('');
           })()}
+        </div>
+
+        <!-- Surat Keterangan Dokter (SKD) modal -->
+        <div x-show="skdOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="skdOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-gray-800">Terbitkan Surat Keterangan</h3>
+              <button @click="skdOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <p class="text-xs text-gray-500 mb-4">Untuk pasien: <span class="font-medium text-gray-700">${patient.full_name}</span>. Data terisi otomatis dari kunjungan terakhir &mdash; silakan periksa & edit sebelum cetak.</p>
+
+            <div class="flex gap-2 mb-4">
+              <button @click="skdType='sehat'" :class="skdType==='sehat' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sehat</button>
+              <button @click="skdType='sakit'" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sakit</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mb-3">
+              <div><label class="block text-xs text-gray-600 mb-1">No. RM</label><input type="text" x-model="skd.no_rm" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="No. rekam medis"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Tanggal Surat</label><input type="date" x-model="skd.letter_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+            </div>
+
+            <!-- Sehat -->
+            <div x-show="skdType==='sehat'" class="space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Berat Badan (KG)</label><input type="text" x-model="skd.berat_badan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Tinggi Badan (CM)</label><input type="text" x-model="skd.tinggi_badan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Tekanan Darah (MMHG)</label><input type="text" x-model="skd.tekanan_darah" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="120/80"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Nadi (X/MIN)</label><input type="text" x-model="skd.nadi" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              </div>
+              <div><label class="block text-xs text-gray-600 mb-1">Dipergunakan untuk</label><input type="text" x-model="skd.keperluan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Melamar pekerjaan"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Kesimpulan</label><input type="text" x-model="skd.kesimpulan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+            </div>
+
+            <!-- Sakit -->
+            <div x-show="skdType==='sakit'" x-cloak class="space-y-3">
+              <div><label class="block text-xs text-gray-600 mb-1">Diagnosis</label><input type="text" x-model="skd.diagnosis" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Febris"></div>
+              <div class="grid grid-cols-3 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Istirahat (hari)</label><input type="number" min="1" x-model="skd.rest_days" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Dari Tanggal</label><input type="date" x-model="skd.from_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Hingga Tanggal</label><input type="date" x-model="skd.to_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              </div>
+            </div>
+
+            <div class="flex gap-2 justify-end mt-5">
+              <button @click="skdOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="submitSKD()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Buat &amp; Cetak Surat</button>
+            </div>
+          </div>
         </div>
       </main>
     </div>
