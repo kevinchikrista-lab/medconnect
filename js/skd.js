@@ -47,6 +47,12 @@ export async function generateSKD(opts) {
   const w = window.open('', '_blank');
   if (w) w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Menyiapkan surat...</title></head><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:#1c3980">Menyiapkan surat...</body></html>');
 
+  // Identity fields: use what the doctor typed in the form if present, else
+  // fall back to the stored patient record.
+  const birth = opts.birth_date || patient.birth_date || '';
+  const gender = opts.gender || patient.gender || '';
+  const address = opts.address || patient.address || '';
+
   const letterDate = opts.letter_date || new Date().toISOString().split('T')[0];
   const year = new Date(letterDate).getFullYear();
   const monthRoman = ROMAN[new Date(letterDate).getMonth()];
@@ -59,8 +65,8 @@ export async function generateSKD(opts) {
     certNum = `${pad4(seq)}/${monthRoman}/SKD/${initials}/${String(year).slice(2)}`;
     const details = {
       no_rm: opts.no_rm || patient.rm_number || '',
-      tgl_lahir: patient.birth_date || '',
-      alamat: patient.address || '',
+      tgl_lahir: birth,
+      alamat: address,
       keperluan: isSehat ? (opts.keperluan || '') : '',
       kesimpulan: isSehat ? (opts.kesimpulan || 'SEHAT FISIK DAN MENTAL') : '',
       berat_badan: isSehat ? (opts.berat_badan || '') : '',
@@ -154,7 +160,7 @@ export async function generateSKD(opts) {
   .verify-t b{color:var(--ink);font-size:11px}
   .sign{text-align:center;min-width:60mm}
   .sign .place{font-size:13px;margin-bottom:2px}
-  .sign .role{font-size:13px;margin-bottom:16mm}
+  .sign .role{font-size:13px;margin-bottom:8px}
   .sign .name{font-size:14px;font-weight:800;text-decoration:underline;text-underline-offset:3px}
   .sign .sip{font-size:11px;color:#374151;margin-top:2px}
   .foot{margin-top:14px;padding-top:8px;border-top:1px solid var(--rule);font-size:10px;color:var(--muted);text-align:center;line-height:1.5}
@@ -179,9 +185,9 @@ export async function generateSKD(opts) {
     <div class="identitas"><table>
       <tr><td class="k">No. RM</td><td class="s">:</td><td class="v">${esc(opts.no_rm || patient.rm_number || '-')}</td></tr>
       <tr><td class="k">Nama Pasien</td><td class="s">:</td><td class="v">${esc(patient.full_name).toUpperCase()}</td></tr>
-      <tr><td class="k">Tanggal Lahir</td><td class="s">:</td><td class="v">${fmtDate(patient.birth_date)}</td></tr>
-      <tr><td class="k">Jenis Kelamin</td><td class="s">:</td><td class="v">${esc(patient.gender || '-')}</td></tr>
-      <tr><td class="k">Alamat</td><td class="s">:</td><td class="v">${esc(patient.address || '-')}</td></tr>
+      <tr><td class="k">Tanggal Lahir</td><td class="s">:</td><td class="v">${fmtDate(birth)}</td></tr>
+      <tr><td class="k">Jenis Kelamin</td><td class="s">:</td><td class="v">${esc(gender || '-')}</td></tr>
+      <tr><td class="k">Alamat</td><td class="s">:</td><td class="v">${esc(address || '-')}</td></tr>
     </table></div>
 
     ${bodyHtml}
@@ -200,6 +206,7 @@ export async function generateSKD(opts) {
         <div class="role">Dokter Pemeriksa,</div>
         <div class="name">${esc(doctor.full_name || '-').toUpperCase()}</div>
         <div class="sip">SIPD: ${esc(doctor.sip_number || '-')}</div>
+        <div class="sip" style="font-style:italic;color:#9ca3af;margin-top:4px">Sah tanpa tanda tangan basah &mdash; diverifikasi via QR</div>
       </div>
     </div>
 

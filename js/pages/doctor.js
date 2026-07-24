@@ -177,16 +177,24 @@ export function doctorEMR(params) {
     no_rm: q(patient.rm_number || ''),
     bb: q(latestVs.bb || ''), tb: q(latestVs.tb || ''), td: q(latestVs.td || ''), nadi: q(latestVs.nadi || ''),
     diagnosis: q(records[0] && records[0].diagnosis || ''), today: todayLocal(),
+    birth_date: patient.birth_date || '', gender: q(patient.gender || ''), address: q(patient.address || ''),
   };
 
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, activeTab: 'records',
     skdOpen: false, skdType: 'sehat',
     skd: { no_rm: '${skdPrefill.no_rm}', letter_date: '${skdPrefill.today}',
+      birth_date: '${skdPrefill.birth_date}', gender: '${skdPrefill.gender}', address: '${skdPrefill.address}',
       berat_badan: '${skdPrefill.bb}', tinggi_badan: '${skdPrefill.tb}', tekanan_darah: '${skdPrefill.td}', nadi: '${skdPrefill.nadi}',
       keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
       diagnosis: '${skdPrefill.diagnosis}', rest_days: '', from_date: '${skdPrefill.today}', to_date: '' },
-    submitSKD() { window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, ...this.skd }); this.skdOpen = false; }
+    submitSKD() {
+      // Merge the identity fields back into the patient record (and persist)
+      // so they're saved for next time, then print the letter with them.
+      window.__store.updatePatientProfile('${patient.id}', { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address, rm_number: this.skd.no_rm });
+      window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, ...this.skd });
+      this.skdOpen = false;
+    }
   }" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
@@ -411,6 +419,14 @@ export function doctorEMR(params) {
             <div class="grid grid-cols-2 gap-3 mb-3">
               <div><label class="block text-xs text-gray-600 mb-1">No. RM</label><input type="text" x-model="skd.no_rm" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="No. rekam medis"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Tanggal Surat</label><input type="date" x-model="skd.letter_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+            </div>
+            <div class="p-3 mb-3 rounded-lg bg-gray-50 border border-gray-100">
+              <p class="text-xs font-semibold text-gray-500 mb-2">Data Pasien <span class="font-normal text-gray-400">(otomatis tersimpan ke data pasien)</span></p>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label><input type="date" x-model="skd.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label><select x-model="skd.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option><option>Laki-laki</option><option>Perempuan</option></select></div>
+                <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="skd.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Alamat pasien"></div>
+              </div>
             </div>
 
             <!-- Sehat -->
@@ -998,12 +1014,22 @@ export function doctorEMREdit(params) {
   const patient = store.getPatient(record.patient_id);
   const locations = CONFIG.LOCATIONS || ['Klinik Utama Prima','Home Care','Telemedicine'];
   window.__icd10 = ICD10;
+  // Pass the existing record into Alpine via a global instead of embedding each
+  // field inside the x-data string — a newline, double-quote or backslash in
+  // any free-text field (anamnesis/therapy/notes) would otherwise break the
+  // x-data expression, so Alpine never initialized and the whole page rendered
+  // broken (content slid under the sidebar, buttons blank).
+  window.__emrEdit = {
+    anamnesis: record.anamnesis || '', diagnosis: record.diagnosis || '', diagnosis_secondary: record.diagnosis_secondary || '',
+    therapy: record.therapy || '', location: record.location || locations[0], follow_up_date: record.follow_up_date || '',
+    follow_up_notes: record.follow_up_notes || '', notes: record.notes || ''
+  };
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024, saving: false, saved: false,
-    form: { anamnesis: '${(record.anamnesis||'').replace(/'/g,"\\'")}', diagnosis: '${(record.diagnosis||'').replace(/'/g,"\\'")}', diagnosis_secondary: '${(record.diagnosis_secondary||'').replace(/'/g,"\\'")}', therapy: '${(record.therapy||'').replace(/'/g,"\\'")}', location: '${record.location||locations[0]}', follow_up_date: '${record.follow_up_date||''}', follow_up_notes: '${(record.follow_up_notes||'').replace(/'/g,"\\'")}', notes: '${(record.notes||'').replace(/'/g,"\\'")}' },
-    icdSearch: '${(record.diagnosis||'').replace(/'/g,"\\'")}', icdResults: [], icdOpen: false,
-    icdSearch2: '${(record.diagnosis_secondary||'').replace(/'/g,"\\'")}', icdResults2: [], icdOpen2: false,
+    form: JSON.parse(JSON.stringify(window.__emrEdit)),
+    icdSearch: window.__emrEdit.diagnosis, icdResults: [], icdOpen: false,
+    icdSearch2: window.__emrEdit.diagnosis_secondary, icdResults2: [], icdOpen2: false,
     searchICD(q, which) {
       if (!q || q.length < 2) { if(which===2){this.icdResults2=[];this.icdOpen2=false}else{this.icdResults=[];this.icdOpen=false}; return; }
       const s = q.toLowerCase();
