@@ -34,6 +34,76 @@ function calculateAge(birthDate) {
   return age;
 }
 
+// ---- Pemeriksaan Fisik (SOAP "Objective") --------------------------------
+// The exam state is passed to Alpine via globals (window.__peState etc.) rather
+// than embedded in the x-data string, so free-text findings with quotes or
+// newlines can't break the attribute (same approach as the record editor).
+//
+// To avoid a schema migration (and the deploy-ordering hazard where the code
+// ships before a new column exists, which would fail every record insert), the
+// structured exam is stored ONLY as the compiled summary in the existing
+// `examination` text field and parsed back here on edit. Format per line:
+//   "<System>: DBN"  (normal)  |  "<System>: <finding>"  (abnormal)
+//   "Lain-lain: <catatan>"  (free text)
+function buildPeState(record) {
+  const systems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
+  const state = {};
+  const labelToKey = {};
+  systems.forEach(s => { state[s.key] = { normal: false, abn: false, detail: '' }; labelToKey[s.label] = s.key; });
+  const others = [];
+  const text = (record && record.examination) || '';
+  text.split('\n').forEach(line => {
+    if (!line.trim()) return;
+    const idx = line.indexOf(':');
+    if (idx === -1) { others.push(line.trim()); return; }
+    const label = line.slice(0, idx).trim();
+    const val = line.slice(idx + 1).trim();
+    if (label === 'Lain-lain') { if (val) others.push(val); return; }
+    const key = labelToKey[label];
+    if (!key) { others.push(line.trim()); return; }
+    if (val.toUpperCase() === 'DBN') state[key].normal = true;
+    else if (val) { state[key].abn = true; state[key].detail = val; }
+  });
+  return { state, other: others.join('; ') };
+}
+
+// x-data fragment (methods + refs to the globals) shared by the new & edit forms.
+function physicalExamXData() {
+  return `pe: JSON.parse(JSON.stringify(window.__peState)), peOther: window.__peOtherInit, peSystems: window.__peSystems,
+    peAllNormal() { this.peSystems.forEach(s => { this.pe[s.key].normal = true; this.pe[s.key].abn = false; }); },
+    peToggleNormal(k) { this.pe[k].normal = !this.pe[k].normal; if (this.pe[k].normal) this.pe[k].abn = false; },
+    peSetAbn(k) { this.pe[k].abn = !this.pe[k].abn; if (this.pe[k].abn) this.pe[k].normal = false; },
+    peCompile() { const parts = []; this.peSystems.forEach(s => { const v = this.pe[s.key]; if (v.abn && (v.detail||'').trim()) parts.push(s.label + ': ' + v.detail.trim()); else if (v.normal) parts.push(s.label + ': DBN'); }); if ((this.peOther||'').trim()) parts.push('Lain-lain: ' + this.peOther.trim()); return parts.join(String.fromCharCode(10)); },`;
+}
+
+// The card HTML, shared by both forms. Relies on the x-data fragment above.
+function physicalExamCard() {
+  return `<div class="bg-white border border-slate-100 rounded-3xl p-4">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <h4 class="font-semibold text-gray-800 flex items-center gap-2"><svg class="w-4 h-4 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg> Pemeriksaan Fisik (Objektif) <span class="text-xs font-normal text-gray-400">— opsional</span></h4>
+      <button type="button" @click="peAllNormal()" class="text-xs px-3 py-1.5 rounded-lg bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 transition font-medium">Semua Dalam Batas Normal</button>
+    </div>
+    <div class="space-y-2">
+      <template x-for="sys in peSystems" :key="sys.key">
+        <div class="border border-gray-100 rounded-lg p-2.5" :class="(pe[sys.key].normal || pe[sys.key].abn) ? 'bg-gray-50/60' : ''">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-sm font-medium text-gray-700 flex-1 min-w-[120px]" x-text="sys.label"></span>
+            <button type="button" @click="peToggleNormal(sys.key)" class="text-xs px-2.5 py-1 rounded-lg border transition" :class="pe[sys.key].normal ? 'bg-teal-600 text-white border-teal-600' : 'text-gray-500 border-gray-200 hover:border-teal-300'">DBN</button>
+            <button type="button" @click="peSetAbn(sys.key)" class="text-xs px-2.5 py-1 rounded-lg border transition" :class="pe[sys.key].abn ? 'bg-amber-500 text-white border-amber-500' : 'text-gray-500 border-gray-200 hover:border-amber-300'">Ada kelainan</button>
+          </div>
+          <div x-show="pe[sys.key].abn" x-cloak class="mt-2">
+            <input type="text" x-model="pe[sys.key].detail" class="w-full px-2.5 py-1.5 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/40" placeholder="Deskripsi temuan (mis. ronki basah basal bilateral)...">
+          </div>
+        </div>
+      </template>
+    </div>
+    <div class="mt-3">
+      <label class="block text-xs text-gray-500 mb-1">Pemeriksaan lain / catatan</label>
+      <textarea x-model="peOther" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Temuan lain yang belum tercakup di atas..."></textarea>
+    </div>
+  </div>`;
+}
+
 export function doctorDashboard() {
   const doc = getDoctor();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -237,7 +307,7 @@ export function doctorEMR(params) {
               <div x-show="open" x-cloak class="border-t border-gray-100 p-4 bg-gray-50/50">
                 <div class="grid lg:grid-cols-2 gap-4 text-sm">
                   <div><h4 class="font-semibold text-gray-700 mb-1">Anamnesis</h4><p class="text-gray-600">${r.anamnesis}</p></div>
-                  <div><h4 class="font-semibold text-gray-700 mb-1">Pemeriksaan Fisik</h4><p class="text-gray-600">${r.examination || '-'}</p>${r.vital_signs ? `<div class="flex flex-wrap gap-2 mt-2">${Object.entries(r.vital_signs).map(([k,v])=>`<span class="px-2 py-1 rounded bg-white border border-gray-200 text-xs">${k.toUpperCase()}: ${v}</span>`).join('')}</div>` : ''}</div>
+                  <div><h4 class="font-semibold text-gray-700 mb-1">Pemeriksaan Fisik</h4><p class="text-gray-600 whitespace-pre-line">${r.examination || '-'}</p>${r.vital_signs ? `<div class="flex flex-wrap gap-2 mt-2">${Object.entries(r.vital_signs).map(([k,v])=>`<span class="px-2 py-1 rounded bg-white border border-gray-200 text-xs">${k.toUpperCase()}: ${v}</span>`).join('')}</div>` : ''}</div>
                   <div><h4 class="font-semibold text-gray-700 mb-1">Diagnosis</h4><p class="text-gray-600 font-medium">${r.diagnosis}</p>${r.diagnosis_secondary ? `<p class="text-gray-500 text-xs mt-1">Sekunder: ${r.diagnosis_secondary}</p>` : ''}</div>
                   <div><h4 class="font-semibold text-gray-700 mb-1">Terapi Non-Farmakologis</h4><p class="text-gray-600">${r.therapy || '-'}</p></div>
                 </div>
@@ -469,12 +539,16 @@ export function doctorEMRNew(params) {
   if (!patient) return '<div class="p-8 text-center text-gray-500">Pasien tidak ditemukan</div>';
   const locations = CONFIG.LOCATIONS || ['Klinik Utama Prima','Home Care','Telemedicine'];
   window.__icd10 = ICD10;
+  window.__peSystems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
+  window.__peState = buildPeState(null).state;
+  window.__peOtherInit = '';
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
     visitType: 'consultation',
     visitDate: '${todayLocal()}',
     form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', visit_type:'consultation' },
+    ${physicalExamXData()}
     icdSearch: '', icdResults: [], icdOpen: false, icdSearch2: '', icdResults2: [], icdOpen2: false,
     searchICD(q, which) {
       if (!q || q.length < 2) { if(which===2){this.icdResults2=[];this.icdOpen2=false}else{this.icdResults=[];this.icdOpen=false}; return; }
@@ -511,6 +585,7 @@ export function doctorEMRNew(params) {
         self.form.visit_type = self.visitType;
         var result = null;
         if (self.visitType === 'consultation' || self.visitType === 'both') {
+          self.form.examination = self.peCompile();
           result = await window.__store.createRecord({patient_id:'${patient.id}', doctor_id:'${doc?.id}', ...self.form, visit_date: self.visitDate});
         }
         if (self.visitType === 'vaccination' || self.visitType === 'both') {
@@ -584,6 +659,10 @@ export function doctorEMRNew(params) {
               <div><label class="block text-xs text-gray-500 mb-1">TB (cm)</label><input type="number" x-model="form.vital_signs.tb" class="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="170"></div>
             </div>
           </div>
+          <!-- PEMERIKSAAN FISIK (Objektif) — setelah TTV -->
+          <template x-if="visitType==='consultation' || visitType==='both'">
+            ${physicalExamCard()}
+          </template>
           <!-- KONSULTASI SECTION -->
           <template x-if="visitType==='consultation' || visitType==='both'">
             <div class="space-y-4">
@@ -1025,10 +1104,15 @@ export function doctorEMREdit(params) {
     therapy: record.therapy || '', location: record.location || locations[0], follow_up_date: record.follow_up_date || '',
     follow_up_notes: record.follow_up_notes || '', notes: record.notes || ''
   };
+  window.__peSystems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
+  const __pe = buildPeState(record);
+  window.__peState = __pe.state;
+  window.__peOtherInit = __pe.other;
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024, saving: false, saved: false,
     form: JSON.parse(JSON.stringify(window.__emrEdit)),
+    ${physicalExamXData()}
     icdSearch: window.__emrEdit.diagnosis, icdResults: [], icdOpen: false,
     icdSearch2: window.__emrEdit.diagnosis_secondary, icdResults2: [], icdOpen2: false,
     searchICD(q, which) {
@@ -1045,6 +1129,7 @@ export function doctorEMREdit(params) {
       this.saving = true;
       const self = this;
       setTimeout(function() {
+        self.form.examination = self.peCompile();
         window.__store.updateRecord('${record.id}', self.form);
         self.saving = false; self.saved = true;
         setTimeout(function(){ window.location.hash = '/doctor/emr/${record.patient_id}'; }, 800);
@@ -1070,6 +1155,7 @@ export function doctorEMREdit(params) {
             </div>
           </div>
           <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-3">Anamnesis *</h4><textarea x-model="form.anamnesis" rows="4" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
+          ${physicalExamCard()}
           <div class="grid lg:grid-cols-2 gap-4">
             <div class="bg-white border border-slate-100 rounded-3xl p-4">
               <h4 class="font-semibold text-gray-800 mb-3">Diagnosis (ICD-10) *</h4>
