@@ -463,6 +463,10 @@ class Store {
     const prev = cert.details || {};
     const details = { ...prev, approval: { ...(prev.approval || {}), status: 'approved', reject_reason: '', approved_at: new Date().toISOString() } };
     await this.updateCertificate(certId, { details });
+    // Let the admin who drafted it know it's now valid.
+    if (prev.approval && prev.approval.created_by) {
+      this.addNotification(prev.approval.created_by, 'Surat Disahkan', `Surat Keterangan ${cert.perihal || ''} untuk ${cert.patient_name || 'pasien'} (${cert.cert_number || ''}) telah disetujui (ACC) & sah.`, 'system');
+    }
     return { success: true };
   }
 
@@ -472,7 +476,20 @@ class Store {
     const prev = cert.details || {};
     const details = { ...prev, approval: { ...(prev.approval || {}), status: 'rejected', reject_reason: reason || '' } };
     await this.updateCertificate(certId, { details });
+    if (prev.approval && prev.approval.created_by) {
+      this.addNotification(prev.approval.created_by, 'Surat Ditolak', `Surat Keterangan ${cert.perihal || ''} untuk ${cert.patient_name || 'pasien'} (${cert.cert_number || ''}) ditolak dokter.${reason ? ' Alasan: ' + reason : ''}`, 'system');
+    }
     return { success: true };
+  }
+
+  // All SKD letters for a patient (for the admin status list).
+  async getSKDForPatient(patientId) {
+    let certs = [];
+    if (!CONFIG.DEMO_MODE) {
+      try { certs = await supabase.select('certificates', { eq: { patient_id: patientId, cert_type: 'skd' }, order: 'issued_at.desc' }) || []; } catch (e) { certs = []; }
+    }
+    if (!certs.length) certs = (this.data.certificates || []).filter(c => c.cert_type === 'skd' && c.patient_id === patientId);
+    return certs;
   }
 
   async loadFromSupabase() {

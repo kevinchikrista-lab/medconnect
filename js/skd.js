@@ -87,7 +87,7 @@ export async function createSKD(opts) {
     rest_days: isSehat ? '' : (opts.rest_days || ''),
     from_date: isSehat ? '' : (opts.from_date || ''),
     to_date: isSehat ? '' : (opts.to_date || ''),
-    approval: { status: opts.status || 'approved', doctor_id: opts.approvalDoctorId || '', reject_reason: '' },
+    approval: { status: opts.status || 'approved', doctor_id: opts.approvalDoctorId || '', reject_reason: '', created_by: opts.createdBy || '' },
   };
 
   // certificates.patient_id is a UUID column, so never send a client
