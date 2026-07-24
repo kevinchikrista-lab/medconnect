@@ -37,7 +37,9 @@ function esc(s) {
 export async function generateSKD(opts) {
   const patient = store.getPatient(opts.patientId);
   if (!patient) { alert('Pasien tidak ditemukan'); return; }
-  const doctor = JSON.parse(sessionStorage.getItem('medconnect_profile') || 'null') || {};
+  // The signing/ACC doctor: an explicit one (when admin issues the letter and
+  // picks the responsible doctor) takes precedence over the logged-in doctor.
+  const doctor = (opts.doctor && opts.doctor.full_name) ? opts.doctor : (JSON.parse(sessionStorage.getItem('medconnect_profile') || 'null') || {});
   const isSehat = opts.type === 'sehat';
 
   // No. RM is assigned by the system (a continuous sequence), never typed —

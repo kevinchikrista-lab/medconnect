@@ -914,11 +914,169 @@ export function adminHomeCareEdit(params) {
   });
 }
 
+// Admin-side clinical patient list — read-only view of medical records plus
+// the ability to issue a Surat Keterangan on a doctor's behalf.
+export function adminPatients() {
+  const patients = store.getPatients();
+  const q = (s) => String(s == null ? '' : s).replace(/'/g, "\\'");
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '' }" class="min-h-screen bg-wash">
+    ${adminSidebar('patients')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-7xl mx-auto">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+          <h2 class="text-xl font-bold text-gray-800">Rekam Medis Pasien</h2>
+          <div class="relative flex-1 sm:max-w-xs"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari nama, NIK, No. RM..."></div>
+        </div>
+        <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
+          <div class="overflow-x-auto"><table class="w-full">
+            <thead><tr class="bg-gray-50 border-b border-gray-100"><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Nama</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden sm:table-cell">No. RM</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden md:table-cell">NIK</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden lg:table-cell">Telepon</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Aksi</th></tr></thead>
+            <tbody class="divide-y divide-gray-50">
+              ${patients.length === 0 ? '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">Belum ada pasien</td></tr>' : patients.map(p => `
+              <template x-if="!search || '${q(p.full_name).toLowerCase()}'.includes(search.toLowerCase()) || '${q(p.nik||'')}'.includes(search) || '${q(p.rm_number||'')}'.includes(search) || '${q(p.phone||'')}'.includes(search)">
+                <tr class="hover:bg-gray-50 transition">
+                  <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${(p.full_name||'?').split(' ').map(n=>n[0]).join('').slice(0,2)}</div><p class="font-medium text-gray-800 text-sm">${p.full_name||'-'}</p></div></td>
+                  <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.rm_number || '-'}</td>
+                  <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${p.nik || '-'}</td>
+                  <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${p.phone || '-'}</td>
+                  <td class="px-4 py-3"><a href="#/admin/patients/${p.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Lihat Rekam Medis</a></td>
+                </tr>
+              </template>`).join('')}
+            </tbody>
+          </table></div>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
+export function adminPatientDetail(params) {
+  const patient = store.getPatient(params.patientId);
+  if (!patient) return '<div class="p-8 text-center text-gray-500">Pasien tidak ditemukan</div>';
+  const records = store.getRecords(params.patientId);
+  const vaccinations = store.getVaccinations(params.patientId);
+  const doctors = (store.data.doctors || []).filter(d => d.full_name);
+  window.__skdDoctors = doctors.map(d => ({ id: d.id, full_name: d.full_name, sip_number: d.sip_number || '' }));
+  const q = (s) => String(s == null ? '' : s).replace(/'/g, "\\'");
+  const latestVs = (records[0] && records[0].vital_signs) || {};
+  const age = patient.birth_date ? Math.floor((Date.now() - new Date(patient.birth_date)) / (365.25*24*60*60*1000)) : null;
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024,
+    skdOpen: false, skdType: 'sehat', skdDoctorId: '${doctors[0]?.id || ''}',
+    skd: { letter_date: '${new Date().toISOString().split('T')[0]}',
+      birth_date: '${patient.birth_date || ''}', gender: '${q(patient.gender||'')}', address: '${q(patient.address||'')}',
+      berat_badan: '${q(latestVs.bb||'')}', tinggi_badan: '${q(latestVs.tb||'')}', tekanan_darah: '${q(latestVs.td||'')}', nadi: '${q(latestVs.nadi||'')}',
+      keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
+      diagnosis: '${q(records[0] && records[0].diagnosis || '')}', rest_days: '', from_date: '${new Date().toISOString().split('T')[0]}', to_date: '' },
+    submitSKD() {
+      const doc = (window.__skdDoctors||[]).find(d => d.id === this.skdDoctorId);
+      if (!doc) { alert('Pilih dokter yang meng-ACC surat ini terlebih dahulu.'); return; }
+      window.__store.updatePatientProfile('${patient.id}', { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address });
+      window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, doctor: { full_name: doc.full_name, sip_number: doc.sip_number }, ...this.skd });
+      this.skdOpen = false;
+    }
+  }" class="min-h-screen bg-wash">
+    ${adminSidebar('patients')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+        <div class="flex items-center gap-2 mb-4 text-sm text-gray-500"><a href="#/admin/patients" class="hover:text-teal-600 transition">Rekam Medis Pasien</a><span>/</span><span class="text-gray-800 font-medium">${patient.full_name}</span></div>
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div class="flex items-center gap-4">
+            <div class="w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${(patient.full_name||'?').split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
+            <div>
+              <h2 class="text-lg font-bold text-gray-800">${patient.full_name}</h2>
+              <p class="text-sm text-gray-500">${patient.gender || '-'}${age !== null ? ', '+age+' thn' : ''} | No. RM: ${patient.rm_number || '-'} | NIK: ${patient.nik || '-'}</p>
+            </div>
+          </div>
+          <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white self-start lg:self-auto" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
+        </div>
+
+        <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Riwayat Rekam Medis (${records.length})</h3>
+        ${records.length === 0 ? '<div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Belum ada rekam medis</div>' : records.map(r => {
+          const doctor = store.getDoctor(r.doctor_id);
+          return `<div class="bg-white border border-slate-100 rounded-3xl mb-3 overflow-hidden" x-data="{open:false}">
+            <div class="p-4 cursor-pointer hover:bg-gray-50 transition flex items-center justify-between" @click="open=!open">
+              <div><p class="font-medium text-gray-800">${formatDate(r.visit_date)}</p><p class="text-sm text-gray-500">${r.diagnosis || '-'}${doctor ? ' — '+doctor.full_name : ''}</p></div>
+              <svg class="w-5 h-5 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </div>
+            <div x-show="open" x-cloak class="border-t border-gray-100 p-4 bg-gray-50/50 text-sm space-y-2">
+              <div><span class="font-semibold text-gray-700">Anamnesis:</span> <span class="text-gray-600">${r.anamnesis || '-'}</span></div>
+              <div><span class="font-semibold text-gray-700">Pemeriksaan Fisik:</span> <span class="text-gray-600 whitespace-pre-line">${r.examination || '-'}</span></div>
+              ${r.vital_signs ? `<div class="flex flex-wrap gap-2">${Object.entries(r.vital_signs).filter(([k,v])=>v).map(([k,v])=>`<span class="px-2 py-1 rounded bg-white border border-gray-200 text-xs">${k.toUpperCase()}: ${v}</span>`).join('')}</div>` : ''}
+              <div><span class="font-semibold text-gray-700">Terapi:</span> <span class="text-gray-600">${r.therapy || '-'}</span></div>
+              ${r.follow_up_date ? `<div><span class="font-semibold text-gray-700">Kontrol:</span> <span class="text-blue-700">${formatDate(r.follow_up_date)}</span></div>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+
+        <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3 mt-6">Vaksinasi (${vaccinations.length})</h3>
+        ${vaccinations.length === 0 ? '<div class="bg-white rounded-3xl border border-slate-100 p-6 text-center text-gray-400 text-sm">Belum ada data vaksinasi</div>' : `<div class="bg-white border border-slate-100 rounded-3xl divide-y divide-gray-50">${vaccinations.map(v => `<div class="p-3 flex items-center justify-between text-sm"><div><p class="font-medium text-gray-800">${v.vaccine_name} ${v.vaccine_brand||''}</p><p class="text-xs text-gray-500">Dosis ${v.dose_number||'-'}/${v.total_doses||'-'}${v.date_given ? ' — '+formatDate(v.date_given) : ''}</p></div></div>`).join('')}</div>`}
+
+        <!-- SKD modal (admin, dengan pilih dokter ACC) -->
+        <div x-show="skdOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="skdOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4"><h3 class="text-lg font-bold text-gray-800">Terbitkan Surat Keterangan</h3><button @click="skdOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button></div>
+            <p class="text-xs text-gray-500 mb-4">Pasien: <span class="font-medium text-gray-700">${patient.full_name}</span>. Data terisi otomatis dari kunjungan terakhir — periksa & edit sebelum cetak.</p>
+            <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-100">
+              <label class="block text-xs font-semibold text-amber-800 mb-1">Dokter yang meng-ACC / tanda tangan *</label>
+              <select x-model="skdDoctorId" class="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/50">
+                ${doctors.length === 0 ? '<option value="">Belum ada dokter terdaftar</option>' : doctors.map(d => `<option value="${d.id}">${d.full_name}${d.sip_number ? ' — SIP '+d.sip_number : ' — (SIP belum diisi)'}</option>`).join('')}
+              </select>
+              <p class="text-[11px] text-amber-600 mt-1">Nama & SIP dokter ini yang akan tercetak di surat.</p>
+            </div>
+            <div class="flex gap-2 mb-4">
+              <button @click="skdType='sehat'" :class="skdType==='sehat' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sehat</button>
+              <button @click="skdType='sakit'" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sakit</button>
+            </div>
+            <div class="grid grid-cols-2 gap-3 mb-3">
+              <div><label class="block text-xs text-gray-600 mb-1">No. RM <span class="text-gray-400">(otomatis)</span></label><input type="text" readonly value="${patient.rm_number || 'dibuat saat terbit'}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-600"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Tanggal Surat</label><input type="date" x-model="skd.letter_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+            </div>
+            <div class="p-3 mb-3 rounded-lg bg-gray-50 border border-gray-100">
+              <p class="text-xs font-semibold text-gray-500 mb-2">Data Pasien <span class="font-normal text-gray-400">(otomatis tersimpan ke data pasien)</span></p>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label><input type="date" x-model="skd.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label><select x-model="skd.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option><option>Laki-laki</option><option>Perempuan</option></select></div>
+                <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="skd.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Alamat pasien"></div>
+              </div>
+            </div>
+            <div x-show="skdType==='sehat'" class="space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Berat Badan (KG)</label><input type="text" x-model="skd.berat_badan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Tinggi Badan (CM)</label><input type="text" x-model="skd.tinggi_badan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Tekanan Darah (MMHG)</label><input type="text" x-model="skd.tekanan_darah" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="120/80"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Nadi (X/MIN)</label><input type="text" x-model="skd.nadi" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              </div>
+              <div><label class="block text-xs text-gray-600 mb-1">Dipergunakan untuk</label><input type="text" x-model="skd.keperluan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Melamar pekerjaan"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Kesimpulan</label><input type="text" x-model="skd.kesimpulan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+            </div>
+            <div x-show="skdType==='sakit'" x-cloak class="space-y-3">
+              <div><label class="block text-xs text-gray-600 mb-1">Diagnosis</label><input type="text" x-model="skd.diagnosis" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Febris"></div>
+              <div class="grid grid-cols-3 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Istirahat (hari)</label><input type="number" min="1" x-model="skd.rest_days" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Dari Tanggal</label><input type="date" x-model="skd.from_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Hingga Tanggal</label><input type="date" x-model="skd.to_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              </div>
+            </div>
+            <div class="flex gap-2 justify-end mt-5">
+              <button @click="skdOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="submitSKD()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Buat &amp; Cetak Surat</button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
 function adminSidebar(active) {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: 'insights' },
     { id: 'users', label: 'Manajemen User', icon: 'group' },
+    { id: 'patients', label: 'Rekam Medis Pasien', icon: 'clinical_notes', href: '#/admin/patients' },
     { id: 'services', label: 'Layanan', icon: 'medical_services' },
     { id: 'articles', label: 'Artikel', icon: 'article' },
     { id: 'bookings', label: 'Pendaftaran', icon: 'calendar_month' },

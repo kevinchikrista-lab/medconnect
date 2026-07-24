@@ -1,7 +1,7 @@
 import { router } from './router.js';
 import { store } from './store.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
-import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit } from './pages/admin.js';
+import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail } from './pages/admin.js';
 import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
@@ -117,6 +117,8 @@ router.add('/verify/:certId', (p) => render(verifyPage, p));
 // Admin
 router.add('/admin/dashboard', () => render(adminDashboard));
 router.add('/admin/users', () => render(adminUsers));
+router.add('/admin/patients', () => render(adminPatients));
+router.add('/admin/patients/:patientId', (p) => render(adminPatientDetail, p));
 router.add('/admin/services', () => render(adminServices));
 router.add('/admin/articles', () => render(adminArticles));
 router.add('/admin/bookings', () => render(adminBookings));
