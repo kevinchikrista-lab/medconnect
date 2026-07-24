@@ -8,9 +8,11 @@ import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './p
 import { notificationsPage } from './pages/notifications.js';
 import { verifyPage } from './pages/verify.js';
 import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pages/landing.js';
+import { generateSKD } from './skd.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
+window.__generateSKD = generateSKD;
 
 function render(htmlFn, params) {
   // The hash router has no "unmount" hook, so this is the one chokepoint every
