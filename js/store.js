@@ -620,9 +620,33 @@ class Store {
   updatePatientProfile(patientId, updates) {
     const p = this.data.patients.find(x => x.id === patientId);
     if (!p) return { error: 'Pasien tidak ditemukan' };
-    const allowed = ['phone', 'address', 'emergency_contact', 'allergies'];
-    allowed.forEach(k => { if (updates[k] !== undefined) p[k] = updates[k]; });
+    const allowed = ['full_name', 'nik', 'birth_date', 'gender', 'phone', 'address', 'blood_type', 'allergies', 'emergency_contact', 'rm_number'];
+    const patch = {};
+    allowed.forEach(k => { if (updates[k] !== undefined) { p[k] = updates[k]; patch[k] = updates[k]; } });
+    // Empty date binds as '' which Postgres rejects for the DATE column, so
+    // normalize it to null (same fix as sanitizeDates elsewhere).
+    if (patch.birth_date === '') patch.birth_date = null;
     this._save();
+    // Previously this only touched the local cache, so profile edits silently
+    // never reached Supabase. Sync the changed fields so they persist.
+    if (!CONFIG.DEMO_MODE && Object.keys(patch).length && !String(patientId).startsWith('id_')) {
+      supabase.update('patients', patientId, patch).catch(e => console.warn('Gagal menyimpan profil pasien:', e));
+    }
+    return { success: true };
+  }
+
+  // Edit a doctor's registered identity (name, SIP, etc.) — used by the admin
+  // panel so the SIP that prints on letters can be corrected in myprima.id.
+  updateDoctorProfile(doctorId, updates) {
+    const d = this.data.doctors.find(x => x.id === doctorId);
+    if (!d) return { error: 'Dokter tidak ditemukan' };
+    const allowed = ['full_name', 'sip_number', 'specialization', 'phone'];
+    const patch = {};
+    allowed.forEach(k => { if (updates[k] !== undefined) { d[k] = updates[k]; patch[k] = updates[k]; } });
+    this._save();
+    if (!CONFIG.DEMO_MODE && Object.keys(patch).length && !String(doctorId).startsWith('id_')) {
+      supabase.update('doctors', doctorId, patch).catch(e => console.warn('Gagal menyimpan profil dokter:', e));
+    }
     return { success: true };
   }
 

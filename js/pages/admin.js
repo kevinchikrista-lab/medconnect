@@ -106,6 +106,21 @@ export function adminUsers() {
             <div class="flex gap-2 justify-end"><button @click="editingUser=null" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button @click="saveEmail" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Simpan</button></div>
           </div>
         </div>
+        <!-- Edit Doctor / SIP Modal -->
+        <div x-show="editDoc" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="editDoc=null">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h3 class="text-lg font-bold text-gray-800 mb-1">Edit Data Dokter</h3>
+            <p class="text-xs text-gray-500 mb-4">SIP yang tercetak di surat & sertifikat diambil dari sini.</p>
+            <div x-show="docMsg" class="mb-3 p-2 rounded-lg text-sm" :class="docMsg.includes('berhasil')?'bg-green-50 text-green-700':'bg-red-50 text-red-700'" x-text="docMsg"></div>
+            <div class="space-y-3">
+              <div><label class="block text-xs text-gray-600 mb-1">Nama Lengkap</label><input type="text" x-model="docForm.full_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">No. SIP / SIPD</label><input type="text" x-model="docForm.sip_number" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: 500.16/1540/SIPD/..."></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Spesialisasi</label><input type="text" x-model="docForm.specialization" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Dokter Umum"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Telepon</label><input type="tel" x-model="docForm.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+            </div>
+            <div class="flex gap-2 justify-end mt-5"><button @click="editDoc=null" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button @click="saveDoctor()" :disabled="savingDoc" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!savingDoc">Simpan</span><span x-show="savingDoc" x-cloak>Menyimpan...</span></button></div>
+          </div>
+        </div>
         <!-- Reset Password Modal -->
         <div x-show="resetUser" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="resetUser=null">
           <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
@@ -154,6 +169,7 @@ export function adminUsers() {
                   <button @click="toggleActive(user.id)" class="px-2 py-1 rounded text-xs font-medium" :class="user.is_active ? 'text-red-700 bg-red-50 hover:bg-red-100' : 'text-green-700 bg-green-50 hover:bg-green-100'" x-text="user.is_active ? 'Nonaktifkan' : 'Aktifkan'"></button>
                   <button @click="resetUser=user; resetNewPass=''; resetMsg=''" class="px-2 py-1 rounded text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Reset Pass</button>
                   <template x-if="user.role==='patient'"><button @click="certUser=user" class="px-2 py-1 rounded text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition">Sertifikat</button></template>
+                  <template x-if="user.role==='doctor' || user.role==='owner'"><button @click="openEditDoc(user)" class="px-2 py-1 rounded text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition">Edit Dokter/SIP</button></template>
                   <template x-if="user.role==='doctor'"><button @click="toggleDoctorListing(user)" class="px-2 py-1 rounded text-xs font-medium" :class="user.profile?.is_public_listed ? 'text-red-700 bg-red-50 hover:bg-red-100' : 'text-green-700 bg-green-50 hover:bg-green-100'" x-text="user.profile?.is_public_listed ? 'Sembunyikan dari Beranda' : 'Tampilkan di Beranda'"></button></template>
                   <button @click="deleteUser(user)" class="px-2 py-1 rounded text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Hapus</button>
                 </div></td>
@@ -172,8 +188,28 @@ export function adminUsersData() {
     filter: '', search: '',
     showCreate: false, createMsg: '', creating: false,
     editingUser: null, newEmail: '', editMsg: '',
+    editDoc: null, docForm: { full_name: '', sip_number: '', specialization: '', phone: '' }, docMsg: '', savingDoc: false,
     resetUser: null, resetNewPass: '', resetMsg: '', resetting: false,
     certUser: null,
+    openEditDoc(user) {
+      this.docMsg = '';
+      const p = user.profile || {};
+      this.docForm = { full_name: p.full_name || '', sip_number: p.sip_number || '', specialization: p.specialization || '', phone: p.phone || '' };
+      this.editDoc = user;
+    },
+    async saveDoctor() {
+      if (!this.editDoc || !this.editDoc.profile) { this.docMsg = 'Data dokter tidak ditemukan'; return; }
+      this.savingDoc = true; this.docMsg = '';
+      const result = store.updateDoctorProfile(this.editDoc.profile.id, this.docForm);
+      this.savingDoc = false;
+      if (result && result.error) { this.docMsg = result.error; return; }
+      // If the admin edited their own (owner) doctor record, refresh the cached
+      // session profile so the new SIP shows on letters without re-login.
+      const cur = JSON.parse(sessionStorage.getItem('medconnect_profile') || 'null');
+      if (cur && cur.id === this.editDoc.profile.id) sessionStorage.setItem('medconnect_profile', JSON.stringify({ ...cur, ...this.docForm }));
+      this.docMsg = 'Data dokter berhasil disimpan!';
+      setTimeout(() => { this.editDoc = null; }, 900);
+    },
     vaccineNamesFor(user) {
       if (!user || !user.profile || !user.profile.id) return [];
       const vax = window.__store.getVaccinations(user.profile.id);
