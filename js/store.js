@@ -482,6 +482,63 @@ class Store {
     return { success: true };
   }
 
+  // ---- Lab & Radiologi (hasil penunjang) ----
+  async getLabResults(patientId) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('lab_results', { eq: { patient_id: patientId }, order: 'result_date.desc' });
+        if (Array.isArray(rows)) return rows;
+      } catch (e) { /* fall through to local */ }
+    }
+    return (this.data.lab_results || []).filter(l => l.patient_id === patientId).sort((a, b) => (b.result_date || '').localeCompare(a.result_date || ''));
+  }
+
+  async addLabResult(data, file) {
+    let file_path = '', file_name = '';
+    if (file) {
+      file_name = file.name;
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      file_path = `${data.patient_id}/${Date.now()}_${safeName}`;
+      if (!CONFIG.DEMO_MODE) {
+        const up = await supabase.uploadFile('lab-files', file_path, file);
+        if (up && up.error) return { error: 'Upload berkas gagal: ' + up.error };
+      }
+    }
+    const payload = { ...data, file_path, file_name };
+    if (payload.result_date === '') payload.result_date = null;
+    // Never send client placeholder ids to UUID columns.
+    ['patient_id', 'record_id', 'doctor_id'].forEach(k => { if (String(payload[k] || '').startsWith('id_')) payload[k] = null; });
+    if (CONFIG.DEMO_MODE) {
+      const rec = { id: generateId(), ...payload, created_at: new Date().toISOString() };
+      if (!this.data.lab_results) this.data.lab_results = [];
+      this.data.lab_results.push(rec); this._save();
+      return { success: true, lab: rec };
+    }
+    const inserted = await supabase.insert('lab_results', payload);
+    if (inserted && inserted.error) return { error: inserted.error };
+    if (!this.data.lab_results) this.data.lab_results = [];
+    if (inserted && inserted.id) this.data.lab_results.push(inserted);
+    this._save();
+    return { success: true, lab: inserted };
+  }
+
+  async deleteLabResult(id, filePath) {
+    if (!CONFIG.DEMO_MODE) {
+      if (filePath) supabase.removeFile('lab-files', filePath).catch(() => {});
+      await supabase.delete('lab_results', id);
+    }
+    this.data.lab_results = (this.data.lab_results || []).filter(l => l.id !== id);
+    this._save();
+    return { success: true };
+  }
+
+  // Short-lived signed URL for viewing an uploaded penunjang file.
+  async getLabFileUrl(filePath) {
+    if (!filePath || CONFIG.DEMO_MODE) return null;
+    const r = await supabase.signedUrl('lab-files', filePath);
+    return (r && r.url) || null;
+  }
+
   // All SKD letters for a patient (for the admin status list).
   async getSKDForPatient(patientId) {
     let certs = [];

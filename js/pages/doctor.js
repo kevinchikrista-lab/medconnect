@@ -265,8 +265,24 @@ export function doctorEMR(params) {
       window.__store.updatePatientProfile('${patient.id}', { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address });
       window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, ...this.skd });
       this.skdOpen = false;
-    }
-  }" x-init="if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
+    },
+    labList: [], labLoading: true, labOpen: false, labFile: null, labSaving: false,
+    lab: { category: 'lab', test_name: '', result_date: '${skdPrefill.today}', interpretation: '', notes: '', params: [{name:'',value:'',unit:'',ref:''}] },
+    async loadLab() { try { this.labList = await window.__store.getLabResults('${patient.id}'); } catch(e) { this.labList = []; } this.labLoading = false; },
+    labAddParam() { this.lab.params.push({name:'',value:'',unit:'',ref:''}); },
+    resetLab() { this.lab = { category: 'lab', test_name: '', result_date: '${skdPrefill.today}', interpretation: '', notes: '', params: [{name:'',value:'',unit:'',ref:''}] }; this.labFile = null; },
+    async submitLab() {
+      if (!this.lab.test_name.trim()) { alert('Isi nama pemeriksaan dulu.'); return; }
+      this.labSaving = true;
+      const params = this.lab.params.filter(p => (p.name||'').trim() || (p.value||'').trim());
+      const res = await window.__store.addLabResult({ patient_id:'${patient.id}', doctor_id:'${doc?.id}', category:this.lab.category, test_name:this.lab.test_name, result_date:this.lab.result_date, parameters: params, interpretation:this.lab.interpretation, notes:this.lab.notes }, this.labFile);
+      this.labSaving = false;
+      if (res.error) { alert('Gagal menyimpan: ' + res.error); return; }
+      this.labOpen = false; this.resetLab(); this.loadLab();
+    },
+    async viewLabFile(fp) { const url = await window.__store.getLabFileUrl(fp); if (url) window.open(url, '_blank'); else alert('Berkas tidak tersedia atau penyimpanan belum diaktifkan.'); },
+    async delLab(item) { if (!confirm('Hapus hasil penunjang ini?')) return; await window.__store.deleteLabResult(item.id, item.file_path); this.loadLab(); }
+  }" x-init="loadLab(); if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -291,6 +307,7 @@ export function doctorEMR(params) {
         <div class="flex gap-2 mb-4">
           <button @click="activeTab='records'" :class="activeTab==='records' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Rekam Medis (${records.length})</button>
           <button @click="activeTab='vaccinations'" :class="activeTab==='vaccinations' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Vaksinasi (${vaccinations.length})</button>
+          <button @click="activeTab='penunjang'" :class="activeTab==='penunjang' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Penunjang (<span x-text="labList.length"></span>)</button>
           <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition ml-auto">Surat Keterangan</button>
           <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
         </div>
@@ -471,6 +488,82 @@ export function doctorEMR(params) {
                 </div>
               </div>`).join('');
           })()}
+        </div>
+
+        <!-- PENUNJANG (Lab & Radiologi) -->
+        <div x-show="activeTab==='penunjang'" x-cloak>
+          <div class="flex justify-end mb-3">
+            <button @click="labOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Tambah Hasil Penunjang</button>
+          </div>
+          <div x-show="labLoading" class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Memuat...</div>
+          <template x-if="!labLoading && labList.length===0"><div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Belum ada hasil lab / radiologi</div></template>
+          <div class="space-y-3">
+            <template x-for="item in labList" :key="item.id">
+              <div class="bg-white border border-slate-100 rounded-3xl p-4">
+                <div class="flex items-start justify-between gap-2 flex-wrap">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="item.category==='radiologi' ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-teal-700'" x-text="item.category==='radiologi' ? 'Radiologi' : 'Laboratorium'"></span>
+                      <span class="font-semibold text-gray-800" x-text="item.test_name"></span>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-0.5" x-text="item.result_date || ''"></p>
+                  </div>
+                  <div class="flex gap-2">
+                    <button x-show="item.file_path" @click="viewLabFile(item.file_path)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">📎 Lihat Berkas</button>
+                    <button @click="delLab(item)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition">Hapus</button>
+                  </div>
+                </div>
+                <div x-show="item.parameters && item.parameters.length" class="mt-3 overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead><tr class="text-xs text-gray-400 text-left"><th class="py-1 pr-3 font-medium">Parameter</th><th class="py-1 pr-3 font-medium">Hasil</th><th class="py-1 pr-3 font-medium">Satuan</th><th class="py-1 font-medium">Rujukan</th></tr></thead>
+                    <tbody>
+                      <template x-for="(p,pi) in item.parameters" :key="pi">
+                        <tr class="border-t border-gray-50"><td class="py-1 pr-3 text-gray-700" x-text="p.name"></td><td class="py-1 pr-3 font-semibold text-gray-800" x-text="p.value"></td><td class="py-1 pr-3 text-gray-500" x-text="p.unit"></td><td class="py-1 text-gray-500" x-text="p.ref"></td></tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+                <p x-show="item.interpretation" class="mt-2 text-sm text-gray-700"><span class="font-semibold">Kesan/Interpretasi:</span> <span x-text="item.interpretation"></span></p>
+                <p x-show="item.notes" class="mt-1 text-xs text-gray-500" x-text="'Catatan: '+item.notes"></p>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Modal tambah hasil penunjang -->
+        <div x-show="labOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="labOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4"><h3 class="text-lg font-bold text-gray-800">Tambah Hasil Penunjang</h3><button @click="labOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button></div>
+            <div class="grid grid-cols-2 gap-3 mb-3">
+              <div><label class="block text-xs text-gray-600 mb-1">Jenis</label><select x-model="lab.category" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="lab">Laboratorium</option><option value="radiologi">Radiologi</option></select></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Tanggal</label><input type="date" x-model="lab.result_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Nama Pemeriksaan *</label><input type="text" x-model="lab.test_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Darah Lengkap, Rontgen Thorax PA"></div>
+            </div>
+            <div class="mb-3">
+              <div class="flex items-center justify-between mb-1"><label class="block text-xs text-gray-600">Parameter Hasil (isi manual sesuai yang diperiksa)</label><button type="button" @click="labAddParam()" class="text-xs text-teal-600 font-medium">+ Tambah baris</button></div>
+              <div class="space-y-2">
+                <template x-for="(p,pi) in lab.params" :key="pi">
+                  <div class="grid grid-cols-12 gap-2 items-center">
+                    <input type="text" x-model="p.name" placeholder="Parameter (mis. Hb)" class="col-span-4 px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+                    <input type="text" x-model="p.value" placeholder="Nilai" class="col-span-3 px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+                    <input type="text" x-model="p.unit" placeholder="Satuan" class="col-span-2 px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+                    <input type="text" x-model="p.ref" placeholder="Rujukan" class="col-span-2 px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+                    <button type="button" @click="lab.params.splice(pi,1)" x-show="lab.params.length>1" class="col-span-1 text-red-400 hover:text-red-600 text-sm">✕</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+            <div class="mb-3"><label class="block text-xs text-gray-600 mb-1">Kesan / Interpretasi</label><textarea x-model="lab.interpretation" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Cor & pulmo dalam batas normal / kesan hasil lab..."></textarea></div>
+            <div class="mb-3">
+              <label class="block text-xs text-gray-600 mb-1">Upload Berkas (PDF/gambar, opsional)</label>
+              <input type="file" accept=".pdf,image/*" @change="labFile = $event.target.files[0]" class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-teal-50 file:text-teal-700 file:text-sm file:font-medium">
+              <p x-show="labFile" x-cloak class="text-xs text-gray-500 mt-1" x-text="labFile ? 'Terpilih: '+labFile.name : ''"></p>
+            </div>
+            <div class="flex gap-2 justify-end mt-5">
+              <button @click="labOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="submitLab()" :disabled="labSaving" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!labSaving">Simpan Hasil</span><span x-show="labSaving" x-cloak>Menyimpan...</span></button>
+            </div>
+          </div>
         </div>
 
         <!-- Surat Keterangan Dokter (SKD) modal -->
