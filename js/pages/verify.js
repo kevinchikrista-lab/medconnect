@@ -8,11 +8,14 @@ function formatDate(d) {
 export function verifyPage(params) {
   return `
   <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #1c3980 50%, #3A6FC9 100%);"
-    x-data="{ loading: true, cert: null, error: false,
+    x-data="{ loading: true, cert: null, error: false, status: 'approved',
       async load() {
         try {
           const result = await window.__store.getCertificateById('${params.certId}');
-          if (result) { this.cert = result; } else { this.error = true; }
+          if (result) {
+            this.cert = result;
+            this.status = (result.details && result.details.approval && result.details.approval.status) || 'approved';
+          } else { this.error = true; }
         } catch(e) { this.error = true; }
         this.loading = false;
       }
@@ -34,9 +37,20 @@ export function verifyPage(params) {
 
         <template x-if="!loading && cert">
           <div>
-            <div class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-green-500/15 border border-green-400/30">
+            <!-- Sah (approved / vaccine certificate) -->
+            <div x-show="status === 'approved'" class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-green-500/15 border border-green-400/30">
               <div class="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0"><svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
               <div><p class="text-green-300 font-semibold text-sm" x-text="cert.cert_type === 'skd' ? 'Surat Sah & Terverifikasi' : 'Sertifikat Sah & Terverifikasi'"></p><p class="text-green-200/70 text-xs">Dokumen ini diterbitkan resmi oleh Klinik Prima</p></div>
+            </div>
+            <!-- Belum disahkan (pending ACC) -->
+            <div x-show="status === 'pending'" x-cloak class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-amber-500/15 border border-amber-400/30">
+              <div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0"><svg class="w-6 h-6 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18 9 9 0 000-18z"/></svg></div>
+              <div><p class="text-amber-200 font-semibold text-sm">Belum Disahkan Dokter</p><p class="text-amber-100/70 text-xs">Surat ini masih menunggu persetujuan (ACC) dokter — belum sah untuk digunakan.</p></div>
+            </div>
+            <!-- Ditolak / tidak sah -->
+            <div x-show="status === 'rejected'" x-cloak class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-red-500/15 border border-red-400/30">
+              <div class="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0"><svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div>
+              <div><p class="text-red-300 font-semibold text-sm">Surat Tidak Sah</p><p class="text-red-200/70 text-xs">Surat ini ditolak dokter dan tidak berlaku.</p></div>
             </div>
             <div class="space-y-3 text-sm">
               <div class="flex justify-between py-2 border-b border-white/10"><span class="text-teal-200/60">Nama Pasien</span><span class="text-white font-medium" x-text="cert.patient_name"></span></div>

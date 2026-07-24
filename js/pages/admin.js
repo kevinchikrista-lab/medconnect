@@ -961,22 +961,30 @@ export function adminPatientDetail(params) {
   const q = (s) => String(s == null ? '' : s).replace(/'/g, "\\'");
   const latestVs = (records[0] && records[0].vital_signs) || {};
   const age = patient.birth_date ? Math.floor((Date.now() - new Date(patient.birth_date)) / (365.25*24*60*60*1000)) : null;
+  const adminId = (JSON.parse(sessionStorage.getItem('medconnect_user') || 'null') || {}).id || '';
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024,
     skdOpen: false, skdType: 'sehat', skdDoctorId: '${doctors[0]?.id || ''}',
+    skdList: [], skdLoading: true,
     skd: { letter_date: '${new Date().toISOString().split('T')[0]}',
       birth_date: '${patient.birth_date || ''}', gender: '${q(patient.gender||'')}', address: '${q(patient.address||'')}',
       berat_badan: '${q(latestVs.bb||'')}', tinggi_badan: '${q(latestVs.tb||'')}', tekanan_darah: '${q(latestVs.td||'')}', nadi: '${q(latestVs.nadi||'')}',
       keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
       diagnosis: '${q(records[0] && records[0].diagnosis || '')}', rest_days: '', from_date: '${new Date().toISOString().split('T')[0]}', to_date: '' },
-    submitSKD() {
+    skdStatus(s) { return (s.details && s.details.approval && s.details.approval.status) || 'approved'; },
+    async loadSKD() { try { this.skdList = await window.__store.getSKDForPatient('${patient.id}'); } catch(e) { this.skdList = []; } this.skdLoading = false; },
+    reprintSKD(id) { window.__printSKD(id); },
+    async submitSKD() {
       const doc = (window.__skdDoctors||[]).find(d => d.id === this.skdDoctorId);
       if (!doc) { alert('Pilih dokter yang meng-ACC surat ini terlebih dahulu.'); return; }
       window.__store.updatePatientProfile('${patient.id}', { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address });
-      window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, doctor: { full_name: doc.full_name, sip_number: doc.sip_number }, ...this.skd });
+      // Admin-drafted → pending; the chosen doctor must ACC before it's valid.
+      const cert = await window.__issueSKD({ patientId: '${patient.id}', type: this.skdType, status: 'pending', approvalDoctorId: doc.id, createdBy: '${adminId}', doctor: { full_name: doc.full_name, sip_number: doc.sip_number }, ...this.skd });
       this.skdOpen = false;
+      if (cert) this.skdList.unshift(cert);
+      alert('Draft surat dibuat & dikirim ke ' + doc.full_name + ' untuk persetujuan (ACC).\\n\\nSurat baru SAH setelah dokter menyetujui. Sementara ini yang tercetak adalah draft bertanda air.');
     }
-  }" class="min-h-screen bg-wash">
+  }" x-init="loadSKD()" class="min-h-screen bg-wash">
     ${adminSidebar('patients')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${adminHeader()}
@@ -991,6 +999,26 @@ export function adminPatientDetail(params) {
             </div>
           </div>
           <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white self-start lg:self-auto" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
+        </div>
+
+        <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Surat Keterangan (<span x-text="skdList.length"></span>)</h3>
+        <div x-show="skdLoading" class="bg-white rounded-3xl border border-slate-100 p-4 text-center text-gray-400 text-sm mb-6">Memuat surat...</div>
+        <template x-if="!skdLoading && skdList.length === 0"><div class="bg-white rounded-3xl border border-slate-100 p-4 text-center text-gray-400 text-sm mb-6">Belum ada surat keterangan untuk pasien ini.</div></template>
+        <div class="space-y-2 mb-6">
+          <template x-for="s in skdList" :key="s.id">
+            <div class="bg-white border border-slate-100 rounded-2xl p-3 flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="((s.perihal||'')==='SEHAT')?'bg-teal-100 text-teal-700':'bg-amber-100 text-amber-700'" x-text="'Surat '+((s.perihal||'').charAt(0)+(s.perihal||'').slice(1).toLowerCase())"></span>
+                  <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="{ 'bg-green-100 text-green-700': skdStatus(s)==='approved', 'bg-orange-100 text-orange-700': skdStatus(s)==='pending', 'bg-red-100 text-red-700': skdStatus(s)==='rejected' }" x-text="({ approved:'Sah', pending:'Menunggu ACC', rejected:'Ditolak' })[skdStatus(s)]"></span>
+                </div>
+                <p class="text-sm font-medium text-gray-800 mt-1" x-text="'No. '+s.cert_number"></p>
+                <p class="text-xs text-gray-500" x-text="'Dokter: '+(s.doctor_name||'-')"></p>
+                <p class="text-xs text-red-500" x-show="skdStatus(s)==='rejected' && s.details && s.details.approval && s.details.approval.reject_reason" x-text="'Alasan: '+(s.details && s.details.approval && s.details.approval.reject_reason)"></p>
+              </div>
+              <button @click="reprintSKD(s.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition" x-text="skdStatus(s)==='approved' ? 'Cetak Ulang' : 'Lihat'"></button>
+            </div>
+          </template>
         </div>
 
         <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Riwayat Rekam Medis (${records.length})</h3>

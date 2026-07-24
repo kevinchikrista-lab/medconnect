@@ -2,17 +2,21 @@ import { router } from './router.js';
 import { store } from './store.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
 import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail } from './pages/admin.js';
-import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart } from './pages/doctor.js';
+import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
 import { verifyPage } from './pages/verify.js';
 import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pages/landing.js';
-import { generateSKD } from './skd.js';
+import { issueSKD, printSKDById, renderSKDInto, SKD_LOADING_DOC } from './skd.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
-window.__generateSKD = generateSKD;
+window.__issueSKD = issueSKD;
+window.__generateSKD = issueSKD; // backward-compatible alias
+window.__printSKD = printSKDById;
+window.__renderSKDInto = renderSKDInto;
+window.__skdLoadingDoc = SKD_LOADING_DOC;
 
 function render(htmlFn, params) {
   // The hash router has no "unmount" hook, so this is the one chokepoint every
@@ -134,6 +138,7 @@ router.add('/admin/homecare/edit/:claimId', (p) => render(adminHomeCareEdit, p))
 router.add('/doctor/dashboard', () => render(doctorDashboard));
 router.add('/doctor/patients', () => render(doctorPatients));
 router.add('/doctor/records', () => render(doctorRecords));
+router.add('/doctor/skd-approval', () => render(doctorSKDApproval));
 router.add('/doctor/emr/:patientId', (p) => render(doctorEMR, p));
 router.add('/doctor/emr/:patientId/new', (p) => render(doctorEMRNew, p));
 router.add('/doctor/prescriptions', () => render(doctorPrescriptions));

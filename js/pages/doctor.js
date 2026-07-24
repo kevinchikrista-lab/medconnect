@@ -1176,6 +1176,73 @@ export function doctorEMREdit(params) {
   </div>`;
 }
 
+// Doctor's queue of admin-drafted Surat Keterangan awaiting ACC.
+export function doctorSKDApproval() {
+  const doc = getDoctor();
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, items: [],
+    async load() {
+      this.loading = true;
+      try { this.items = await window.__store.getPendingSKDForDoctor('${doc?.id}'); } catch(e) { this.items = []; }
+      this.loading = false;
+    },
+    preview(id) { window.__printSKD(id); },
+    async approve(item) {
+      if (!confirm('Setujui & sahkan surat ' + item.cert_number + ' untuk ' + item.patient_name + '?')) return;
+      // Open the print window now (still inside the click) so it isn't blocked
+      // after the async approve; fill it with the finalized letter afterwards.
+      const w = window.open('', '_blank');
+      if (w) w.document.write(window.__skdLoadingDoc);
+      await window.__store.approveSKD(item.id);
+      const cert = await window.__store.getCertificateById(item.id);
+      window.__renderSKDInto(w, cert);
+      this.load();
+    },
+    async reject(item) {
+      const r = prompt('Alasan penolakan surat untuk ' + item.patient_name + ':');
+      if (r === null) return;
+      await window.__store.rejectSKD(item.id, r || '');
+      this.load();
+    }
+  }" x-init="load()" class="min-h-screen bg-wash">
+    ${doctorSidebar('skd-approval')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${doctorHeader(doc)}
+      <main class="p-4 lg:p-6 max-w-4xl mx-auto">
+        <h2 class="text-xl font-bold text-gray-800 mb-1">Surat Menunggu ACC</h2>
+        <p class="text-sm text-gray-500 mb-6">Surat keterangan yang dibuat oleh admin & menunggu persetujuan Anda. Setelah disetujui, surat menjadi sah dan QR-nya valid.</p>
+        <div x-show="loading" class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Memuat...</div>
+        <template x-if="!loading && items.length === 0">
+          <div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Tidak ada surat yang menunggu persetujuan.</div>
+        </template>
+        <div class="space-y-3">
+          <template x-for="item in items" :key="item.id">
+            <div class="bg-white border border-slate-100 rounded-3xl p-4">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="(item.perihal||'')==='SEHAT' ? 'bg-teal-100 text-teal-700' : 'bg-amber-100 text-amber-700'" x-text="'Surat ' + ((item.perihal||'').charAt(0)+(item.perihal||'').slice(1).toLowerCase())"></span>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">Menunggu ACC</span>
+                  </div>
+                  <p class="font-semibold text-gray-800 mt-2" x-text="item.patient_name"></p>
+                  <p class="text-xs text-gray-500" x-text="'No. ' + item.cert_number"></p>
+                  <p class="text-xs text-gray-500" x-show="item.details && item.details.diagnosis" x-text="'Diagnosis: ' + (item.details && item.details.diagnosis)"></p>
+                  <p class="text-xs text-gray-500" x-show="item.details && item.details.keperluan" x-text="'Keperluan: ' + (item.details && item.details.keperluan)"></p>
+                </div>
+                <div class="flex gap-2 flex-wrap">
+                  <button @click="preview(item.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition">Lihat Draft</button>
+                  <button @click="reject(item)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Tolak</button>
+                  <button @click="approve(item)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Setujui &amp; Sahkan</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
 export function doctorCalendar(params) {
   const doc = getDoctor();
   const today = new Date();
@@ -1353,6 +1420,7 @@ function doctorSidebar(active) {
     { id: 'patients', label: 'Pasien', icon: 'groups', href: '#/doctor/patients' },
     { id: 'emr', label: 'Rekam Medis', icon: 'clinical_notes', href: '#/doctor/records' },
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/doctor/prescriptions' },
+    { id: 'skd-approval', label: 'Surat Menunggu ACC', icon: 'assignment_turned_in', href: '#/doctor/skd-approval' },
     { id: 'chat', label: 'Pesan', icon: 'forum', href: '#/doctor/chat', badge: unreadChat },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/doctor/homecare/history' },
     { id: 'calendar', label: 'Kalender', icon: 'calendar_month', href: '#/doctor/calendar' },
