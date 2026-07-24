@@ -441,6 +441,40 @@ class Store {
     }
   }
 
+  // ---- SKD approval workflow (admin drafts → doctor ACCs) ----
+  notifyDoctorPendingSKD(doctorId, patientName, jenis) {
+    const d = this.data.doctors.find(x => x.id === doctorId);
+    if (d && d.user_id) this.addNotification(d.user_id, 'Surat Menunggu ACC', `Surat Keterangan ${jenis} untuk ${patientName} menunggu persetujuan (ACC) Anda.`, 'system');
+  }
+
+  // SKD letters awaiting a given doctor's approval.
+  async getPendingSKDForDoctor(doctorId) {
+    let certs = [];
+    if (!CONFIG.DEMO_MODE) {
+      try { certs = await supabase.select('certificates', { eq: { cert_type: 'skd' }, order: 'issued_at.desc' }) || []; } catch (e) { certs = []; }
+    }
+    if (!certs.length) certs = (this.data.certificates || []).filter(c => c.cert_type === 'skd');
+    return certs.filter(c => c.details && c.details.approval && c.details.approval.status === 'pending' && c.details.approval.doctor_id === doctorId);
+  }
+
+  async approveSKD(certId) {
+    const cert = await this.getCertificateById(certId);
+    if (!cert) return { error: 'Surat tidak ditemukan' };
+    const prev = cert.details || {};
+    const details = { ...prev, approval: { ...(prev.approval || {}), status: 'approved', reject_reason: '', approved_at: new Date().toISOString() } };
+    await this.updateCertificate(certId, { details });
+    return { success: true };
+  }
+
+  async rejectSKD(certId, reason) {
+    const cert = await this.getCertificateById(certId);
+    if (!cert) return { error: 'Surat tidak ditemukan' };
+    const prev = cert.details || {};
+    const details = { ...prev, approval: { ...(prev.approval || {}), status: 'rejected', reject_reason: reason || '' } };
+    await this.updateCertificate(certId, { details });
+    return { success: true };
+  }
+
   async loadFromSupabase() {
     if (CONFIG.DEMO_MODE) return;
     try {

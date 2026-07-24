@@ -973,8 +973,10 @@ export function adminPatientDetail(params) {
       const doc = (window.__skdDoctors||[]).find(d => d.id === this.skdDoctorId);
       if (!doc) { alert('Pilih dokter yang meng-ACC surat ini terlebih dahulu.'); return; }
       window.__store.updatePatientProfile('${patient.id}', { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address });
-      window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, doctor: { full_name: doc.full_name, sip_number: doc.sip_number }, ...this.skd });
+      // Admin-drafted → pending; the chosen doctor must ACC before it's valid.
+      window.__issueSKD({ patientId: '${patient.id}', type: this.skdType, status: 'pending', approvalDoctorId: doc.id, doctor: { full_name: doc.full_name, sip_number: doc.sip_number }, ...this.skd });
       this.skdOpen = false;
+      alert('Draft surat dibuat & dikirim ke ' + doc.full_name + ' untuk persetujuan (ACC).\\n\\nSurat baru SAH setelah dokter menyetujui. Sementara ini yang tercetak adalah draft bertanda air.');
     }
   }" class="min-h-screen bg-wash">
     ${adminSidebar('patients')}
