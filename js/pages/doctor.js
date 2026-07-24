@@ -904,13 +904,24 @@ export function doctorPrescriptionNew(params) {
   if (!record || !patient) return '<div class="p-8 text-center text-gray-500">Rekam medis tidak ditemukan</div>';
 
   const age = calculateAge(patient.birth_date);
+  // Parse the patient's recorded allergies into match terms (skip the "-"
+  // placeholder and very short tokens to avoid false positives). Passed via a
+  // global so quotes/commas can't break the x-data attribute.
+  window.__allergyTerms = (patient.allergies || '').split(/[,;\n]+/).map(s => s.trim().toLowerCase()).filter(t => t && t !== '-' && t.length >= 3);
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
     items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}],
     pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', delivery_method: 'pickup', delivery_address: '${(patient.address || '').replace(/'/g, "\\'")}',
     sending: false, sent: false, error: '',
+    allergyTerms: window.__allergyTerms || [],
+    drugAllergyHit(item) {
+      const hay = ((item.drug_name||'') + ' ' + (item.compound_details||'')).toLowerCase();
+      return this.allergyTerms.find(t => hay.includes(t)) || '';
+    },
+    get allergyConflicts() { return this.items.map((it,i)=>({i, term: this.drugAllergyHit(it)})).filter(x=>x.term); },
     async send() {
+      if (this.allergyConflicts.length && !confirm('PERINGATAN ALERGI\\n\\nAda obat yang cocok dengan alergi pasien (' + this.allergyConflicts.map(c=>'R/'+(c.i+1)+': '+c.term).join(', ') + ').\\n\\nTetap kirim resep ini?')) return;
       this.sending = true; this.error = '';
       const result = await window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:this.pharmacy_id,notes:this.notes,delivery_method:this.delivery_method,delivery_address:this.delivery_method==='delivery'?this.delivery_address:''}, this.items);
       this.sending = false;
@@ -941,16 +952,21 @@ export function doctorPrescriptionNew(params) {
             <div><span class="text-gray-500">Umur:</span><p class="font-medium text-gray-800">${age !== null ? age + ' tahun' : '-'}</p></div>
             <div><span class="text-gray-500">No. HP:</span><p class="font-medium text-gray-800">${patient.phone || '-'}</p></div>
             <div><span class="text-gray-500">Diagnosis:</span><p class="font-medium text-gray-800">${record.diagnosis}</p></div>
+            <div class="col-span-2 lg:col-span-4"><span class="text-gray-500">Alergi:</span> <span class="font-semibold ${patient.allergies && patient.allergies !== '-' ? 'text-red-600' : 'text-gray-800'}">${patient.allergies || '-'}</span></div>
           </div>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-4">Daftar Obat</h4>
+          <div x-show="allergyConflicts.length" x-cloak class="mb-3 px-3 py-2.5 rounded-lg bg-red-50 border border-red-300 text-red-700 text-sm font-medium flex items-start gap-2">
+            <span class="text-base leading-none">⚠️</span>
+            <span>Peringatan alergi: <span class="font-bold" x-text="allergyConflicts.map(c=>'R/'+(c.i+1)+' ('+c.term+')').join(', ')"></span> cocok dengan riwayat alergi pasien. Periksa kembali sebelum mengirim.</span>
+          </div>
           <template x-for="(item, index) in items" :key="index">
             <div class="border border-gray-100 rounded-lg p-3 mb-3 bg-gray-50/50">
               <div class="flex items-center justify-between mb-2"><span class="text-sm font-semibold text-gray-600" x-text="'R/ '+(index+1)"></span><button @click="items.splice(index,1)" x-show="items.length > 1" class="text-red-400 hover:text-red-600 text-xs transition">Hapus</button></div>
               <div class="flex items-center gap-2 mb-2"><input type="checkbox" x-model="item.is_compound" class="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-400/50"><label class="text-xs text-purple-700 font-medium">Obat Racikan / Compound</label></div>
               <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                <div><label class="block text-xs text-gray-500 mb-1" x-text="item.is_compound ? 'Nama Tampil Pasien *' : 'Nama Obat *'"></label><input type="text" x-model="item.drug_name" required class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" :placeholder="item.is_compound ? 'cth: Obat Batuk Pilek' : 'Nama obat'"></div>
+                <div><label class="block text-xs text-gray-500 mb-1" x-text="item.is_compound ? 'Nama Tampil Pasien *' : 'Nama Obat *'"></label><input type="text" x-model="item.drug_name" required class="w-full px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2" :class="drugAllergyHit(item) ? 'border-red-400 focus:ring-red-400/50 bg-red-50' : 'border-gray-200 focus:ring-teal-400/50'" :placeholder="item.is_compound ? 'cth: Obat Batuk Pilek' : 'Nama obat'"><p x-show="drugAllergyHit(item)" x-cloak class="text-xs text-red-600 font-medium mt-1" x-text="'⚠️ Cocok alergi pasien: '+drugAllergyHit(item)"></p></div>
                 <div x-show="!item.is_compound"><label class="block text-xs text-gray-500 mb-1">Dosis</label><input type="text" x-model="item.dosage" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="500mg"></div>
                 <div><label class="block text-xs text-gray-500 mb-1">Jumlah</label><input type="number" x-model="item.quantity" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
                 <div><label class="block text-xs text-gray-500 mb-1">Satuan</label><select x-model="item.unit" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${CONFIG.DRUG_UNITS.map(u=>`<option>${u}</option>`).join('')}</select></div>
@@ -1008,6 +1024,7 @@ export function doctorPrescriptionEdit(params) {
   const pharmacies = store.getPharmacies();
   const itemsJson = JSON.stringify(existingItems.map(i => ({drug_name:i.drug_name,dosage:i.dosage,quantity:i.quantity,unit:i.unit,frequency:i.frequency,time:i.time,duration:i.duration,instructions:i.instructions,is_compound:!!i.is_compound,compound_details:i.compound_details||'',display_name:i.display_name||''}))).replace(/'/g,"\\'");
   window.__editRxItems = existingItems.map(i => ({drug_name:i.drug_name,dosage:i.dosage,quantity:i.quantity,unit:i.unit,frequency:i.frequency,time:i.time,duration:i.duration,instructions:i.instructions,is_compound:!!i.is_compound,compound_details:i.compound_details||'',display_name:i.display_name||''}));
+  window.__allergyTerms = ((patient && patient.allergies) || '').split(/[,;\n]+/).map(s => s.trim().toLowerCase()).filter(t => t && t !== '-' && t.length >= 3);
 
   return `
   <div x-data="{
@@ -1018,7 +1035,11 @@ export function doctorPrescriptionEdit(params) {
     delivery_method: '${rx.delivery_method || 'pickup'}',
     delivery_address: '${(rx.delivery_address || patient?.address || '').replace(/'/g, "\\'")}',
     saving: false, saved: false, error: '',
+    allergyTerms: window.__allergyTerms || [],
+    drugAllergyHit(item) { const hay = ((item.drug_name||'') + ' ' + (item.compound_details||'')).toLowerCase(); return this.allergyTerms.find(t => hay.includes(t)) || ''; },
+    get allergyConflicts() { return this.items.map((it,i)=>({i, term: this.drugAllergyHit(it)})).filter(x=>x.term); },
     async saveEdit() {
+      if (this.allergyConflicts.length && !confirm('PERINGATAN ALERGI\\n\\nAda obat yang cocok dengan alergi pasien (' + this.allergyConflicts.map(c=>'R/'+(c.i+1)+': '+c.term).join(', ') + ').\\n\\nTetap simpan resep ini?')) return;
       this.saving = true; this.error = '';
       const rxResult = await window.__store.updatePrescription('${rx.id}', { pharmacy_id: this.pharmacy_id, notes: this.notes, delivery_method: this.delivery_method, delivery_address: this.delivery_method==='delivery' ? this.delivery_address : '', status: 'sent' });
       if (rxResult.error) { this.saving = false; this.error = rxResult.error; return; }
@@ -1043,13 +1064,18 @@ export function doctorPrescriptionEdit(params) {
         <div x-show="error" x-cloak class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium" x-text="error"></div>
         <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2"><svg class="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg><p class="text-sm text-amber-800">Anda sedang mengedit resep yang sudah dikirim. Perubahan akan dikirim ulang ke apotek.</p></div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
-          <h4 class="font-semibold text-gray-800 mb-4">Daftar Obat</h4>
+          <h4 class="font-semibold text-gray-800 mb-1">Daftar Obat</h4>
+          <p class="text-xs text-gray-500 mb-4">Alergi pasien: <span class="font-semibold ${patient && patient.allergies && patient.allergies !== '-' ? 'text-red-600' : 'text-gray-600'}">${(patient && patient.allergies) || '-'}</span></p>
+          <div x-show="allergyConflicts.length" x-cloak class="mb-3 px-3 py-2.5 rounded-lg bg-red-50 border border-red-300 text-red-700 text-sm font-medium flex items-start gap-2">
+            <span class="text-base leading-none">⚠️</span>
+            <span>Peringatan alergi: <span class="font-bold" x-text="allergyConflicts.map(c=>'R/'+(c.i+1)+' ('+c.term+')').join(', ')"></span> cocok dengan riwayat alergi pasien.</span>
+          </div>
           <template x-for="(item, index) in items" :key="index">
             <div class="border border-gray-100 rounded-lg p-3 mb-3 bg-gray-50/50">
               <div class="flex items-center justify-between mb-2"><span class="text-sm font-semibold text-gray-600" x-text="'R/ '+(index+1)"></span><button @click="items.splice(index,1)" x-show="items.length > 1" class="text-red-400 hover:text-red-600 text-xs transition">Hapus</button></div>
               <div class="flex items-center gap-2 mb-2"><input type="checkbox" x-model="item.is_compound" class="w-4 h-4 rounded border-gray-300 text-purple-600"><label class="text-xs text-purple-700 font-medium">Obat Racikan</label></div>
               <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                <div><label class="block text-xs text-gray-500 mb-1" x-text="item.is_compound ? 'Nama Tampil Pasien *' : 'Nama Obat *'"></label><input type="text" x-model="item.drug_name" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-500 mb-1" x-text="item.is_compound ? 'Nama Tampil Pasien *' : 'Nama Obat *'"></label><input type="text" x-model="item.drug_name" class="w-full px-2 py-1.5 border rounded text-sm focus:outline-none focus:ring-2" :class="drugAllergyHit(item) ? 'border-red-400 focus:ring-red-400/50 bg-red-50' : 'border-gray-200 focus:ring-teal-400/50'"><p x-show="drugAllergyHit(item)" x-cloak class="text-xs text-red-600 font-medium mt-1" x-text="'⚠️ Cocok alergi pasien: '+drugAllergyHit(item)"></p></div>
                 <div x-show="!item.is_compound"><label class="block text-xs text-gray-500 mb-1">Dosis</label><input type="text" x-model="item.dosage" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
                 <div><label class="block text-xs text-gray-500 mb-1">Jumlah</label><input type="number" x-model="item.quantity" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
                 <div><label class="block text-xs text-gray-500 mb-1">Satuan</label><select x-model="item.unit" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${CONFIG.DRUG_UNITS.map(u=>`<option>${u}</option>`).join('')}</select></div>
