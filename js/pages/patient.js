@@ -32,7 +32,7 @@ export function patientDashboard() {
             <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-8 w-auto bg-white/90 rounded-lg p-1">
             <div><div class="text-xs text-white/70 font-semibold leading-none">Klinik Prima</div><div class="text-[14.5px] text-white font-extrabold leading-relaxed mt-0.5">Halo, ${patient?.full_name?.split(' ')[0] || 'Pasien'}</div></div>
           </div>
-          <a href="#/patient/notifications" class="relative w-10 h-10 rounded-xl bg-white/[.16] flex items-center justify-center"><span class="ms text-[21px] text-white">notifications</span>${unread > 0 ? `<span class="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-[#ff5436] border-2 border-brand-dark"></span>` : ''}</a>
+          <a href="#/patient/notifications" class="relative w-10 h-10 rounded-xl bg-white/[.16] flex items-center justify-center"><span class="ms text-[21px] text-white">notifications</span><span data-notif-count class="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#ff5436] text-white text-[10px] font-bold flex items-center justify-center border-2 border-brand-dark" style="${unread > 0 ? '' : 'display:none'}">${unread > 99 ? '99+' : unread}</span></a>
         </div>
       </div>
       <a href="#/patient/services" class="lg:hidden -mt-7 mx-5 relative z-10 flex items-center gap-2.5 bg-white rounded-2xl px-4 py-3.5 shadow-xl shadow-slate-900/10">
@@ -548,7 +548,7 @@ function patientHeader(patient, unread = 0) {
       <button @click="sideOpen=!sideOpen" class="lg:hidden p-2 rounded-xl hover:bg-wash transition"><span class="ms text-[21px] text-muted">menu</span></button>
       <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto lg:hidden">
     </div>
-    <a href="#/patient/notifications" class="relative w-10 h-10 rounded-xl bg-wash flex items-center justify-center hover:bg-slate-100 transition"><span class="ms text-[21px] text-slate-600">notifications</span>${unread > 0 ? `<span class="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-[#ff5436] border-2 border-white"></span>` : ''}</a>
+    <a href="#/patient/notifications" class="relative w-10 h-10 rounded-xl bg-wash flex items-center justify-center hover:bg-slate-100 transition"><span class="ms text-[21px] text-slate-600">notifications</span><span data-notif-count class="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#ff5436] text-white text-[10px] font-bold flex items-center justify-center border-2 border-white" style="${unread > 0 ? '' : 'display:none'}">${unread > 99 ? '99+' : unread}</span></a>
   </header>`;
 }
 

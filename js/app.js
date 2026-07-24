@@ -1,5 +1,6 @@
 import { router } from './router.js';
 import { store } from './store.js';
+import { CONFIG } from './config.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
 import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail } from './pages/admin.js';
 import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval } from './pages/doctor.js';
@@ -153,6 +154,7 @@ router.add('/doctor/homecare/edit/:claimId', (p) => render(doctorHomeCareEdit, p
 router.add('/doctor/chat', () => render(doctorChatList));
 router.add('/doctor/chat/start/:patientId', (p) => render(doctorChatStart, p));
 router.add('/doctor/chat/:conversationId', (p) => render(doctorChatThread, p));
+router.add('/admin/notifications', () => render(notificationsPage));
 router.add('/doctor/notifications', () => render(notificationsPage));
 
 // Patient
@@ -484,6 +486,51 @@ async function startApp() {
     }, 100);
   }
 }
+
+// ---- Near-real-time notifications (poll + toast + live bell badge) --------
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function showToast(title, message) {
+  let c = document.getElementById('__toast_container');
+  if (!c) {
+    c = document.createElement('div');
+    c.id = '__toast_container';
+    c.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:340px;pointer-events:none';
+    document.body.appendChild(c);
+  }
+  const t = document.createElement('div');
+  t.style.cssText = 'pointer-events:auto;background:#fff;border:1px solid #e5e7eb;border-left:4px solid #2b7ee0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:12px 14px;font-family:Inter,system-ui,sans-serif;cursor:pointer;opacity:0;transform:translateX(20px);transition:opacity .3s ease,transform .3s ease';
+  t.innerHTML = `<div style="font-weight:700;font-size:13px;color:#111827;margin-bottom:2px">🔔 ${escapeHtml(title)}</div><div style="font-size:12px;color:#4b5563;line-height:1.4">${escapeHtml(message)}</div>`;
+  t.onclick = () => t.remove();
+  c.appendChild(t);
+  requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'none'; });
+  setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(20px)'; setTimeout(() => t.remove(), 320); }, 6000);
+}
+window.__showToast = showToast;
+
+function updateNotifBadges(count) {
+  document.querySelectorAll('[data-notif-count]').forEach(el => {
+    el.textContent = count > 99 ? '99+' : String(count);
+    el.style.display = count > 0 ? '' : 'none';
+  });
+}
+
+let __notifSeen = null; // Set of unread ids already shown; null until first poll after login.
+async function pollNotifications() {
+  const user = getUser();
+  if (!user) { __notifSeen = null; return; }
+  if (CONFIG.DEMO_MODE) { updateNotifBadges(store.getUnreadCount(user.id)); return; }
+  const list = await store.fetchNotifications(user.id);
+  const unread = list.filter(n => !n.is_read);
+  updateNotifBadges(unread.length);
+  if (__notifSeen === null) { __notifSeen = new Set(unread.map(n => n.id)); return; } // seed silently on first run
+  unread.forEach(n => { if (!__notifSeen.has(n.id)) { __notifSeen.add(n.id); showToast(n.title, n.message); } });
+}
+window.addEventListener('auth-changed', () => { __notifSeen = null; pollNotifications(); });
+setInterval(pollNotifications, 20000);
+setTimeout(pollNotifications, 3000);
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', startApp);
