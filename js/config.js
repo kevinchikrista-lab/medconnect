@@ -77,4 +77,21 @@ export const CONFIG = {
     'Home Care',
     'Telemedicine',
   ],
+
+  // Physical examination (SOAP "Objective") systems shown in the EMR form.
+  // Each is optional; the doctor marks it "DBN" (dalam batas normal) or notes a
+  // finding. Edit this list to change which systems appear.
+  PHYSICAL_EXAM_SYSTEMS: [
+    { key: 'keadaan_umum', label: 'Keadaan Umum' },
+    { key: 'kepala_leher', label: 'Kepala & Leher' },
+    { key: 'mata', label: 'Mata' },
+    { key: 'tht', label: 'THT' },
+    { key: 'mulut_gigi', label: 'Mulut / Gigi' },
+    { key: 'thorax_jantung', label: 'Thorax — Jantung' },
+    { key: 'thorax_paru', label: 'Thorax — Paru' },
+    { key: 'abdomen', label: 'Abdomen' },
+    { key: 'ekstremitas', label: 'Ekstremitas' },
+    { key: 'kulit', label: 'Kulit' },
+    { key: 'neurologis', label: 'Neurologis' },
+  ],
 };
