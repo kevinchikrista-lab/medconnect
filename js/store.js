@@ -1191,12 +1191,33 @@ class Store {
 
   markNotificationRead(notifId) {
     const n = this.data.notifications.find(x => x.id === notifId);
-    if (n) { n.is_read = true; this._save(); }
+    if (n) {
+      n.is_read = true; this._save();
+      if (!CONFIG.DEMO_MODE && !String(notifId).startsWith('id_')) supabase.update('notifications', notifId, { is_read: true }).catch(() => {});
+    }
   }
 
   markAllRead(userId) {
-    this.data.notifications.filter(n => n.user_id === userId).forEach(n => n.is_read = true);
+    const toMark = this.data.notifications.filter(n => n.user_id === userId && !n.is_read);
+    toMark.forEach(n => n.is_read = true);
     this._save();
+    // Persist read state so a later refetch doesn't resurrect them as unread.
+    if (!CONFIG.DEMO_MODE) toMark.forEach(n => { if (!String(n.id).startsWith('id_')) supabase.update('notifications', n.id, { is_read: true }).catch(() => {}); });
+  }
+
+  // Refetch this user's notifications from Supabase (server truth) and merge —
+  // used by the background poll that powers near-real-time notifications.
+  async fetchNotifications(userId) {
+    if (CONFIG.DEMO_MODE || !userId) return this.getNotifications(userId);
+    try {
+      const rows = await supabase.select('notifications', { eq: { profile_id: userId }, order: 'created_at.desc' });
+      if (Array.isArray(rows)) {
+        const others = (this.data.notifications || []).filter(n => n.user_id !== userId);
+        this.data.notifications = others.concat(rows.map(n => ({ ...n, user_id: n.profile_id })));
+        this._save();
+      }
+    } catch (e) { /* keep local copy on failure */ }
+    return this.getNotifications(userId);
   }
 
   addNotification(userId, title, message, type) {
