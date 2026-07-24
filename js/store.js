@@ -482,6 +482,21 @@ class Store {
     return { success: true };
   }
 
+  // Record that a WhatsApp reminder was sent for an appointment/record.
+  // Increments the counter + timestamp; returns the new count.
+  logWaReminder(table, id) {
+    const arr = table === 'appointments' ? this.data.appointments : this.data.medical_records;
+    const item = (arr || []).find(x => x.id === id);
+    if (!item) return 0;
+    item.wa_reminder_count = (item.wa_reminder_count || 0) + 1;
+    item.wa_last_sent_at = new Date().toISOString();
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      supabase.update(table, id, { wa_reminder_count: item.wa_reminder_count, wa_last_sent_at: item.wa_last_sent_at }).catch(() => {});
+    }
+    return item.wa_reminder_count;
+  }
+
   // ---- Lab & Radiologi (hasil penunjang) ----
   async getLabResults(patientId) {
     if (!CONFIG.DEMO_MODE) {

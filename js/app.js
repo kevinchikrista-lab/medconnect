@@ -18,6 +18,7 @@ window.__generateSKD = issueSKD; // backward-compatible alias
 window.__printSKD = printSKDById;
 window.__renderSKDInto = renderSKDInto;
 window.__skdLoadingDoc = SKD_LOADING_DOC;
+window.__logWaReminder = (table, id) => store.logWaReminder(table, id);
 
 function render(htmlFn, params) {
   // The hash router has no "unmount" hook, so this is the one chokepoint every
