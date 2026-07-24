@@ -3,7 +3,7 @@ import { CONFIG } from '../config.js';
 import { ICD10 } from '../icd10.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 import { chatListPage, chatThreadPage } from './chat.js';
-import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge } from '../wa.js';
+import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge, apptResponseBadge } from '../wa.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -160,11 +160,12 @@ export function doctorDashboard() {
             <div class="divide-y divide-gray-50">
               ${upcoming.length === 0 ? '<p class="p-4 text-gray-400 text-sm text-center">Tidak ada jadwal mendatang</p>' : upcoming.map(apt => {
                 const patient = store.getPatient(apt.patient_id);
-                const wa = waButton(patient?.phone, waKontrolMsg(patient?.full_name, formatDate(apt.date) + (apt.time_slot ? ' jam ' + apt.time_slot : ''), apt.notes), 'Ingatkan', { logTable: 'appointments', logId: apt.id });
+                const confirmUrl = window.location.origin + '/#/konfirmasi/' + apt.id;
+                const wa = waButton(patient?.phone, waKontrolMsg(patient?.full_name, formatDate(apt.date) + (apt.time_slot ? ' jam ' + apt.time_slot : ''), apt.notes, confirmUrl), 'Ingatkan', { logTable: 'appointments', logId: apt.id });
                 return `<div class="p-4 hover:bg-gray-50 transition flex items-center justify-between gap-2">
                   <div class="flex items-center gap-3 min-w-0">
                     <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0"><span class="text-blue-600 text-xs font-bold text-center leading-tight">${new Date(apt.date).getDate()}<br>${new Date(apt.date).toLocaleDateString('id-ID',{month:'short'})}</span></div>
-                    <div class="min-w-0"><p class="font-medium text-gray-800 text-sm truncate">${patient?.full_name || 'N/A'}</p><p class="text-xs text-gray-500 truncate">${apt.notes || 'Kontrol ulang'}${apt.time_slot ? ' • '+apt.time_slot : ''}</p>${waSentBadge(apt.wa_reminder_count, apt.wa_last_sent_at)}</div>
+                    <div class="min-w-0"><p class="font-medium text-gray-800 text-sm truncate">${patient?.full_name || 'N/A'}</p><p class="text-xs text-gray-500 truncate">${apt.notes || 'Kontrol ulang'}${apt.time_slot ? ' • '+apt.time_slot : ''}</p><div class="flex items-center gap-2 flex-wrap mt-0.5">${apptResponseBadge(apt.patient_response, apt.proposed_date)}${waSentBadge(apt.wa_reminder_count, apt.wa_last_sent_at)}</div></div>
                   </div>
                   ${wa || `<span class="text-xs text-gray-300">no HP</span>`}
                 </div>`;
@@ -1392,7 +1393,8 @@ export function doctorCalendar(params) {
     const p = store.getPatient(a.patient_id);
     const name = p?.full_name || a.patient_name || 'N/A';
     const dateLabel = formatDate(a.date) + (a.time_slot ? ' jam ' + a.time_slot : '');
-    return { ...a, patient_name: name, patient_id: a.patient_id, wa: waHref(p?.phone, waKontrolMsg(name, dateLabel, a.notes)) };
+    const confirmUrl = window.location.origin + '/#/konfirmasi/' + a.id;
+    return { ...a, patient_name: name, patient_id: a.patient_id, wa: waHref(p?.phone, waKontrolMsg(name, dateLabel, a.notes, confirmUrl)) };
   });
   window.__calendarAppts = apptsData;
 
@@ -1466,6 +1468,11 @@ export function doctorCalendar(params) {
                     <a x-show="apt.status === 'waiting' || apt.status === 'scheduled'" :href="'#/doctor/emr/'+apt.patient_id+'/new'" class="px-2 py-1 rounded text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 transition">Mulai Konsultasi</a>
                     <a x-show="apt.wa" :href="apt.wa" target="_blank" rel="noopener" @click="window.__logWaReminder('appointments', apt.id); apt.wa_reminder_count=(apt.wa_reminder_count||0)+1" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a>
                     <span x-show="apt.wa_reminder_count" x-cloak class="text-[11px] text-gray-400" x-text="'📤 Sudah di-WA '+apt.wa_reminder_count+'x'"></span>
+                  </div>
+                  <div class="mt-1.5">
+                    <span x-show="apt.patient_response==='confirmed'" x-cloak class="text-[11px] font-medium text-green-600">🟢 Hadir dikonfirmasi pasien</span>
+                    <span x-show="apt.patient_response==='reschedule'" x-cloak class="text-[11px] font-medium text-amber-600" x-text="'🟡 Pasien minta ganti hari'+(apt.proposed_date ? ': '+new Date(apt.proposed_date).toLocaleDateString('id-ID',{day:'numeric',month:'short'})+(apt.proposed_time ? ' '+apt.proposed_time : '') : '')"></span>
+                    <span x-show="!apt.patient_response" class="text-[11px] text-gray-400">⚪ Belum dikonfirmasi</span>
                   </div>
                 </div>
               </template>

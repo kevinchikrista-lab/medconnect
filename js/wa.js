@@ -38,9 +38,16 @@ export function waSentBadge(count, lastAt) {
   return `<span class="inline-flex items-center gap-1 text-[11px] text-gray-400" title="Terakhir diingatkan${when ? ': ' + when : ''}">📤 Sudah di-WA ${count}x</span>`;
 }
 
+// Clinic-side status label for a patient's confirmation response.
+export function apptResponseBadge(response, proposedDate) {
+  if (response === 'confirmed') return `<span class="inline-flex items-center gap-1 text-[11px] font-medium text-green-600">🟢 Hadir dikonfirmasi</span>`;
+  if (response === 'reschedule') return `<span class="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600">🟡 Minta ganti hari${proposedDate ? ': ' + new Date(proposedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) : ''}</span>`;
+  return `<span class="inline-flex items-center gap-1 text-[11px] text-gray-400">⚪ Belum dikonfirmasi</span>`;
+}
+
 // ---- Message templates -----------------------------------------------------
-export function waKontrolMsg(name, dateLabel, note) {
-  return `Halo ${name || 'Bapak/Ibu'},\n\nIni pengingat dari ${CLINIC}. Anda dijadwalkan *kontrol ulang* pada *${dateLabel}*.${note ? `\nCatatan: ${note}` : ''}\n\nMohon hadir tepat waktu ya. Bila ada perubahan, silakan hubungi kami. Terima kasih. 🙏`;
+export function waKontrolMsg(name, dateLabel, note, confirmUrl) {
+  return `Halo ${name || 'Bapak/Ibu'},\n\nIni pengingat dari ${CLINIC}. Anda dijadwalkan *kontrol ulang* pada *${dateLabel}*.${note ? `\nCatatan: ${note}` : ''}${confirmUrl ? `\n\nMohon konfirmasi kehadiran Anda (atau minta ganti hari) di sini:\n${confirmUrl}` : ''}\n\nTerima kasih. 🙏`;
 }
 
 export function waVaksinMsg(name, dateLabel, vaccineName) {

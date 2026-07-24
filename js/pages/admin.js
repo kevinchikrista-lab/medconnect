@@ -739,7 +739,8 @@ export function adminCalendar(params) {
     const p = store.getPatient(a.patient_id);
     const doc = store.getDoctor(a.doctor_id);
     const name = p?.full_name || a.patient_name || 'N/A';
-    return { ...a, patient_name: name, doctor_name: doc?.full_name || '-', wa: waHref(p?.phone, waKontrolMsg(name, formatDate(a.date) + (a.time_slot ? ' jam ' + a.time_slot : ''), a.notes)) };
+    const confirmUrl = window.location.origin + '/#/konfirmasi/' + a.id;
+    return { ...a, patient_name: name, doctor_name: doc?.full_name || '-', wa: waHref(p?.phone, waKontrolMsg(name, formatDate(a.date) + (a.time_slot ? ' jam ' + a.time_slot : ''), a.notes, confirmUrl)) };
   });
   window.__adminCalendarAppts = apptsData;
 
@@ -851,6 +852,11 @@ export function adminCalendar(params) {
                       <p class="text-xs text-gray-500" x-text="apt.doctor_name + (apt.notes ? ' · ' + apt.notes : '')"></p>
                     </div>
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="statusColors[apt.status] || 'bg-gray-100 text-gray-600'" x-text="statusLabels[apt.status] || apt.status"></span>
+                  </div>
+                  <div class="mt-1.5">
+                    <span x-show="apt.patient_response==='confirmed'" x-cloak class="text-[11px] font-medium text-green-600">🟢 Hadir dikonfirmasi pasien</span>
+                    <span x-show="apt.patient_response==='reschedule'" x-cloak class="text-[11px] font-medium text-amber-600" x-text="'🟡 Pasien minta ganti hari'+(apt.proposed_date ? ': '+new Date(apt.proposed_date).toLocaleDateString('id-ID',{day:'numeric',month:'short'})+(apt.proposed_time ? ' '+apt.proposed_time : '') : '')"></span>
+                    <span x-show="!apt.patient_response" class="text-[11px] text-gray-400">⚪ Belum dikonfirmasi</span>
                   </div>
                   <div class="mt-2 flex items-center gap-2 flex-wrap" x-show="apt.wa"><a :href="apt.wa" target="_blank" rel="noopener" @click="window.__logWaReminder('appointments', apt.id); apt.wa_reminder_count=(apt.wa_reminder_count||0)+1" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a><span x-show="apt.wa_reminder_count" x-cloak class="text-[11px] text-gray-400" x-text="'📤 '+apt.wa_reminder_count+'x'"></span></div>
                 </div>
