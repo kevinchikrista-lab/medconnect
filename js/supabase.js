@@ -154,5 +154,43 @@ export const supabase = {
       });
       return res.json();
     } catch (e) { return { error: e.message || 'Network error' }; }
+  },
+
+  // ---- Storage (private buckets, accessed via signed URLs) ----
+  async uploadFile(bucket, path, file) {
+    const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
+    try {
+      const res = await fetchWithTimeout(`${SUPA_URL}/storage/v1/object/${bucket}/${path}`, {
+        method: 'POST',
+        headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${token}`, 'Content-Type': file.type || 'application/octet-stream', 'x-upsert': 'true' },
+        body: file,
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); return { error: e.message || 'Upload gagal' }; }
+      return await res.json(); // { Key: 'bucket/path' }
+    } catch (e) { return { error: e.message || 'Kesalahan jaringan saat upload' }; }
+  },
+
+  // Short-lived signed URL to view/download a private file.
+  async signedUrl(bucket, path, expiresIn = 3600) {
+    const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
+    try {
+      const res = await fetchWithTimeout(`${SUPA_URL}/storage/v1/object/sign/${bucket}/${path}`, {
+        method: 'POST',
+        headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expiresIn }),
+      });
+      if (!res.ok) return { error: 'Gagal membuat tautan berkas' };
+      const j = await res.json(); // { signedURL: '/object/sign/...' }
+      return { url: `${SUPA_URL}/storage/v1${j.signedURL}` };
+    } catch (e) { return { error: e.message || 'Kesalahan jaringan' }; }
+  },
+
+  async removeFile(bucket, path) {
+    const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
+    try {
+      await fetchWithTimeout(`${SUPA_URL}/storage/v1/object/${bucket}/${path}`, {
+        method: 'DELETE', headers: { 'apikey': SUPA_KEY, 'Authorization': `Bearer ${token}` },
+      });
+    } catch (e) { /* best-effort */ }
   }
 };
