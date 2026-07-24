@@ -40,8 +40,10 @@ export async function generateSKD(opts) {
   const doctor = JSON.parse(sessionStorage.getItem('medconnect_profile') || 'null') || {};
   const isSehat = opts.type === 'sehat';
 
-  // Remember the RM number on the patient for next time.
-  if (opts.no_rm) store.updatePatientRmNumber(opts.patientId, opts.no_rm);
+  // No. RM is assigned by the system (a continuous sequence), never typed —
+  // assign one now if this patient doesn't have it yet.
+  let rmNumber = patient.rm_number || '';
+  if (!rmNumber) { try { rmNumber = await store.ensureRmNumber(opts.patientId); } catch (e) { rmNumber = ''; } }
 
   // Open the print window synchronously on the click so popup blockers allow it.
   const w = window.open('', '_blank');
@@ -64,7 +66,7 @@ export async function generateSKD(opts) {
     const seq = await store.getNextDocNumber('SKD', year);
     certNum = `${pad4(seq)}/${monthRoman}/SKD/${initials}/${String(year).slice(2)}`;
     const details = {
-      no_rm: opts.no_rm || patient.rm_number || '',
+      no_rm: rmNumber,
       tgl_lahir: birth,
       alamat: address,
       keperluan: isSehat ? (opts.keperluan || '') : '',
@@ -183,7 +185,7 @@ export async function generateSKD(opts) {
 
     <p class="intro">Yang bertanda tangan di bawah ini, saya menerangkan dengan sesungguhnya bahwa:</p>
     <div class="identitas"><table>
-      <tr><td class="k">No. RM</td><td class="s">:</td><td class="v">${esc(opts.no_rm || patient.rm_number || '-')}</td></tr>
+      <tr><td class="k">No. RM</td><td class="s">:</td><td class="v">${esc(rmNumber || '-')}</td></tr>
       <tr><td class="k">Nama Pasien</td><td class="s">:</td><td class="v">${esc(patient.full_name).toUpperCase()}</td></tr>
       <tr><td class="k">Tanggal Lahir</td><td class="s">:</td><td class="v">${fmtDate(birth)}</td></tr>
       <tr><td class="k">Jenis Kelamin</td><td class="s">:</td><td class="v">${esc(gender || '-')}</td></tr>

@@ -388,6 +388,37 @@ class Store {
     }
   }
 
+  // Continuous, system-assigned medical-record number (not reset per year) —
+  // uses the doc_sequence with a fixed bucket so every patient gets a unique
+  // running number. RPC-with-local-fallback like the other sequences.
+  async getNextRmNumber() {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const result = await supabase.rpc('get_next_doc_number', { p_series: 'RM', p_year: 0 });
+        if (typeof result === 'number') return result;
+      } catch (e) { console.warn('RM sequence RPC failed, using local fallback:', e); }
+    }
+    const key = 'medconnect_rm_seq';
+    const current = parseInt(localStorage.getItem(key) || '0', 10);
+    const next = current + 1;
+    localStorage.setItem(key, String(next));
+    return next;
+  }
+
+  // Assign a system RM number to a patient if they don't have one yet, persist
+  // it, and return it. Idempotent — a patient keeps the same number forever.
+  async ensureRmNumber(patientId) {
+    const p = this.data.patients.find(x => x.id === patientId);
+    if (!p) return '';
+    if (p.rm_number) return p.rm_number;
+    const num = await this.getNextRmNumber();
+    const rm = String(num).padStart(6, '0');
+    // Re-check after the await in case a concurrent call already assigned one.
+    if (p.rm_number) return p.rm_number;
+    this.updatePatientRmNumber(patientId, rm);
+    return rm;
+  }
+
   // One certificate number/QR per patient+vaccine pair — re-downloading reuses
   // the same record instead of minting a new sequential number each time.
   async getCertificateForPatientVaccine(patientId, vaccineName) {

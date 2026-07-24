@@ -190,12 +190,13 @@ export function doctorEMR(params) {
       diagnosis: '${skdPrefill.diagnosis}', rest_days: '', from_date: '${skdPrefill.today}', to_date: '' },
     submitSKD() {
       // Merge the identity fields back into the patient record (and persist)
-      // so they're saved for next time, then print the letter with them.
-      window.__store.updatePatientProfile('${patient.id}', { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address, rm_number: this.skd.no_rm });
+      // so they're saved for next time, then print the letter. The RM number is
+      // assigned automatically by the system (see ensureRmNumber), not typed.
+      window.__store.updatePatientProfile('${patient.id}', { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address });
       window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, ...this.skd });
       this.skdOpen = false;
     }
-  }" class="min-h-screen bg-wash">
+  }" x-init="if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -417,7 +418,7 @@ export function doctorEMR(params) {
             </div>
 
             <div class="grid grid-cols-2 gap-3 mb-3">
-              <div><label class="block text-xs text-gray-600 mb-1">No. RM</label><input type="text" x-model="skd.no_rm" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="No. rekam medis"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">No. RM <span class="text-gray-400">(otomatis)</span></label><input type="text" x-model="skd.no_rm" readonly class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-600 focus:outline-none" placeholder="Dibuat otomatis oleh sistem"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Tanggal Surat</label><input type="date" x-model="skd.letter_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
             </div>
             <div class="p-3 mb-3 rounded-lg bg-gray-50 border border-gray-100">
