@@ -3,7 +3,7 @@ import { CONFIG } from '../config.js';
 import { ICD10 } from '../icd10.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 import { chatListPage, chatThreadPage } from './chat.js';
-import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge, apptResponseBadge } from '../wa.js';
+import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge, apptResponseBadge, waSapaMsg, waHariIniMsg } from '../wa.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -142,6 +142,7 @@ export function doctorDashboard() {
                 const patient = store.getPatient(apt.patient_id);
                 const statusColors = { waiting: 'bg-amber-100 text-amber-700', completed: 'bg-green-100 text-green-700', scheduled: 'bg-blue-100 text-blue-700' };
                 const statusLabels = { waiting: 'Menunggu', completed: 'Selesai', scheduled: 'Terjadwal' };
+                const waToday = waButton(patient?.phone, waHariIniMsg(patient?.full_name, apt.time_slot, apt.queue_number), 'WA');
                 return `<div class="p-4 hover:bg-gray-50 transition flex items-center justify-between">
                   <div class="flex items-center gap-3">
                     <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${apt.queue_number || '-'}</div>
@@ -149,6 +150,7 @@ export function doctorDashboard() {
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="px-2 py-1 rounded-full text-xs font-medium ${statusColors[apt.status] || 'bg-gray-100 text-gray-600'}">${statusLabels[apt.status] || apt.status}</span>
+                    ${waToday}
                     ${apt.status === 'waiting' ? `<a href="#/doctor/emr/${apt.patient_id}/new" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Mulai</a>` : ''}
                   </div>
                 </div>`;
@@ -223,7 +225,7 @@ export function doctorPatients() {
                     <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.nik}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${p.gender}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${p.phone}</td>
-                    <td class="px-4 py-3"><div class="flex gap-1"><a href="#/doctor/emr/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Rekam Medis</a><a href="#/doctor/emr/${p.id}/new" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">+ Kunjungan</a><a href="#/doctor/chat/start/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">Chat</a></div></td>
+                    <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/doctor/emr/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Rekam Medis</a><a href="#/doctor/emr/${p.id}/new" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">+ Kunjungan</a><a href="#/doctor/chat/start/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">Chat</a>${waButton(p.phone, waSapaMsg(p.full_name), 'WA')}</div></td>
                   </tr>
                 </template>`).join('')}
               </tbody>
@@ -311,7 +313,8 @@ export function doctorEMR(params) {
           <button @click="activeTab='records'" :class="activeTab==='records' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Rekam Medis (${records.length})</button>
           <button @click="activeTab='vaccinations'" :class="activeTab==='vaccinations' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Vaksinasi (${vaccinations.length})</button>
           <button @click="activeTab='penunjang'" :class="activeTab==='penunjang' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Penunjang (<span x-text="labList.length"></span>)</button>
-          <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition ml-auto">Surat Keterangan</button>
+          <span class="ml-auto flex items-center">${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp')}</span>
+          <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition">Surat Keterangan</button>
           <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
         </div>
         <div x-show="activeTab==='records'">

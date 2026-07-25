@@ -2,7 +2,7 @@ import { store } from '../store.js';
 import { CONFIG } from '../config.js';
 import { supabase } from '../supabase.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
-import { waHref, waKontrolMsg } from '../wa.js';
+import { waHref, waKontrolMsg, waButton, waSapaMsg } from '../wa.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -952,7 +952,7 @@ export function adminPatients() {
                   <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.rm_number || '-'}</td>
                   <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${p.nik || '-'}</td>
                   <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${p.phone || '-'}</td>
-                  <td class="px-4 py-3"><a href="#/admin/patients/${p.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Lihat Rekam Medis</a></td>
+                  <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/admin/patients/${p.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Lihat Rekam Medis</a>${waButton(p.phone, waSapaMsg(p.full_name), 'WA')}</div></td>
                 </tr>
               </template>`).join('')}
             </tbody>
@@ -1010,7 +1010,10 @@ export function adminPatientDetail(params) {
               <p class="text-sm text-gray-500">${patient.gender || '-'}${age !== null ? ', '+age+' thn' : ''} | No. RM: ${patient.rm_number || '-'} | NIK: ${patient.nik || '-'}</p>
             </div>
           </div>
-          <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white self-start lg:self-auto" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
+          <div class="flex items-center gap-2 self-start lg:self-auto">
+            ${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp')}
+            <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
+          </div>
         </div>
 
         <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Surat Keterangan (<span x-text="skdList.length"></span>)</h3>

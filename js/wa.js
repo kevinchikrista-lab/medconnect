@@ -62,3 +62,14 @@ export function waBookingMsg(name, serviceName, dateLabel) {
 export function waGenericMsg(name, text) {
   return `Halo ${name || 'Bapak/Ibu'},\n\n${text}\n\nSalam, ${CLINIC}. 🙏`;
 }
+
+// General follow-up / greeting when there's no specific appointment attached
+// (patient list & patient detail). Staff can edit before sending.
+export function waSapaMsg(name) {
+  return `Halo ${name || 'Bapak/Ibu'},\n\nSaya dari ${CLINIC}, ingin menindaklanjuti kondisi kesehatan Anda.\n\nBagaimana kabarnya? Bila ada keluhan atau perlu jadwal kontrol, silakan balas pesan ini ya. Terima kasih. 🙏`;
+}
+
+// Reminder for a patient scheduled TODAY (today's queue on the dashboard).
+export function waHariIniMsg(name, timeLabel, queueNo) {
+  return `Halo ${name || 'Bapak/Ibu'},\n\nIni pengingat dari ${CLINIC}. Anda memiliki jadwal *hari ini*${timeLabel ? ` pukul *${timeLabel}*` : ''}${queueNo ? ` (no. antrean ${queueNo})` : ''}.\n\nMohon hadir tepat waktu ya. Terima kasih. 🙏`;
+}
