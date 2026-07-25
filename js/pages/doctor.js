@@ -1473,6 +1473,7 @@ export function doctorCalendar(params) {
                     <span x-show="apt.patient_response==='confirmed'" x-cloak class="text-[11px] font-medium text-green-600">🟢 Hadir dikonfirmasi pasien</span>
                     <span x-show="apt.patient_response==='reschedule'" x-cloak class="text-[11px] font-medium text-amber-600" x-text="'🟡 Pasien minta ganti hari'+(apt.proposed_date ? ': '+new Date(apt.proposed_date).toLocaleDateString('id-ID',{day:'numeric',month:'short'})+(apt.proposed_time ? ' '+apt.proposed_time : '') : '')"></span>
                     <span x-show="!apt.patient_response" class="text-[11px] text-gray-400">⚪ Belum dikonfirmasi</span>
+                    <button x-show="apt.patient_response==='reschedule' && apt.proposed_date" x-cloak @click="if(confirm('Geser jadwal '+apt.patient_name+' ke '+new Date(apt.proposed_date).toLocaleDateString('id-ID')+(apt.proposed_time?' '+apt.proposed_time:'')+'?')){ window.__store.approveReschedule(apt.id); window.__showToast&&window.__showToast('Jadwal digeser', apt.patient_name+' → '+new Date(apt.proposed_date).toLocaleDateString('id-ID')); apt.date=apt.proposed_date; apt.time_slot=apt.proposed_time||apt.time_slot; apt.patient_response='confirmed'; apt.proposed_date=null; apt.proposed_time=null }" class="ml-2 px-2 py-0.5 rounded text-[11px] font-semibold text-white bg-amber-500 hover:bg-amber-600 transition">✔ Setujui & geser</button>
                   </div>
                 </div>
               </template>

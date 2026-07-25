@@ -78,6 +78,9 @@ export const CONFIG = {
     'Telemedicine',
   ],
 
+  // Jam janji temu yang ditawarkan ke pasien saat minta ganti hari.
+  APPOINTMENT_SLOTS: ['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30'],
+
   // Physical examination (SOAP "Objective") systems shown in the EMR form.
   // Each is optional; the doctor marks it "DBN" (dalam batas normal) or notes a
   // finding. Edit this list to change which systems appear.

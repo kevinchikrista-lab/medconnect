@@ -483,6 +483,39 @@ class Store {
   }
 
   // ---- Konfirmasi kehadiran pasien (public confirmation page) ----
+  // Jam yang sudah terisi untuk dokter+tanggal (menandai slot penuh).
+  async getTakenSlots(doctorId, date) {
+    if (!doctorId || !date) return [];
+    if (CONFIG.DEMO_MODE) {
+      return (this.data.appointments || []).filter(a => a.doctor_id === doctorId && a.date === date && a.time_slot).map(a => a.time_slot);
+    }
+    try {
+      const rows = await supabase.rpc('get_taken_slots', { p_doctor_id: doctorId, p_date: date });
+      if (Array.isArray(rows)) return rows.map(r => r.time_slot).filter(Boolean);
+    } catch (e) { /* ignore */ }
+    return [];
+  }
+
+  // Clinic approves the patient's reschedule request → move the appointment.
+  async approveReschedule(apptId) {
+    const a = (this.data.appointments || []).find(x => x.id === apptId);
+    if (!a) return { error: 'Jadwal tidak ditemukan' };
+    if (!a.proposed_date) return { error: 'Tidak ada usulan tanggal dari pasien' };
+    const updates = {
+      date: a.proposed_date,
+      time_slot: a.proposed_time || a.time_slot,
+      patient_response: 'confirmed',
+      patient_response_at: new Date().toISOString(),
+      proposed_date: null,
+      proposed_time: null,
+    };
+    Object.assign(a, updates);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(apptId).startsWith('id_')) supabase.update('appointments', apptId, updates).catch(() => {});
+    return { success: true, date: updates.date, time_slot: updates.time_slot };
+  }
+
+
   async getAppointmentForConfirm(id) {
     if (CONFIG.DEMO_MODE) {
       const a = (this.data.appointments || []).find(x => x.id === id);

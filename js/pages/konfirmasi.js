@@ -1,4 +1,5 @@
 import { store } from '../store.js';
+import { CONFIG } from '../config.js';
 
 function fmt(d) {
   if (!d) return '-';
@@ -11,10 +12,11 @@ function fmt(d) {
 // patient confirm attendance or request another day for their appointment.
 export function konfirmasiPage(params) {
   const today = new Date().toISOString().split('T')[0];
+  window.__apptSlots = CONFIG.APPOINTMENT_SLOTS || [];
   return `
   <div class="min-h-screen flex items-center justify-center p-4" style="background: linear-gradient(135deg, #0f172a 0%, #1c3980 50%, #3A6FC9 100%);"
     x-data="{ loading: true, appt: null, error: false, mode: 'view', submitting: false, done: false, doneMsg: '',
-      rDate: '', rTime: '', rNote: '',
+      rDate: '', rTime: '', rNote: '', slots: window.__apptSlots || [], taken: [], loadingSlots: false,
       async load() {
         try {
           const a = await window.__store.getAppointmentForConfirm('${params.apptId}');
@@ -22,6 +24,15 @@ export function konfirmasiPage(params) {
           else this.error = true;
         } catch(e) { this.error = true; }
         this.loading = false;
+      },
+      async openReschedule() { this.mode = 'reschedule'; await this.loadSlots(); },
+      async loadSlots() {
+        if (!this.appt || !this.appt.doctor_id || !this.rDate) { this.taken = []; return; }
+        this.loadingSlots = true;
+        try { this.taken = await window.__store.getTakenSlots(this.appt.doctor_id, this.rDate); } catch(e) { this.taken = []; }
+        // Slot yang dipilih pasien di jadwal ini tak dianggap 'penuh' bagi dirinya.
+        this.taken = (this.taken || []).filter(s => s !== this.appt.time_slot);
+        this.loadingSlots = false;
       },
       async confirm() {
         this.submitting = true;
@@ -82,18 +93,29 @@ export function konfirmasiPage(params) {
             <!-- pilihan utama -->
             <div x-show="mode === 'view'" class="space-y-3">
               <button @click="confirm()" :disabled="submitting" class="w-full py-3.5 rounded-xl font-semibold text-white bg-green-600 hover:bg-green-700 transition disabled:opacity-50 flex items-center justify-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span x-text="submitting ? 'Menyimpan...' : 'Ya, saya bisa datang'"></span></button>
-              <button @click="mode = 'reschedule'" class="w-full py-3.5 rounded-xl font-semibold text-white bg-white/15 hover:bg-white/25 border border-white/20 transition flex items-center justify-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Minta ganti hari</button>
+              <button @click="openReschedule()" class="w-full py-3.5 rounded-xl font-semibold text-white bg-white/15 hover:bg-white/25 border border-white/20 transition flex items-center justify-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>Minta ganti hari</button>
             </div>
 
             <!-- form ganti hari -->
             <div x-show="mode === 'reschedule'" x-cloak class="space-y-3">
               <p class="text-teal-100/80 text-sm">Silakan pilih tanggal & jam yang Anda inginkan:</p>
-              <div><label class="block text-teal-200/70 text-xs mb-1">Tanggal usulan</label><input type="date" x-model="rDate" class="w-full px-3 py-2.5 rounded-lg bg-white/90 text-gray-800 text-sm focus:outline-none"></div>
-              <div><label class="block text-teal-200/70 text-xs mb-1">Jam (opsional)</label><input type="time" x-model="rTime" class="w-full px-3 py-2.5 rounded-lg bg-white/90 text-gray-800 text-sm focus:outline-none"></div>
+              <div><label class="block text-teal-200/70 text-xs mb-1">Tanggal usulan</label><input type="date" x-model="rDate" @change="rTime=''; loadSlots()" class="w-full px-3 py-2.5 rounded-lg bg-white/90 text-gray-800 text-sm focus:outline-none"></div>
+              <div>
+                <label class="block text-teal-200/70 text-xs mb-1">Pilih jam tersedia</label>
+                <div x-show="loadingSlots" class="text-teal-100/60 text-xs py-2">Memeriksa jam tersedia...</div>
+                <div class="grid grid-cols-4 gap-2">
+                  <template x-for="s in slots" :key="s">
+                    <button type="button" :disabled="taken.includes(s)" @click="rTime = s"
+                      :class="rTime===s ? 'bg-teal-500 text-white ring-2 ring-white/50' : (taken.includes(s) ? 'bg-white/10 text-white/30 line-through cursor-not-allowed' : 'bg-white/85 text-gray-800 hover:bg-white')"
+                      class="py-2 rounded-lg text-sm font-medium transition" x-text="s"></button>
+                  </template>
+                </div>
+                <p class="text-teal-100/50 text-[11px] mt-1">Jam bercoret = sudah terisi.</p>
+              </div>
               <div><label class="block text-teal-200/70 text-xs mb-1">Catatan (opsional)</label><textarea x-model="rNote" rows="2" class="w-full px-3 py-2.5 rounded-lg bg-white/90 text-gray-800 text-sm focus:outline-none resize-none" placeholder="mis. lebih nyaman pagi hari"></textarea></div>
               <div class="flex gap-2">
                 <button @click="mode = 'view'" class="px-4 py-2.5 rounded-lg text-sm text-teal-100 border border-white/20 hover:bg-white/10 transition">Kembali</button>
-                <button @click="reschedule()" :disabled="submitting" class="flex-1 py-2.5 rounded-lg font-semibold text-white bg-teal-500 hover:bg-teal-600 transition disabled:opacity-50" x-text="submitting ? 'Menyimpan...' : 'Kirim permintaan'"></button>
+                <button @click="reschedule()" :disabled="submitting || !rTime" class="flex-1 py-2.5 rounded-lg font-semibold text-white bg-teal-500 hover:bg-teal-600 transition disabled:opacity-50" x-text="submitting ? 'Menyimpan...' : (rTime ? 'Kirim permintaan ('+rTime+')' : 'Pilih jam dulu')"></button>
               </div>
             </div>
           </div>
