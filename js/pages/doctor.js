@@ -105,6 +105,46 @@ function physicalExamCard() {
   </div>`;
 }
 
+// Secondary diagnoses are stored in the single existing `diagnosis_secondary`
+// text column joined by '; ' — so multiple entries need NO database migration.
+// Parse the stored text back into an array (handles legacy single values too).
+function parseSecondaries(text) {
+  return String(text || '').split(/;\s*|\n/).map(s => s.trim()).filter(Boolean);
+}
+
+// x-data methods shared by the new & edit EMR forms. Expects `secondaries` (array),
+// `icdSearch2`, `icdResults2`, `icdOpen2`, and `selectICD` to exist on the scope.
+function secondaryDxMethods() {
+  return `addSecondary() { const v=(this.icdSearch2||'').trim(); if(!v) return; if(!this.secondaries.includes(v)) this.secondaries.push(v); this.icdSearch2=''; this.icdResults2=[]; this.icdOpen2=false; },
+    removeSecondary(i) { this.secondaries.splice(i,1); },`;
+}
+
+// The secondary-diagnosis UI: search + "Tambah" button + a removable chip list.
+function secondaryDxCard() {
+  return `<label class="block text-xs text-gray-500 mt-3 mb-1">Diagnosis Sekunder (ICD-10) <span class="text-gray-400">— boleh lebih dari satu</span></label>
+    <div class="relative">
+      <div class="flex gap-2">
+        <input type="text" x-model="icdSearch2" @input="searchICD(icdSearch2,2)" @focus="searchICD(icdSearch2,2)" @keydown.enter.prevent="addSecondary()" @click.away="icdOpen2=false" class="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari ICD-10 lalu pilih, atau ketik lalu Tambah...">
+        <button type="button" @click="addSecondary()" class="px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 whitespace-nowrap flex-shrink-0">+ Tambah</button>
+      </div>
+      <div x-show="icdOpen2" x-cloak class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+        <template x-for="item in icdResults2" :key="item.code">
+          <button type="button" @mousedown.prevent="selectICD(item,2)" class="w-full text-left px-3 py-2.5 hover:bg-teal-50 transition border-b border-gray-50">
+            <div class="flex items-center gap-2"><span class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-xs font-mono font-bold flex-shrink-0" x-text="item.code"></span><span class="text-sm text-gray-800" x-text="item.name_id"></span></div>
+          </button>
+        </template>
+      </div>
+    </div>
+    <div class="mt-2 space-y-1.5">
+      <template x-for="(s, i) in secondaries" :key="i">
+        <div class="px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800 flex items-center gap-2">
+          <span x-text="s"></span>
+          <button type="button" @click="removeSecondary(i)" class="ml-auto text-blue-400 hover:text-blue-700 flex-shrink-0"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+        </div>
+      </template>
+    </div>`;
+}
+
 export function doctorDashboard() {
   const doc = getDoctor();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -648,7 +688,7 @@ export function doctorEMRNew(params) {
     visitDate: '${todayLocal()}',
     form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', visit_type:'consultation' },
     ${physicalExamXData()}
-    icdSearch: '', icdResults: [], icdOpen: false, icdSearch2: '', icdResults2: [], icdOpen2: false,
+    icdSearch: '', icdResults: [], icdOpen: false, icdSearch2: '', icdResults2: [], icdOpen2: false, secondaries: [],
     searchICD(q, which) {
       if (!q || q.length < 2) { if(which===2){this.icdResults2=[];this.icdOpen2=false}else{this.icdResults=[];this.icdOpen=false}; return; }
       const s = q.toLowerCase();
@@ -657,8 +697,10 @@ export function doctorEMRNew(params) {
     },
     selectICD(item, which) {
       const val = item.code + ' - ' + item.name_id;
-      if(which===2){this.form.diagnosis_secondary=val;this.icdSearch2=val;this.icdOpen2=false}else{this.form.diagnosis=val;this.icdSearch=val;this.icdOpen=false};
+      if(which===2){ if(!this.secondaries.includes(val)) this.secondaries.push(val); this.icdSearch2=''; this.icdResults2=[]; this.icdOpen2=false; }
+      else { this.form.diagnosis=val; this.icdSearch=val; this.icdOpen=false; }
     },
+    ${secondaryDxMethods()}
     vaxForm: { vaccine_name:'', vaccine_brand:'', vax_mode:'series', dose_number:1, total_doses:1, batch_number:'', dose_schedule:[], booster_interval_months:12, next_dose_date:'', location:'${locations[0]}', notes:'' },
     saving: false, saved: false,
     updateDoseSchedule() {
@@ -682,6 +724,7 @@ export function doctorEMRNew(params) {
       const self = this;
       setTimeout(async function() {
         self.form.visit_type = self.visitType;
+        self.form.diagnosis_secondary = self.secondaries.join('; ');
         var result = null;
         if (self.visitType === 'consultation' || self.visitType === 'both') {
           self.form.examination = self.peCompile();
@@ -789,21 +832,7 @@ export function doctorEMRNew(params) {
                     <span x-text="form.diagnosis" class="font-medium"></span>
                     <button type="button" @click="form.diagnosis='';icdSearch=''" class="ml-auto text-teal-400 hover:text-teal-700"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
                   </div>
-                  <label class="block text-xs text-gray-500 mt-3 mb-1">Diagnosis Sekunder (ICD-10)</label>
-                  <div class="relative">
-                    <input type="text" x-model="icdSearch2" @input="searchICD(icdSearch2,2)" @focus="searchICD(icdSearch2,2)" @click.away="icdOpen2=false" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Opsional — cari ICD-10...">
-                    <div x-show="icdOpen2" x-cloak class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
-                      <template x-for="item in icdResults2" :key="item.code">
-                        <button type="button" @mousedown.prevent="selectICD(item,2)" class="w-full text-left px-3 py-2.5 hover:bg-teal-50 transition border-b border-gray-50">
-                          <div class="flex items-center gap-2"><span class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-xs font-mono font-bold flex-shrink-0" x-text="item.code"></span><span class="text-sm text-gray-800" x-text="item.name_id"></span></div>
-                        </button>
-                      </template>
-                    </div>
-                  </div>
-                  <div x-show="form.diagnosis_secondary" x-cloak class="mt-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800 flex items-center gap-2">
-                    <span x-text="form.diagnosis_secondary"></span>
-                    <button type="button" @click="form.diagnosis_secondary='';icdSearch2=''" class="ml-auto text-blue-400 hover:text-blue-700"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
-                  </div>
+                  ${secondaryDxCard()}
                 </div>
                 <div class="bg-white border border-slate-100 rounded-3xl p-4">
                   <h4 class="font-semibold text-gray-800 mb-3">Terapi Non-Farmakologis</h4>
@@ -1229,6 +1258,7 @@ export function doctorEMREdit(params) {
     therapy: record.therapy || '', location: record.location || locations[0], follow_up_date: record.follow_up_date || '',
     follow_up_notes: record.follow_up_notes || '', notes: record.notes || ''
   };
+  window.__emrSecondaries = parseSecondaries(record.diagnosis_secondary);
   window.__peSystems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
   const __pe = buildPeState(record);
   window.__peState = __pe.state;
@@ -1239,7 +1269,7 @@ export function doctorEMREdit(params) {
     form: JSON.parse(JSON.stringify(window.__emrEdit)),
     ${physicalExamXData()}
     icdSearch: window.__emrEdit.diagnosis, icdResults: [], icdOpen: false,
-    icdSearch2: window.__emrEdit.diagnosis_secondary, icdResults2: [], icdOpen2: false,
+    icdSearch2: '', icdResults2: [], icdOpen2: false, secondaries: JSON.parse(JSON.stringify(window.__emrSecondaries)),
     searchICD(q, which) {
       if (!q || q.length < 2) { if(which===2){this.icdResults2=[];this.icdOpen2=false}else{this.icdResults=[];this.icdOpen=false}; return; }
       const s = q.toLowerCase();
@@ -1248,13 +1278,16 @@ export function doctorEMREdit(params) {
     },
     selectICD(item, which) {
       const val = item.code + ' - ' + item.name_id;
-      if(which===2){this.form.diagnosis_secondary=val;this.icdSearch2=val;this.icdOpen2=false}else{this.form.diagnosis=val;this.icdSearch=val;this.icdOpen=false};
+      if(which===2){ if(!this.secondaries.includes(val)) this.secondaries.push(val); this.icdSearch2=''; this.icdResults2=[]; this.icdOpen2=false; }
+      else { this.form.diagnosis=val; this.icdSearch=val; this.icdOpen=false; }
     },
+    ${secondaryDxMethods()}
     saveEdit() {
       this.saving = true;
       const self = this;
       setTimeout(function() {
         self.form.examination = self.peCompile();
+        self.form.diagnosis_secondary = self.secondaries.join('; ');
         window.__store.updateRecord('${record.id}', self.form);
         self.saving = false; self.saved = true;
         setTimeout(function(){ window.location.hash = '/doctor/emr/${record.patient_id}'; }, 800);
@@ -1288,10 +1321,7 @@ export function doctorEMREdit(params) {
                 <div x-show="icdOpen" x-cloak class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"><template x-for="item in icdResults" :key="item.code"><button type="button" @mousedown.prevent="selectICD(item,1)" class="w-full text-left px-3 py-2 hover:bg-teal-50 transition border-b border-gray-50"><span class="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 text-xs font-mono font-bold" x-text="item.code"></span> <span class="text-sm text-gray-800" x-text="item.name_id"></span></button></template></div>
               </div>
               <div x-show="form.diagnosis" x-cloak class="mt-2 px-3 py-2 rounded-lg bg-teal-50 border border-teal-200 text-sm text-teal-800" x-text="form.diagnosis"></div>
-              <label class="block text-xs text-gray-500 mt-3 mb-1">Diagnosis Sekunder</label>
-              <div class="relative"><input type="text" x-model="icdSearch2" @input="searchICD(icdSearch2,2)" @focus="searchICD(icdSearch2,2)" @click.away="icdOpen2=false" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Opsional">
-                <div x-show="icdOpen2" x-cloak class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"><template x-for="item in icdResults2" :key="item.code"><button type="button" @mousedown.prevent="selectICD(item,2)" class="w-full text-left px-3 py-2 hover:bg-teal-50 transition border-b border-gray-50"><span class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-xs font-mono font-bold" x-text="item.code"></span> <span class="text-sm" x-text="item.name_id"></span></button></template></div>
-              </div>
+              ${secondaryDxCard()}
             </div>
             <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-3">Terapi Non-Farmakologis</h4><textarea x-model="form.therapy" rows="5" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
           </div>
