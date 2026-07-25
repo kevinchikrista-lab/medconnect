@@ -3,7 +3,7 @@ import { CONFIG } from '../config.js';
 import { ICD10 } from '../icd10.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 import { chatListPage, chatThreadPage } from './chat.js';
-import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge, apptResponseBadge, waSapaMsg, waHariIniMsg } from '../wa.js';
+import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge, apptResponseBadge, waSapaMsg, waHariIniMsg, waMsgB64 } from '../wa.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -142,7 +142,7 @@ export function doctorDashboard() {
                 const patient = store.getPatient(apt.patient_id);
                 const statusColors = { waiting: 'bg-amber-100 text-amber-700', completed: 'bg-green-100 text-green-700', scheduled: 'bg-blue-100 text-blue-700' };
                 const statusLabels = { waiting: 'Menunggu', completed: 'Selesai', scheduled: 'Terjadwal' };
-                const waToday = waButton(patient?.phone, waHariIniMsg(patient?.full_name, apt.time_slot, apt.queue_number), 'WA');
+                const waToday = waButton(patient?.phone, waHariIniMsg(patient?.full_name, apt.time_slot, apt.queue_number), 'WA', { patientId: apt.patient_id });
                 return `<div class="p-4 hover:bg-gray-50 transition flex items-center justify-between">
                   <div class="flex items-center gap-3">
                     <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${apt.queue_number || '-'}</div>
@@ -163,7 +163,7 @@ export function doctorDashboard() {
               ${upcoming.length === 0 ? '<p class="p-4 text-gray-400 text-sm text-center">Tidak ada jadwal mendatang</p>' : upcoming.map(apt => {
                 const patient = store.getPatient(apt.patient_id);
                 const confirmUrl = window.location.origin + '/#/konfirmasi/' + apt.id;
-                const wa = waButton(patient?.phone, waKontrolMsg(patient?.full_name, formatDate(apt.date) + (apt.time_slot ? ' jam ' + apt.time_slot : ''), apt.notes, confirmUrl), 'Ingatkan', { logTable: 'appointments', logId: apt.id });
+                const wa = waButton(patient?.phone, waKontrolMsg(patient?.full_name, formatDate(apt.date) + (apt.time_slot ? ' jam ' + apt.time_slot : ''), apt.notes, confirmUrl), 'Ingatkan', { logTable: 'appointments', logId: apt.id, patientId: apt.patient_id });
                 return `<div class="p-4 hover:bg-gray-50 transition flex items-center justify-between gap-2">
                   <div class="flex items-center gap-3 min-w-0">
                     <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0"><span class="text-blue-600 text-xs font-bold text-center leading-tight">${new Date(apt.date).getDate()}<br>${new Date(apt.date).toLocaleDateString('id-ID',{month:'short'})}</span></div>
@@ -225,7 +225,7 @@ export function doctorPatients() {
                     <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.nik}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${p.gender}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${p.phone}</td>
-                    <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/doctor/emr/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Rekam Medis</a><a href="#/doctor/emr/${p.id}/new" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">+ Kunjungan</a><a href="#/doctor/chat/start/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">Chat</a>${waButton(p.phone, waSapaMsg(p.full_name), 'WA')}</div></td>
+                    <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/doctor/emr/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Rekam Medis</a><a href="#/doctor/emr/${p.id}/new" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">+ Kunjungan</a><a href="#/doctor/chat/start/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">Chat</a>${waButton(p.phone, waSapaMsg(p.full_name), 'WA', { patientId: p.id })}</div></td>
                   </tr>
                 </template>`).join('')}
               </tbody>
@@ -313,7 +313,7 @@ export function doctorEMR(params) {
           <button @click="activeTab='records'" :class="activeTab==='records' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Rekam Medis (${records.length})</button>
           <button @click="activeTab='vaccinations'" :class="activeTab==='vaccinations' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Vaksinasi (${vaccinations.length})</button>
           <button @click="activeTab='penunjang'" :class="activeTab==='penunjang' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Penunjang (<span x-text="labList.length"></span>)</button>
-          <span class="ml-auto flex items-center">${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp')}</span>
+          <span class="ml-auto flex items-center">${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp', { patientId: patient.id })}</span>
           <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition">Surat Keterangan</button>
           <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
         </div>
@@ -1397,7 +1397,8 @@ export function doctorCalendar(params) {
     const name = p?.full_name || a.patient_name || 'N/A';
     const dateLabel = formatDate(a.date) + (a.time_slot ? ' jam ' + a.time_slot : '');
     const confirmUrl = window.location.origin + '/#/konfirmasi/' + a.id;
-    return { ...a, patient_name: name, patient_id: a.patient_id, wa: waHref(p?.phone, waKontrolMsg(name, dateLabel, a.notes, confirmUrl)) };
+    const _m = waKontrolMsg(name, dateLabel, a.notes, confirmUrl);
+    return { ...a, patient_name: name, patient_id: a.patient_id, wa: waHref(p?.phone, _m), wa_msg: waMsgB64(_m) };
   });
   window.__calendarAppts = apptsData;
 
@@ -1470,6 +1471,7 @@ export function doctorCalendar(params) {
                   <div class="flex gap-2 mt-2 flex-wrap items-center">
                     <a x-show="apt.status === 'waiting' || apt.status === 'scheduled'" :href="'#/doctor/emr/'+apt.patient_id+'/new'" class="px-2 py-1 rounded text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 transition">Mulai Konsultasi</a>
                     <a x-show="apt.wa" :href="apt.wa" target="_blank" rel="noopener" @click="window.__logWaReminder('appointments', apt.id); apt.wa_reminder_count=(apt.wa_reminder_count||0)+1" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a>
+                    <button x-show="!apt.wa && apt.patient_id" @click.stop="window.__waAddPhone(apt.patient_id, apt.wa_msg, 'appointments', apt.id)" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366]/70 hover:bg-[#25D366] transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2z"/></svg>Isi No. HP &amp; WA</button>
                     <span x-show="apt.wa_reminder_count" x-cloak class="text-[11px] text-gray-400" x-text="'📤 Sudah di-WA '+apt.wa_reminder_count+'x'"></span>
                   </div>
                   <div class="mt-1.5">

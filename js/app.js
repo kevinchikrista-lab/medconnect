@@ -11,6 +11,7 @@ import { verifyPage } from './pages/verify.js';
 import { konfirmasiPage } from './pages/konfirmasi.js';
 import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pages/landing.js';
 import { issueSKD, printSKDById, renderSKDInto, SKD_LOADING_DOC } from './skd.js';
+import { waHref } from './wa.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
@@ -20,6 +21,27 @@ window.__printSKD = printSKDById;
 window.__renderSKDInto = renderSKDInto;
 window.__skdLoadingDoc = SKD_LOADING_DOC;
 window.__logWaReminder = (table, id) => store.logWaReminder(table, id);
+
+// No phone on file: prompt for the WhatsApp number, save it to the patient, then
+// open WhatsApp with the pre-composed message — all from one click. Opens the
+// WA tab BEFORE the async save so popup blockers still see the user gesture.
+window.__waAddPhone = function (patientId, msgB64, logTable, logId) {
+  const patient = store.getPatient(patientId);
+  const name = (patient && patient.full_name) || 'pasien';
+  let msg = '';
+  try { msg = decodeURIComponent(atob(msgB64 || '')); } catch (e) { msg = ''; }
+  const input = window.prompt('Nomor WhatsApp ' + name + ' belum ada.\nMasukkan nomor (contoh: 081234567890):', (patient && patient.phone) || '');
+  if (input === null) return;              // dibatalkan
+  const phone = input.trim();
+  if (!phone) return;
+  const href = waHref(phone, msg);
+  if (!href) { window.__showToast && window.__showToast('Nomor tidak valid', 'Periksa kembali nomor yang dimasukkan.'); return; }
+  window.open(href, '_blank');             // buka WA dalam gesture klik (hindari popup blocker)
+  store.updatePatientProfile(patientId, { phone });   // simpan (sinkron ke Supabase di latar)
+  if (logTable && logId) store.logWaReminder(logTable, logId);
+  window.__showToast && window.__showToast('Nomor HP tersimpan', 'Tersimpan untuk ' + name + '. Tombol WA kini aktif.');
+  setTimeout(function () { try { router.resolve(); } catch (e) {} }, 300);  // refresh tampilan
+};
 
 function render(htmlFn, params) {
   // The hash router has no "unmount" hook, so this is the one chokepoint every
