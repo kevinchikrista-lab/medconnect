@@ -2,7 +2,7 @@ import { store } from '../store.js';
 import { CONFIG } from '../config.js';
 import { supabase } from '../supabase.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
-import { waHref, waKontrolMsg } from '../wa.js';
+import { waHref, waKontrolMsg, waButton, waSapaMsg, waMsgB64 } from '../wa.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -740,7 +740,8 @@ export function adminCalendar(params) {
     const doc = store.getDoctor(a.doctor_id);
     const name = p?.full_name || a.patient_name || 'N/A';
     const confirmUrl = window.location.origin + '/#/konfirmasi/' + a.id;
-    return { ...a, patient_name: name, doctor_name: doc?.full_name || '-', wa: waHref(p?.phone, waKontrolMsg(name, formatDate(a.date) + (a.time_slot ? ' jam ' + a.time_slot : ''), a.notes, confirmUrl)) };
+    const _m = waKontrolMsg(name, formatDate(a.date) + (a.time_slot ? ' jam ' + a.time_slot : ''), a.notes, confirmUrl);
+    return { ...a, patient_name: name, doctor_name: doc?.full_name || '-', wa: waHref(p?.phone, _m), wa_msg: waMsgB64(_m) };
   });
   window.__adminCalendarAppts = apptsData;
 
@@ -748,7 +749,8 @@ export function adminCalendar(params) {
     const p = store.getPatient(r.patient_id);
     const doc = store.getDoctor(r.doctor_id);
     const name = p?.full_name || 'N/A';
-    return { id: r.id, patient_id: r.patient_id, patient_name: name, doctor_name: doc?.full_name || '-', follow_up_date: r.follow_up_date, follow_up_notes: r.follow_up_notes, diagnosis: r.diagnosis, wa_reminder_count: r.wa_reminder_count || 0, wa: waHref(p?.phone, waKontrolMsg(name, formatDate(r.follow_up_date), r.follow_up_notes)) };
+    const _m = waKontrolMsg(name, formatDate(r.follow_up_date), r.follow_up_notes);
+    return { id: r.id, patient_id: r.patient_id, patient_name: name, doctor_name: doc?.full_name || '-', follow_up_date: r.follow_up_date, follow_up_notes: r.follow_up_notes, diagnosis: r.diagnosis, wa_reminder_count: r.wa_reminder_count || 0, wa: waHref(p?.phone, _m), wa_msg: waMsgB64(_m) };
   });
   window.__adminCalendarFollowUps = recordsData;
 
@@ -859,7 +861,7 @@ export function adminCalendar(params) {
                     <span x-show="!apt.patient_response" class="text-[11px] text-gray-400">⚪ Belum dikonfirmasi</span>
                     <button x-show="apt.patient_response==='reschedule' && apt.proposed_date" x-cloak @click="if(confirm('Geser jadwal '+apt.patient_name+' ke '+new Date(apt.proposed_date).toLocaleDateString('id-ID')+(apt.proposed_time?' '+apt.proposed_time:'')+'?')){ window.__store.approveReschedule(apt.id); window.__showToast&&window.__showToast('Jadwal digeser', apt.patient_name+' → '+new Date(apt.proposed_date).toLocaleDateString('id-ID')); apt.date=apt.proposed_date; apt.time_slot=apt.proposed_time||apt.time_slot; apt.patient_response='confirmed'; apt.proposed_date=null; apt.proposed_time=null }" class="ml-2 px-2 py-0.5 rounded text-[11px] font-semibold text-white bg-amber-500 hover:bg-amber-600 transition">✔ Setujui & geser</button>
                   </div>
-                  <div class="mt-2 flex items-center gap-2 flex-wrap" x-show="apt.wa"><a :href="apt.wa" target="_blank" rel="noopener" @click="window.__logWaReminder('appointments', apt.id); apt.wa_reminder_count=(apt.wa_reminder_count||0)+1" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a><span x-show="apt.wa_reminder_count" x-cloak class="text-[11px] text-gray-400" x-text="'📤 '+apt.wa_reminder_count+'x'"></span></div>
+                  <div class="mt-2 flex items-center gap-2 flex-wrap" x-show="apt.wa"><a :href="apt.wa" target="_blank" rel="noopener" @click="window.__logWaReminder('appointments', apt.id); apt.wa_reminder_count=(apt.wa_reminder_count||0)+1" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a><button x-show="!apt.wa && apt.patient_id" @click.stop="window.__waAddPhone(apt.patient_id, apt.wa_msg, 'appointments', apt.id)" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366]/70 hover:bg-[#25D366] transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2z"/></svg>Isi No. HP &amp; WA</button><span x-show="apt.wa_reminder_count" x-cloak class="text-[11px] text-gray-400" x-text="'📤 '+apt.wa_reminder_count+'x'"></span></div>
                 </div>
               </template>
               <template x-if="selectedFollowUps.length > 0"><p class="text-xs font-semibold text-orange-600 uppercase pt-2" x-show="selectedAppts.length > 0 || selectedVisits.length > 0">Follow Up Pasien</p></template>
@@ -873,7 +875,7 @@ export function adminCalendar(params) {
                     </div>
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">Follow Up</span>
                   </div>
-                  <div class="mt-2 flex items-center gap-2 flex-wrap" x-show="f.wa"><a :href="f.wa" target="_blank" rel="noopener" @click="window.__logWaReminder('medical_records', f.id); f.wa_reminder_count=(f.wa_reminder_count||0)+1" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a><span x-show="f.wa_reminder_count" x-cloak class="text-[11px] text-gray-400" x-text="'📤 '+f.wa_reminder_count+'x'"></span></div>
+                  <div class="mt-2 flex items-center gap-2 flex-wrap" x-show="f.wa"><a :href="f.wa" target="_blank" rel="noopener" @click="window.__logWaReminder('medical_records', f.id); f.wa_reminder_count=(f.wa_reminder_count||0)+1" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a><button x-show="!f.wa && f.patient_id" @click.stop="window.__waAddPhone(f.patient_id, f.wa_msg, 'medical_records', f.id)" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366]/70 hover:bg-[#25D366] transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2z"/></svg>Isi No. HP &amp; WA</button><span x-show="f.wa_reminder_count" x-cloak class="text-[11px] text-gray-400" x-text="'📤 '+f.wa_reminder_count+'x'"></span></div>
                 </div>
               </template>
             </div>
@@ -952,7 +954,7 @@ export function adminPatients() {
                   <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.rm_number || '-'}</td>
                   <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${p.nik || '-'}</td>
                   <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${p.phone || '-'}</td>
-                  <td class="px-4 py-3"><a href="#/admin/patients/${p.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Lihat Rekam Medis</a></td>
+                  <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/admin/patients/${p.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Lihat Rekam Medis</a>${waButton(p.phone, waSapaMsg(p.full_name), 'WA', { patientId: p.id })}</div></td>
                 </tr>
               </template>`).join('')}
             </tbody>
@@ -1010,7 +1012,10 @@ export function adminPatientDetail(params) {
               <p class="text-sm text-gray-500">${patient.gender || '-'}${age !== null ? ', '+age+' thn' : ''} | No. RM: ${patient.rm_number || '-'} | NIK: ${patient.nik || '-'}</p>
             </div>
           </div>
-          <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white self-start lg:self-auto" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
+          <div class="flex items-center gap-2 self-start lg:self-auto">
+            ${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp', { patientId: patient.id })}
+            <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
+          </div>
         </div>
 
         <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Surat Keterangan (<span x-text="skdList.length"></span>)</h3>
