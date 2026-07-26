@@ -112,6 +112,13 @@ function escHtml(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Escape for a single-quoted JS string sitting inside a (double-quoted) x-data /
+// x-if attribute — handles backslash, both quote types, and newlines. Without
+// this, a patient whose name/NIK contains a quote breaks the whole page's Alpine.
+function qAttr(s) {
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
+}
+
 // Secondary diagnoses are stored in the single existing `diagnosis_secondary`
 // text column joined by '; ' — so multiple entries need NO database migration.
 // Parse the stored text back into an array (handles legacy single values too).
@@ -266,12 +273,12 @@ export function doctorPatients() {
               <thead><tr class="bg-gray-50 border-b border-gray-100"><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Nama</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden sm:table-cell">NIK</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden md:table-cell">Gender</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden lg:table-cell">Telepon</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Aksi</th></tr></thead>
               <tbody class="divide-y divide-gray-50">
                 ${patients.map(p => `
-                <template x-if="!search || '${p.full_name.toLowerCase()}'.includes(search.toLowerCase()) || '${p.nik}'.includes(search) || '${p.phone}'.includes(search)">
+                <template x-if="!search || '${qAttr((p.full_name||'').toLowerCase())}'.includes(search.toLowerCase()) || '${qAttr(p.nik)}'.includes(search) || '${qAttr(p.phone)}'.includes(search)">
                   <tr class="hover:bg-gray-50 transition">
-                    <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${p.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><p class="font-medium text-gray-800 text-sm">${p.full_name}</p><p class="text-xs text-gray-400">${p.blood_type ? 'Gol. '+p.blood_type : ''} ${p.allergies && p.allergies !== '-' ? '| Alergi: '+p.allergies : ''}</p></div></div></td>
-                    <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.nik}</td>
-                    <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${p.gender}</td>
-                    <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${p.phone}</td>
+                    <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${escHtml((p.full_name||'').split(' ').map(n=>n[0]).join('').slice(0,2))}</div><div><p class="font-medium text-gray-800 text-sm">${escHtml(p.full_name)}</p><p class="text-xs text-gray-400">${p.blood_type ? 'Gol. '+escHtml(p.blood_type) : ''} ${p.allergies && p.allergies !== '-' ? '| Alergi: '+escHtml(p.allergies) : ''}</p></div></div></td>
+                    <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${escHtml(p.nik)}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${escHtml(p.gender)}</td>
+                    <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${escHtml(p.phone)}</td>
                     <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/doctor/emr/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Rekam Medis</a><a href="#/doctor/emr/${p.id}/new" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">+ Kunjungan</a><a href="#/doctor/chat/start/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">Chat</a>${waButton(p.phone, waSapaMsg(p.full_name), 'WA', { patientId: p.id })}</div></td>
                   </tr>
                 </template>`).join('')}
