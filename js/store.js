@@ -568,6 +568,45 @@ class Store {
     return (this.data.lab_results || []).filter(l => l.patient_id === patientId).sort((a, b) => (b.result_date || '').localeCompare(a.result_date || ''));
   }
 
+  // Bug reports — user-submitted issues, visible to staff in the admin console.
+  async addBugReport(data) {
+    const payload = {
+      page: data.page || '', description: data.description || '',
+      reporter_email: data.reporter_email || '', reporter_role: data.reporter_role || '', status: 'open',
+    };
+    if (data.reporter_profile_id && !String(data.reporter_profile_id).startsWith('id_')) payload.reporter_profile_id = data.reporter_profile_id;
+    if (CONFIG.DEMO_MODE) {
+      const rec = { id: generateId(), ...payload, created_at: new Date().toISOString() };
+      if (!this.data.bug_reports) this.data.bug_reports = [];
+      this.data.bug_reports.push(rec); this._save();
+      return { success: true };
+    }
+    const inserted = await supabase.insert('bug_reports', payload);
+    // RLS keeps non-staff from reading the row back, so an empty representation
+    // (undefined) still means the insert landed — only a real error object fails.
+    if (inserted && inserted.error) return { error: inserted.error };
+    return { success: true };
+  }
+
+  async getBugReports() {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('bug_reports', { order: 'created_at.desc' });
+        if (Array.isArray(rows)) { this.data.bug_reports = rows; return rows; }
+      } catch (e) { /* fall through to local */ }
+    }
+    return (this.data.bug_reports || []).slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  }
+
+  async setBugReportStatus(id, status) {
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      await supabase.update('bug_reports', id, { status, resolved_at: status === 'resolved' ? new Date().toISOString() : null }).catch(() => {});
+    }
+    const r = (this.data.bug_reports || []).find(x => x.id === id);
+    if (r) { r.status = status; this._save(); }
+    return { success: true };
+  }
+
   async addLabResult(data, file) {
     let file_path = '', file_name = '';
     if (file) {

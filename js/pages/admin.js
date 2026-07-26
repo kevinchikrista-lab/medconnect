@@ -1116,6 +1116,61 @@ export function adminPatientDetail(params) {
   </div>`;
 }
 
+export function adminBugs() {
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, reports: [], filter: 'open',
+    async load() { this.loading = true; try { this.reports = await window.__store.getBugReports(); } catch(e) { this.reports = []; } this.loading = false; },
+    get shown() { return this.filter === 'all' ? this.reports : this.reports.filter(r => (r.status||'open') === this.filter); },
+    async setStatus(id, s) { await window.__store.setBugReportStatus(id, s); const r = this.reports.find(x=>x.id===id); if(r) r.status = s; },
+    fmt(d) { if(!d) return '-'; const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleString('id-ID', {day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
+  }" x-init="load()" class="min-h-screen bg-wash">
+    ${adminSidebar('bugs')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-4xl mx-auto">
+        <div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
+          <h2 class="text-xl font-bold text-gray-800">Laporan Bug</h2>
+          <div class="flex items-center gap-2">
+            <button @click="load()" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition">Muat ulang</button>
+            <div class="flex gap-1 bg-white border border-slate-100 rounded-xl p-1">
+              <button @click="filter='open'" :class="filter==='open'?'bg-blue-600 text-white':'text-gray-600'" class="px-3 py-1.5 rounded-lg text-xs font-medium transition">Belum selesai</button>
+              <button @click="filter='resolved'" :class="filter==='resolved'?'bg-green-600 text-white':'text-gray-600'" class="px-3 py-1.5 rounded-lg text-xs font-medium transition">Selesai</button>
+              <button @click="filter='all'" :class="filter==='all'?'bg-gray-700 text-white':'text-gray-600'" class="px-3 py-1.5 rounded-lg text-xs font-medium transition">Semua</button>
+            </div>
+          </div>
+        </div>
+        <div x-show="loading" class="text-center py-10 text-gray-400 text-sm">Memuat laporan...</div>
+        <template x-if="!loading && shown.length === 0">
+          <div class="bg-white rounded-3xl border border-slate-100 p-10 text-center text-gray-400 text-sm">Tidak ada laporan pada filter ini.</div>
+        </template>
+        <div class="space-y-3">
+          <template x-for="r in shown" :key="r.id">
+            <div class="bg-white border border-slate-100 rounded-2xl p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap mb-1">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="(r.status||'open')==='resolved'?'bg-green-100 text-green-700':'bg-amber-100 text-amber-700'" x-text="(r.status||'open')==='resolved'?'Selesai':'Belum selesai'"></span>
+                    <span class="text-xs text-gray-400" x-text="fmt(r.created_at)"></span>
+                  </div>
+                  <p class="text-sm text-gray-800 whitespace-pre-line" x-text="r.description"></p>
+                  <div class="mt-2 text-xs text-gray-400 flex flex-wrap gap-x-3 gap-y-1">
+                    <span x-show="r.page">📍 <span x-text="r.page"></span></span>
+                    <span x-show="r.reporter_email">👤 <span x-text="r.reporter_email + (r.reporter_role ? ' ('+r.reporter_role+')' : '')"></span></span>
+                  </div>
+                </div>
+                <div class="flex-shrink-0">
+                  <button x-show="(r.status||'open')!=='resolved'" @click="setStatus(r.id,'resolved')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition whitespace-nowrap">Tandai selesai</button>
+                  <button x-show="(r.status||'open')==='resolved'" @click="setStatus(r.id,'open')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition whitespace-nowrap">Buka lagi</button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
 function adminSidebar(active) {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const items = [
@@ -1128,6 +1183,7 @@ function adminSidebar(active) {
     { id: 'calendar', label: 'Kalender', icon: 'event' },
     { id: 'consultations', label: 'Riwayat Konsultasi', icon: 'forum' },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/admin/homecare/history' },
+    { id: 'bugs', label: 'Laporan Bug', icon: 'bug_report', href: '#/admin/bugs' },
   ].map(i => ({ ...i, href: i.href || `#/admin/${i.id === 'dashboard' ? 'dashboard' : i.id}` }));
   return `
   <aside class="fixed top-0 left-0 h-full w-[236px] bg-night z-40 transform transition-transform duration-300 flex flex-col" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
