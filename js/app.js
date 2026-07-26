@@ -21,6 +21,7 @@ window.__printSKD = printSKDById;
 window.__renderSKDInto = renderSKDInto;
 window.__skdLoadingDoc = SKD_LOADING_DOC;
 window.__logWaReminder = (table, id) => store.logWaReminder(table, id);
+window.__rerender = () => { try { router.resolve(); } catch (e) {} };
 
 // No phone on file: prompt for the WhatsApp number, save it to the patient, then
 // open WhatsApp with the pre-composed message — all from one click. Opens the

@@ -237,8 +237,25 @@ export function doctorDashboard() {
 export function doctorPatients() {
   const doc = getDoctor();
   const patients = store.getPatients();
+  // Editable snapshot keyed by id — the modal looks patients up by id (safe:
+  // no free-text embedded in attributes), avoiding the special-char break.
+  window.__patientsForEdit = patients.map(p => ({ id: p.id, full_name: p.full_name || '', nik: p.nik || '', birth_date: p.birth_date || '', gender: p.gender || '', phone: p.phone || '', address: p.address || '', blood_type: p.blood_type || '', allergies: p.allergies || '' }));
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', showNewForm: false, newPatient: { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123' } }" class="min-h-screen bg-wash">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', showNewForm: false, newPatient: { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123' },
+    editPatient: null, savingEdit: false, editMsg: '',
+    startEdit(id) { const p = (window.__patientsForEdit||[]).find(x=>x.id===id); this.editPatient = p ? JSON.parse(JSON.stringify(p)) : null; this.editMsg=''; },
+    async saveEdit() {
+      if (!this.editPatient || !this.editPatient.full_name.trim()) { this.editMsg='Nama lengkap wajib diisi.'; return; }
+      this.savingEdit = true;
+      const r = await window.__store.updatePatientProfile(this.editPatient.id, this.editPatient);
+      this.savingEdit = false;
+      if (r && r.error) { this.editMsg = r.error; return; }
+      const g = (window.__patientsForEdit||[]).find(x=>x.id===this.editPatient.id); if (g) Object.assign(g, this.editPatient);
+      this.editPatient = null;
+      window.__showToast && window.__showToast('Tersimpan', 'Data pasien diperbarui.');
+      setTimeout(function(){ window.__rerender && window.__rerender(); }, 150);
+    }
+  }" class="min-h-screen bg-wash">
     ${doctorSidebar('patients')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -279,11 +296,40 @@ export function doctorPatients() {
                     <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${escHtml(p.nik)}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${escHtml(p.gender)}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${escHtml(p.phone)}</td>
-                    <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/doctor/emr/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Rekam Medis</a><a href="#/doctor/emr/${p.id}/new" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">+ Kunjungan</a><a href="#/doctor/chat/start/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">Chat</a>${waButton(p.phone, waSapaMsg(p.full_name), 'WA', { patientId: p.id })}</div></td>
+                    <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/doctor/emr/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Rekam Medis</a><a href="#/doctor/emr/${p.id}/new" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">+ Kunjungan</a><a href="#/doctor/chat/start/${p.id}" class="px-2 py-1 rounded text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">Chat</a><button @click="startEdit('${p.id}')" class="px-2 py-1 rounded text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Edit</button>${waButton(p.phone, waSapaMsg(p.full_name), 'WA', { patientId: p.id })}</div></td>
                   </tr>
                 </template>`).join('')}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Modal Edit Data Pasien -->
+        <div x-show="editPatient" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @click.self="editPatient=null">
+          <div class="bg-white rounded-3xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold text-gray-800">Edit Data Pasien</h3>
+              <button @click="editPatient=null" class="text-gray-400 hover:text-gray-700"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <template x-if="editPatient">
+              <div>
+                <div x-show="editMsg" class="mb-3 p-2 rounded-lg bg-red-50 text-red-700 text-sm" x-text="editMsg"></div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label><input type="text" x-model="editPatient.full_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">NIK</label><input type="text" x-model="editPatient.nik" maxlength="16" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label><input type="date" x-model="editPatient.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label><select x-model="editPatient.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option><option>Laki-laki</option><option>Perempuan</option></select></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Telepon</label><input type="tel" x-model="editPatient.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="editPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="editPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Alergi</label><input type="text" x-model="editPatient.allergies" placeholder="- bila tidak ada" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                </div>
+                <div class="flex gap-2 mt-5">
+                  <button @click="saveEdit()" :disabled="savingEdit" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-text="savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'"></span></button>
+                  <button @click="editPatient=null" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </main>
