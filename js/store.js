@@ -398,11 +398,14 @@ class Store {
         if (typeof result === 'number') return result;
       } catch (e) { console.warn('RM sequence RPC failed, using local fallback:', e); }
     }
-    const key = 'medconnect_rm_seq';
-    const current = parseInt(localStorage.getItem(key) || '0', 10);
-    const next = current + 1;
-    localStorage.setItem(key, String(next));
-    return next;
+    // Fallback: derive from the highest existing RM number across loaded patients
+    // (deterministic & unique) instead of a per-device localStorage counter that
+    // could drift or, if storage doesn't persist, hand out the same number twice.
+    const maxRm = (this.data.patients || []).reduce((m, p) => {
+      const n = parseInt(String(p.rm_number || '').replace(/\D/g, ''), 10);
+      return isNaN(n) ? m : Math.max(m, n);
+    }, 0);
+    return maxRm + 1;
   }
 
   // Assign a system RM number to a patient if they don't have one yet, persist
@@ -756,14 +759,17 @@ class Store {
         if (profileRes.error) return { error: profileRes.error };
         const profileId = profileRes.id;
 
-        // 3. Create patient di Supabase
-        await supabase.insert('patients', {
+        // 3. Create patient di Supabase — assign an RM number up front so every
+        //    patient has one immediately, not only after their EMR is first opened.
+        const patientPayload = {
           profile_id: profileId, full_name: userData.full_name, nik: userData.nik || '',
           birth_date: userData.birth_date || null, gender: userData.gender || '',
           phone: userData.phone || '', address: userData.address || '',
           blood_type: userData.blood_type || '', allergies: userData.allergies || '-',
           emergency_contact: userData.emergency_contact || ''
-        });
+        };
+        try { const n = await this.getNextRmNumber(); if (n) patientPayload.rm_number = String(n).padStart(6, '0'); } catch (e) { /* assigned lazily later */ }
+        await supabase.insert('patients', patientPayload);
 
         // 4. Reload data dari Supabase
         await this.loadFromSupabase();
