@@ -932,7 +932,7 @@ export function adminHomeCareEdit(params) {
 // the ability to issue a Surat Keterangan on a doctor's behalf.
 export function adminPatients() {
   const patients = store.getPatients();
-  const q = (s) => String(s == null ? '' : s).replace(/'/g, "\\'");
+  const q = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, search: '' }" class="min-h-screen bg-wash">
     ${adminSidebar('patients')}
@@ -972,7 +972,7 @@ export function adminPatientDetail(params) {
   const vaccinations = store.getVaccinations(params.patientId);
   const doctors = (store.data.doctors || []).filter(d => d.full_name);
   window.__skdDoctors = doctors.map(d => ({ id: d.id, full_name: d.full_name, sip_number: d.sip_number || '' }));
-  const q = (s) => String(s == null ? '' : s).replace(/'/g, "\\'");
+  const q = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
   const latestVs = (records[0] && records[0].vital_signs) || {};
   const age = patient.birth_date ? Math.floor((Date.now() - new Date(patient.birth_date)) / (365.25*24*60*60*1000)) : null;
   const adminId = (JSON.parse(sessionStorage.getItem('medconnect_user') || 'null') || {}).id || '';

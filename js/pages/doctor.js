@@ -105,6 +105,13 @@ function physicalExamCard() {
   </div>`;
 }
 
+// Escape a value for safe interpolation into rendered HTML text — a stray '<'
+// in free-text patient data (name, allergies, address) would otherwise break the
+// surrounding markup and can make later controls unclickable.
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // Secondary diagnoses are stored in the single existing `diagnosis_secondary`
 // text column joined by '; ' — so multiple entries need NO database migration.
 // Parse the stored text back into an array (handles legacy single values too).
@@ -286,7 +293,7 @@ export function doctorEMR(params) {
 
   // Prefill the Surat Keterangan form from the latest visit's vital signs +
   // diagnosis, so the doctor rarely has to retype anything (all still editable).
-  const q = (s) => String(s == null ? '' : s).replace(/'/g, "\\'");
+  const q = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
   const latestVs = (records[0] && records[0].vital_signs) || {};
   const skdPrefill = {
     no_rm: q(patient.rm_number || ''),
@@ -332,20 +339,20 @@ export function doctorEMR(params) {
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
-        <div class="flex items-center gap-2 mb-4 text-sm text-gray-500"><a href="#/doctor/patients" class="hover:text-teal-600 transition">Pasien</a><span>/</span><span class="text-gray-800 font-medium">${patient.full_name}</span></div>
+        <div class="flex items-center gap-2 mb-4 text-sm text-gray-500"><a href="#/doctor/patients" class="hover:text-teal-600 transition">Pasien</a><span>/</span><span class="text-gray-800 font-medium">${escHtml(patient.full_name)}</span></div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-6">
           <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div class="flex items-center gap-4">
-              <div class="w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div>
+              <div class="w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${escHtml(patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2))}</div>
               <div>
-                <h2 class="text-lg font-bold text-gray-800">${patient.full_name}</h2>
-                <p class="text-sm text-gray-500">${patient.gender}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000)) + ' thn' : '-'} | NIK: ${patient.nik}</p>
+                <h2 class="text-lg font-bold text-gray-800">${escHtml(patient.full_name)}</h2>
+                <p class="text-sm text-gray-500">${escHtml(patient.gender)}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000)) + ' thn' : '-'} | NIK: ${escHtml(patient.nik)}</p>
               </div>
             </div>
             <div class="flex flex-wrap gap-3 text-xs">
-              <span class="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 font-medium">Gol. Darah: ${patient.blood_type || '-'}</span>
-              <span class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-medium">Alergi: ${patient.allergies || '-'}</span>
-              <span class="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-medium">Telp: ${patient.phone}</span>
+              <span class="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 font-medium">Gol. Darah: ${escHtml(patient.blood_type || '-')}</span>
+              <span class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-medium">Alergi: ${escHtml(patient.allergies || '-')}</span>
+              <span class="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-medium">Telp: ${escHtml(patient.phone)}</span>
             </div>
           </div>
         </div>
@@ -763,14 +770,14 @@ export function doctorEMRNew(params) {
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-5xl mx-auto">
         <div class="flex items-center justify-between mb-6">
-          <div class="flex items-center gap-2 text-sm text-gray-500"><a href="#/doctor/emr/${patient.id}" class="hover:text-teal-600 transition">${patient.full_name}</a><span>/</span><span class="text-gray-800 font-medium">Kunjungan Baru</span></div>
+          <div class="flex items-center gap-2 text-sm text-gray-500"><a href="#/doctor/emr/${patient.id}" class="hover:text-teal-600 transition">${escHtml(patient.full_name)}</a><span>/</span><span class="text-gray-800 font-medium">Kunjungan Baru</span></div>
           <div class="flex gap-2">
             <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${patient.id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
-          <div class="flex items-center gap-4"><div class="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><h3 class="font-bold text-gray-800">${patient.full_name}</h3><p class="text-sm text-gray-500">${patient.gender}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000))+' thn' : '-'} | Gol. ${patient.blood_type || '-'} | Alergi: ${patient.allergies || '-'}</p></div></div>
+          <div class="flex items-center gap-4"><div class="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><h3 class="font-bold text-gray-800">${escHtml(patient.full_name)}</h3><p class="text-sm text-gray-500">${escHtml(patient.gender)}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000))+' thn' : '-'} | Gol. ${escHtml(patient.blood_type || '-')} | Alergi: ${escHtml(patient.allergies || '-')}</p></div></div>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-3">Tipe Kunjungan & Lokasi</h4>
