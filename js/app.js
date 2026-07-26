@@ -43,6 +43,43 @@ window.__waAddPhone = function (patientId, msgB64, logTable, logId) {
   setTimeout(function () { try { router.resolve(); } catch (e) {} }, 300);  // refresh tampilan
 };
 
+// "Lapor Bug": a lightweight modal (injected into <body>, works from any page)
+// that captures the current page + who's reporting, then sends the report to the
+// clinic admin via WhatsApp. Migration-free — no new table needed.
+window.__laporBug = function () {
+  const page = location.hash || '(beranda)';
+  const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+  const who = user ? ((user.email || '-') + ' · ' + (user.role || '-')) : 'belum login';
+  const old = document.getElementById('__bug_overlay'); if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = '__bug_overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:16px;font-family:Inter,system-ui,sans-serif';
+  ov.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:440px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.3)">'
+    + '<div style="font-weight:700;font-size:16px;color:#111827;margin-bottom:4px">🐞 Laporkan Bug / Masalah</div>'
+    + '<div style="font-size:12px;color:#6b7280;margin-bottom:12px">Ceritakan masalah yang Anda temukan. Laporan dikirim ke admin klinik lewat WhatsApp.</div>'
+    + '<textarea id="__bug_text" rows="5" placeholder="Contoh: tombol Simpan pada halaman resep tidak berfungsi..." style="width:100%;border:1px solid #e5e7eb;border-radius:10px;padding:10px;font-size:13px;resize:none;outline:none;box-sizing:border-box"></textarea>'
+    + '<div style="font-size:11px;color:#9ca3af;margin-top:6px">Halaman: ' + page + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">'
+    + '<button id="__bug_cancel" style="padding:9px 14px;border-radius:9px;border:1px solid #e5e7eb;background:#fff;font-size:13px;font-weight:600;color:#4b5563;cursor:pointer">Batal</button>'
+    + '<button id="__bug_send" style="padding:9px 16px;border-radius:9px;border:none;background:#25D366;color:#fff;font-size:13px;font-weight:700;cursor:pointer">Kirim via WhatsApp</button>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  ov.querySelector('#__bug_cancel').onclick = close;
+  ov.querySelector('#__bug_send').onclick = () => {
+    const ta = ov.querySelector('#__bug_text');
+    const txt = (ta.value || '').trim();
+    if (!txt) { ta.focus(); return; }
+    const msg = '🐞 *Laporan Bug MedConnect*\n\nHalaman: ' + page + '\nPelapor: ' + who + '\n\nMasalah:\n' + txt;
+    const href = waHref(CONFIG.CLINIC_WHATSAPP, msg);
+    if (href) window.open(href, '_blank');
+    close();
+    window.__showToast && window.__showToast('Terima kasih', 'Laporan Anda dibuka di WhatsApp untuk dikirim.');
+  };
+  setTimeout(() => { const t = ov.querySelector('#__bug_text'); if (t) t.focus(); }, 50);
+};
+
 function render(htmlFn, params) {
   // The hash router has no "unmount" hook, so this is the one chokepoint every
   // page change passes through — clearing any page-level polling interval
