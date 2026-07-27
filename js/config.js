@@ -97,4 +97,20 @@ export const CONFIG = {
     { key: 'kulit', label: 'Kulit' },
     { key: 'neurologis', label: 'Neurologis' },
   ],
+
+  // CRM — tahapan pipeline calon pasien (prospek). Urutan = alur pipeline.
+  // 'won' = berhasil jadi pasien; 'lost' = batal/hilang. Edit sesuai kebutuhan.
+  CRM_STAGES: [
+    { key: 'baru',      label: 'Lead Masuk',              dot: '#94a3b8' },
+    { key: 'dihubungi', label: 'Dihubungi',               dot: '#3b82f6' },
+    { key: 'nurture',   label: 'Nurture / Belum Siap',    dot: '#f59e0b' },
+    { key: 'tertarik',  label: 'Tertarik / Jadwal Konsul', dot: '#14b8a6' },
+    { key: 'booking',   label: 'Booking / DP',            dot: '#6366f1' },
+    { key: 'datang',    label: 'Datang / Konsultasi',     dot: '#a855f7' },
+    { key: 'pasien',    label: 'Jadi Pasien',             dot: '#22c55e', won: true },
+    { key: 'batal',     label: 'Batal / Hilang',          dot: '#ef4444', lost: true },
+  ],
+
+  // Sumber datangnya calon pasien.
+  CRM_SOURCES: ['WhatsApp', 'Instagram', 'Facebook', 'TikTok', 'Referral', 'Walk-in', 'Iklan', 'Website', 'Lainnya'],
 };

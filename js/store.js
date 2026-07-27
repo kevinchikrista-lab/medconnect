@@ -610,6 +610,79 @@ class Store {
     return { success: true };
   }
 
+  // ---- CRM: leads (calon pasien / prospek) --------------------------------
+  async getLeads() {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('leads', { order: 'created_at.desc' });
+        if (Array.isArray(rows)) { this.data.leads = rows; return rows; }
+      } catch (e) { /* fall through to local */ }
+    }
+    return (this.data.leads || []).slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  }
+
+  async addLead(data) {
+    const payload = {
+      full_name: data.full_name || '', phone: data.phone || '', source: data.source || '',
+      interest: data.interest || '', stage: data.stage || 'baru', notes: data.notes || '',
+      next_followup: data.next_followup || null,
+    };
+    if (payload.next_followup === '') payload.next_followup = null;
+    const cur = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    if (cur && cur.id && !String(cur.id).startsWith('id_')) payload.created_by = cur.id;
+    if (CONFIG.DEMO_MODE) {
+      const rec = { id: generateId(), ...payload, created_at: new Date().toISOString(), wa_count: 0 };
+      if (!this.data.leads) this.data.leads = [];
+      this.data.leads.unshift(rec); this._save();
+      return { success: true, lead: rec };
+    }
+    const inserted = await supabase.insert('leads', payload);
+    if (inserted && inserted.error) return { error: inserted.error };
+    if (inserted && inserted.id) { if (!this.data.leads) this.data.leads = []; this.data.leads.unshift(inserted); this._save(); }
+    return { success: true, lead: inserted || null };
+  }
+
+  async updateLead(id, patch) {
+    const allowed = ['full_name', 'phone', 'source', 'interest', 'stage', 'notes', 'next_followup', 'pic_profile_id', 'converted_patient_id', 'wa_count', 'wa_last_at'];
+    const clean = {};
+    allowed.forEach(k => { if (patch[k] !== undefined) clean[k] = patch[k]; });
+    if (clean.next_followup === '') clean.next_followup = null;
+    ['pic_profile_id', 'converted_patient_id'].forEach(k => { if (clean[k] && String(clean[k]).startsWith('id_')) delete clean[k]; });
+    clean.updated_at = new Date().toISOString();
+    const l = (this.data.leads || []).find(x => x.id === id);
+    if (l) { Object.assign(l, clean); this._save(); }
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      await supabase.update('leads', id, clean).catch(e => console.warn('Gagal menyimpan lead:', e));
+    }
+    return { success: true };
+  }
+
+  async deleteLead(id) {
+    this.data.leads = (this.data.leads || []).filter(x => x.id !== id);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) await supabase.delete('leads', id).catch(() => {});
+    return { success: true };
+  }
+
+  async logLeadWa(id) {
+    const l = (this.data.leads || []).find(x => x.id === id);
+    const count = ((l && l.wa_count) || 0) + 1;
+    const at = new Date().toISOString();
+    if (l) { l.wa_count = count; l.wa_last_at = at; this._save(); }
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) await supabase.update('leads', id, { wa_count: count, wa_last_at: at }).catch(() => {});
+    return { success: true };
+  }
+
+  // Turn a lead into a registered patient (reuses the email-optional register
+  // flow), then mark the lead as converted so it lands in the "Jadi Pasien" stage.
+  async convertLeadToPatient(lead) {
+    const r = await this.register({ full_name: lead.full_name, phone: lead.phone || '' });
+    if (r.error) return { error: r.error };
+    const patientId = (r.profile && r.profile.id) ? r.profile.id : null;
+    await this.updateLead(lead.id, { stage: 'pasien', converted_patient_id: patientId });
+    return { success: true, patientId };
+  }
+
   async addLabResult(data, file) {
     let file_path = '', file_name = '';
     if (file) {

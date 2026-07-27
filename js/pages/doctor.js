@@ -4,6 +4,7 @@ import { ICD10 } from '../icd10.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 import { chatListPage, chatThreadPage } from './chat.js';
 import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge, apptResponseBadge, waSapaMsg, waHariIniMsg, waMsgB64 } from '../wa.js';
+import { crmSetup, crmXData, crmBody } from './crm.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -1667,6 +1668,21 @@ export function doctorHomeCareEdit(params) {
   });
 }
 
+export function doctorCrm() {
+  const doc = getDoctor();
+  crmSetup();
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, ${crmXData()} }" x-init="load()" class="min-h-screen bg-wash">
+    ${doctorSidebar('crm')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${doctorHeader(doc)}
+      <main class="p-4 lg:p-6 max-w-7xl mx-auto">
+        ${crmBody()}
+      </main>
+    </div>
+  </div>`;
+}
+
 function doctorSidebar(active) {
   const doc = getDoctor();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
@@ -1677,6 +1693,7 @@ function doctorSidebar(active) {
     { id: 'emr', label: 'Rekam Medis', icon: 'clinical_notes', href: '#/doctor/records' },
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/doctor/prescriptions' },
     { id: 'skd-approval', label: 'Surat Menunggu ACC', icon: 'assignment_turned_in', href: '#/doctor/skd-approval' },
+    { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/doctor/crm' },
     { id: 'chat', label: 'Pesan', icon: 'forum', href: '#/doctor/chat', badge: unreadChat },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/doctor/homecare/history' },
     { id: 'calendar', label: 'Kalender', icon: 'calendar_month', href: '#/doctor/calendar' },

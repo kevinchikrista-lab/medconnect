@@ -2,8 +2,8 @@ import { router } from './router.js';
 import { store } from './store.js';
 import { CONFIG } from './config.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
-import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs } from './pages/admin.js';
-import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval } from './pages/doctor.js';
+import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm } from './pages/admin.js';
+import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
@@ -11,7 +11,7 @@ import { verifyPage } from './pages/verify.js';
 import { konfirmasiPage } from './pages/konfirmasi.js';
 import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pages/landing.js';
 import { issueSKD, printSKDById, renderSKDInto, SKD_LOADING_DOC } from './skd.js';
-import { waHref } from './wa.js';
+import { waHref, waProspekMsg } from './wa.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
@@ -22,6 +22,8 @@ window.__renderSKDInto = renderSKDInto;
 window.__skdLoadingDoc = SKD_LOADING_DOC;
 window.__logWaReminder = (table, id) => store.logWaReminder(table, id);
 window.__rerender = () => { try { router.resolve(); } catch (e) {} };
+window.__waHref = waHref;
+window.__crmWaMsg = waProspekMsg;
 
 // No phone on file: prompt for the WhatsApp number, save it to the patient, then
 // open WhatsApp with the pre-composed message — all from one click. Opens the
@@ -201,6 +203,7 @@ router.add('/admin/dashboard', () => render(adminDashboard));
 router.add('/admin/users', () => render(adminUsers));
 router.add('/admin/patients', () => render(adminPatients));
 router.add('/admin/bugs', () => render(adminBugs));
+router.add('/admin/crm', () => render(adminCrm));
 router.add('/admin/patients/:patientId', (p) => render(adminPatientDetail, p));
 router.add('/admin/services', () => render(adminServices));
 router.add('/admin/articles', () => render(adminArticles));
@@ -218,6 +221,7 @@ router.add('/doctor/dashboard', () => render(doctorDashboard));
 router.add('/doctor/patients', () => render(doctorPatients));
 router.add('/doctor/records', () => render(doctorRecords));
 router.add('/doctor/skd-approval', () => render(doctorSKDApproval));
+router.add('/doctor/crm', () => render(doctorCrm));
 router.add('/doctor/emr/:patientId', (p) => render(doctorEMR, p));
 router.add('/doctor/emr/:patientId/new', (p) => render(doctorEMRNew, p));
 router.add('/doctor/prescriptions', () => render(doctorPrescriptions));
