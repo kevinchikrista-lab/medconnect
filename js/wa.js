@@ -86,6 +86,11 @@ export function waSapaMsg(name) {
   return `Halo ${name || 'Bapak/Ibu'},\n\nSaya dari ${CLINIC}, ingin menindaklanjuti kondisi kesehatan Anda.\n\nBagaimana kabarnya? Bila ada keluhan atau perlu jadwal kontrol, silakan balas pesan ini ya. Terima kasih. 🙏`;
 }
 
+// First-touch outreach to a prospect/lead in the CRM pipeline.
+export function waProspekMsg(name, interest) {
+  return `Halo ${name || 'Kak'}, terima kasih sudah menghubungi ${CLINIC}.${interest ? ` Mengenai *${interest}*,` : ''} ada yang bisa kami bantu? Kami siap melayani Anda. 🙏`;
+}
+
 // Reminder for a patient scheduled TODAY (today's queue on the dashboard).
 export function waHariIniMsg(name, timeLabel, queueNo) {
   return `Halo ${name || 'Bapak/Ibu'},\n\nIni pengingat dari ${CLINIC}. Anda memiliki jadwal *hari ini*${timeLabel ? ` pukul *${timeLabel}*` : ''}${queueNo ? ` (no. antrean ${queueNo})` : ''}.\n\nMohon hadir tepat waktu ya. Terima kasih. 🙏`;
