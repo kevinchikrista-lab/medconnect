@@ -70,7 +70,7 @@ function buildPeState(record) {
 
 // x-data fragment (methods + refs to the globals) shared by the new & edit forms.
 function physicalExamXData() {
-  return `pe: JSON.parse(JSON.stringify(window.__peState)), peOther: window.__peOtherInit, peSystems: window.__peSystems,
+  return `pe: JSON.parse(JSON.stringify(window.__peState || {})), peOther: (window.__peOtherInit || ''), peSystems: (window.__peSystems || []),
     peAllNormal() { this.peSystems.forEach(s => { this.pe[s.key].normal = true; this.pe[s.key].abn = false; }); },
     peToggleNormal(k) { this.pe[k].normal = !this.pe[k].normal; if (this.pe[k].normal) this.pe[k].abn = false; },
     peSetAbn(k) { this.pe[k].abn = !this.pe[k].abn; if (this.pe[k].abn) this.pe[k].normal = false; },
