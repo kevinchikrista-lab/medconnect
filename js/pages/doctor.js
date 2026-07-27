@@ -994,15 +994,43 @@ export function doctorEMRNew(params) {
 export function doctorRecords() {
   const doc = getDoctor();
   const allRecords = store.getRecordsByDoctor(doc?.id);
+  // Patient list for the "pick a patient" dialog behind the + Kunjungan button.
+  window.__recordPatients = store.getPatients().map(p => ({ id: p.id, full_name: p.full_name || '', rm_number: p.rm_number || '', nik: p.nik || '' }));
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '' }" class="min-h-screen bg-wash">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', pickOpen: false, pickSearch: '', patients: window.__recordPatients || [],
+    get pickList() { const s=(this.pickSearch||'').toLowerCase(); return s ? this.patients.filter(p => (p.full_name+' '+p.rm_number+' '+p.nik).toLowerCase().includes(s)) : this.patients; },
+    goNew(id) { this.pickOpen=false; window.location.hash = '#/doctor/emr/'+id+'/new'; }
+  }" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
-        <div class="flex items-center justify-between mb-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <h2 class="text-xl font-bold text-gray-800">Rekam Medis Terbaru</h2>
-          <div class="relative"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari pasien atau diagnosis..."></div>
+          <div class="flex gap-2">
+            <div class="relative flex-1"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari pasien atau diagnosis..."></div>
+            <button @click="pickOpen=true; pickSearch=''" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</button>
+          </div>
+        </div>
+
+        <!-- Pilih pasien untuk kunjungan baru -->
+        <div x-show="pickOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @click.self="pickOpen=false">
+          <div class="bg-white rounded-3xl w-full max-w-md p-5 max-h-[85vh] flex flex-col">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-semibold text-gray-800">Pilih Pasien</h3>
+              <button @click="pickOpen=false" class="text-gray-400 hover:text-gray-700"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <input type="text" x-model="pickSearch" placeholder="Cari nama / No. RM / NIK..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 mb-3">
+            <div class="overflow-y-auto flex-1 space-y-1">
+              <template x-for="p in pickList" :key="p.id">
+                <button @click="goNew(p.id)" class="w-full text-left px-3 py-2.5 rounded-xl hover:bg-teal-50 border border-gray-100 transition flex items-center justify-between gap-2">
+                  <span class="text-sm font-medium text-gray-800 truncate" x-text="p.full_name"></span>
+                  <span class="text-xs text-gray-400 flex-shrink-0" x-text="p.rm_number ? 'RM '+p.rm_number : ''"></span>
+                </button>
+              </template>
+              <template x-if="pickList.length===0"><p class="text-center text-gray-400 text-sm py-6">Pasien tidak ditemukan</p></template>
+            </div>
+          </div>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           <div class="divide-y divide-gray-50">
@@ -1011,14 +1039,14 @@ export function doctorRecords() {
               const patient = store.getPatient(r.patient_id);
               const pName = patient?.full_name || 'N/A';
               const searchStr = (pName + ' ' + (r.diagnosis||'')).toLowerCase();
-              return `<template x-if="!search || '${searchStr}'.includes(search.toLowerCase())">
+              return `<template x-if="!search || '${qAttr(searchStr)}'.includes(search.toLowerCase())">
                 <div class="p-4 hover:bg-gray-50 transition">
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3">
                       <div class="w-10 h-10 rounded-lg ${r.visit_type === 'vaccination' ? 'bg-purple-50' : 'bg-teal-50'} flex items-center justify-center"><span class="text-lg">${r.visit_type === 'vaccination' ? '💉' : '🏥'}</span></div>
                       <div>
-                        <p class="font-medium text-gray-800 text-sm">${pName}</p>
-                        <p class="text-xs text-gray-500">${formatDate(r.visit_date)} — ${r.diagnosis || 'N/A'}${r.location ? ' — '+r.location : ''}</p>
+                        <p class="font-medium text-gray-800 text-sm">${escHtml(pName)}</p>
+                        <p class="text-xs text-gray-500">${formatDate(r.visit_date)} — ${escHtml(r.diagnosis || 'N/A')}${r.location ? ' — '+escHtml(r.location) : ''}</p>
                       </div>
                     </div>
                     <div class="flex items-center gap-2">
