@@ -11,6 +11,7 @@ import { verifyPage } from './pages/verify.js';
 import { konfirmasiPage } from './pages/konfirmasi.js';
 import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pages/landing.js';
 import { issueSKD, printSKDById, renderSKDInto, SKD_LOADING_DOC } from './skd.js';
+import { editSKD } from './skdedit.js';
 import { waHref, waProspekMsg } from './wa.js';
 
 window.__store = store;
@@ -18,6 +19,7 @@ window.adminUsersData = adminUsersData;
 window.__issueSKD = issueSKD;
 window.__generateSKD = issueSKD; // backward-compatible alias
 window.__printSKD = printSKDById;
+window.__editSKD = editSKD;
 window.__renderSKDInto = renderSKDInto;
 window.__skdLoadingDoc = SKD_LOADING_DOC;
 window.__logWaReminder = (table, id) => store.logWaReminder(table, id);

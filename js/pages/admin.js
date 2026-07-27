@@ -1034,7 +1034,10 @@ export function adminPatientDetail(params) {
                 <p class="text-xs text-gray-500" x-text="'Dokter: '+(s.doctor_name||'-')"></p>
                 <p class="text-xs text-red-500" x-show="skdStatus(s)==='rejected' && s.details && s.details.approval && s.details.approval.reject_reason" x-text="'Alasan: '+(s.details && s.details.approval && s.details.approval.reject_reason)"></p>
               </div>
-              <button @click="reprintSKD(s.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition" x-text="skdStatus(s)==='approved' ? 'Cetak Ulang' : 'Lihat'"></button>
+              <div class="flex items-center gap-2">
+                <button @click="window.__editSKD(s.id, () => loadSKD())" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Edit</button>
+                <button @click="reprintSKD(s.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition" x-text="skdStatus(s)==='approved' ? 'Cetak Ulang' : 'Lihat'"></button>
+              </div>
             </div>
           </template>
         </div>

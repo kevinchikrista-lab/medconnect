@@ -387,8 +387,11 @@ export function doctorEMR(params) {
       this.labOpen = false; this.resetLab(); this.loadLab();
     },
     async viewLabFile(fp) { const url = await window.__store.getLabFileUrl(fp); if (url) window.open(url, '_blank'); else alert('Berkas tidak tersedia atau penyimpanan belum diaktifkan.'); },
-    async delLab(item) { if (!confirm('Hapus hasil penunjang ini?')) return; await window.__store.deleteLabResult(item.id, item.file_path); this.loadLab(); }
-  }" x-init="loadLab(); if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
+    async delLab(item) { if (!confirm('Hapus hasil penunjang ini?')) return; await window.__store.deleteLabResult(item.id, item.file_path); this.loadLab(); },
+    skdList: [], skdLoading: true,
+    async loadSKD() { try { this.skdList = await window.__store.getSKDForPatient('${patient.id}'); } catch(e) { this.skdList = []; } this.skdLoading = false; },
+    skdStat(s) { return (s.details && s.details.approval && s.details.approval.status) || 'approved'; }
+  }" x-init="loadLab(); loadSKD(); if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -414,6 +417,7 @@ export function doctorEMR(params) {
           <button @click="activeTab='records'" :class="activeTab==='records' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Rekam Medis (${records.length})</button>
           <button @click="activeTab='vaccinations'" :class="activeTab==='vaccinations' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Vaksinasi (${vaccinations.length})</button>
           <button @click="activeTab='penunjang'" :class="activeTab==='penunjang' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Penunjang (<span x-text="labList.length"></span>)</button>
+          <button @click="activeTab='surat'" :class="activeTab==='surat' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Surat (<span x-text="skdList.length"></span>)</button>
           <span class="ml-auto flex items-center">${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp', { patientId: patient.id })}</span>
           <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition">Surat Keterangan</button>
           <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
@@ -632,6 +636,33 @@ export function doctorEMR(params) {
                 </div>
                 <p x-show="item.interpretation" class="mt-2 text-sm text-gray-700"><span class="font-semibold">Kesan/Interpretasi:</span> <span x-text="item.interpretation"></span></p>
                 <p x-show="item.notes" class="mt-1 text-xs text-gray-500" x-text="'Catatan: '+item.notes"></p>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- SURAT KETERANGAN (daftar + edit) -->
+        <div x-show="activeTab==='surat'" x-cloak>
+          <div class="flex justify-end mb-3">
+            <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
+          </div>
+          <div x-show="skdLoading" class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Memuat surat...</div>
+          <template x-if="!skdLoading && skdList.length===0"><div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Belum ada surat keterangan untuk pasien ini.</div></template>
+          <div class="space-y-2">
+            <template x-for="s in skdList" :key="s.id">
+              <div class="bg-white border border-slate-100 rounded-2xl p-3 flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="((s.perihal||'')==='SEHAT')?'bg-teal-100 text-teal-700':'bg-amber-100 text-amber-700'" x-text="'Surat '+((s.perihal||'').charAt(0)+(s.perihal||'').slice(1).toLowerCase())"></span>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="{ 'bg-green-100 text-green-700': skdStat(s)==='approved', 'bg-orange-100 text-orange-700': skdStat(s)==='pending', 'bg-red-100 text-red-700': skdStat(s)==='rejected' }" x-text="({ approved:'Sah', pending:'Menunggu ACC', rejected:'Ditolak' })[skdStat(s)]"></span>
+                  </div>
+                  <p class="text-sm font-medium text-gray-800 mt-1" x-text="'No. '+s.cert_number"></p>
+                  <p class="text-xs text-gray-500" x-text="'Dokter: '+(s.doctor_name||'-')"></p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button @click="window.__editSKD(s.id, () => loadSKD())" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Edit</button>
+                  <button @click="window.__printSKD(s.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition" x-text="skdStat(s)==='approved' ? 'Cetak Ulang' : 'Lihat'"></button>
+                </div>
               </div>
             </template>
           </div>
