@@ -683,6 +683,53 @@ class Store {
     return { success: true, patientId };
   }
 
+  // ---- Stok Opening (import Excel harian) ---------------------------------
+  async addStockOpening(data) {
+    const payload = {
+      opening_date: data.opening_date, filename: data.filename || '',
+      columns: data.columns || [], rows: data.rows || [],
+      name_col: data.name_col || '', stock_col: data.stock_col || '',
+      low_threshold: data.low_threshold || 0, item_count: data.item_count || 0, low_count: data.low_count || 0,
+    };
+    const cur = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    if (cur && cur.id && !String(cur.id).startsWith('id_')) payload.uploaded_by = cur.id;
+    if (CONFIG.DEMO_MODE) {
+      const rec = { id: generateId(), ...payload, created_at: new Date().toISOString() };
+      if (!this.data.stock_openings) this.data.stock_openings = [];
+      this.data.stock_openings.unshift(rec); this._save();
+      return { success: true, item: rec };
+    }
+    const inserted = await supabase.insert('stock_openings', payload);
+    if (inserted && inserted.error) return { error: inserted.error };
+    return { success: true, item: inserted || null };
+  }
+
+  // List = metadata only (never fetch the big rows JSONB for the list view).
+  async getStockOpenings() {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('stock_openings', { select: 'id,opening_date,filename,item_count,low_count,created_at', order: 'opening_date.desc', limit: 120 });
+        if (Array.isArray(rows)) return rows;
+      } catch (e) { /* fall through */ }
+    }
+    return (this.data.stock_openings || []).map(s => ({ id: s.id, opening_date: s.opening_date, filename: s.filename, item_count: s.item_count, low_count: s.low_count, created_at: s.created_at }))
+      .sort((a, b) => (b.opening_date || '').localeCompare(a.opening_date || ''));
+  }
+
+  async getStockOpeningById(id) {
+    if (!CONFIG.DEMO_MODE) {
+      try { const rows = await supabase.select('stock_openings', { eq: { id }, limit: 1 }); if (Array.isArray(rows) && rows[0]) return rows[0]; } catch (e) { /* fall through */ }
+    }
+    return (this.data.stock_openings || []).find(s => s.id === id) || null;
+  }
+
+  async deleteStockOpening(id) {
+    this.data.stock_openings = (this.data.stock_openings || []).filter(s => s.id !== id);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) await supabase.delete('stock_openings', id).catch(() => {});
+    return { success: true };
+  }
+
   async addLabResult(data, file) {
     let file_path = '', file_name = '';
     if (file) {

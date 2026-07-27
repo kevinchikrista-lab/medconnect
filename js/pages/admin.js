@@ -4,6 +4,7 @@ import { supabase } from '../supabase.js';
 import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 import { waHref, waKontrolMsg, waButton, waSapaMsg, waMsgB64 } from '../wa.js';
 import { crmSetup, crmXData, crmBody } from './crm.js';
+import { stockXData, stockBody } from './stock.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -1189,6 +1190,19 @@ export function adminCrm() {
   </div>`;
 }
 
+export function adminStock() {
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, ${stockXData()} }" x-init="loadList()" class="min-h-screen bg-wash">
+    ${adminSidebar('stock')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-7xl mx-auto">
+        ${stockBody()}
+      </main>
+    </div>
+  </div>`;
+}
+
 function adminSidebar(active) {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const items = [
@@ -1201,6 +1215,7 @@ function adminSidebar(active) {
     { id: 'calendar', label: 'Kalender', icon: 'event' },
     { id: 'consultations', label: 'Riwayat Konsultasi', icon: 'forum' },
     { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/admin/crm' },
+    { id: 'stock', label: 'Stok Opening', icon: 'inventory_2', href: '#/admin/stock' },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/admin/homecare/history' },
     { id: 'bugs', label: 'Laporan Bug', icon: 'bug_report', href: '#/admin/bugs' },
   ].map(i => ({ ...i, href: i.href || `#/admin/${i.id === 'dashboard' ? 'dashboard' : i.id}` }));

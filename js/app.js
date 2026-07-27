@@ -2,7 +2,7 @@ import { router } from './router.js';
 import { store } from './store.js';
 import { CONFIG } from './config.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
-import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm } from './pages/admin.js';
+import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock } from './pages/admin.js';
 import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
@@ -26,6 +26,17 @@ window.__logWaReminder = (table, id) => store.logWaReminder(table, id);
 window.__rerender = () => { try { router.resolve(); } catch (e) {} };
 window.__waHref = waHref;
 window.__crmWaMsg = waProspekMsg;
+
+// Load the SheetJS (xlsx) reader on demand from the same CDN Alpine uses, so the
+// stock-upload page can parse Excel without bundling anything.
+window.__loadXLSX = () => new Promise((resolve, reject) => {
+  if (window.XLSX) return resolve(window.XLSX);
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+  s.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error('Pembaca Excel tidak termuat'));
+  s.onerror = () => reject(new Error('Gagal memuat pembaca Excel (butuh internet)'));
+  document.head.appendChild(s);
+});
 
 // No phone on file: prompt for the WhatsApp number, save it to the patient, then
 // open WhatsApp with the pre-composed message — all from one click. Opens the
@@ -206,6 +217,7 @@ router.add('/admin/users', () => render(adminUsers));
 router.add('/admin/patients', () => render(adminPatients));
 router.add('/admin/bugs', () => render(adminBugs));
 router.add('/admin/crm', () => render(adminCrm));
+router.add('/admin/stock', () => render(adminStock));
 router.add('/admin/patients/:patientId', (p) => render(adminPatientDetail, p));
 router.add('/admin/services', () => render(adminServices));
 router.add('/admin/articles', () => render(adminArticles));
