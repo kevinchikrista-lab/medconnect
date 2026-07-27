@@ -808,10 +808,10 @@ export function doctorEMRNew(params) {
             window.__store.createRecord({patient_id:'${patient.id}', doctor_id:'${doc?.id}', visit_type:'vaccination', visit_date: self.visitDate, location:vd.location, anamnesis:'Vaksinasi '+vd.vaccine_name+' '+vd.vaccine_brand+modeLabel, diagnosis:'Vaksinasi '+vd.vaccine_name, therapy:'Pemberian vaksin '+vd.vaccine_brand+modeLabel, vital_signs:self.form.vital_signs, follow_up_date:followDate, follow_up_notes:vd.vax_mode==='booster'?'Booster berikutnya':'Vaksin dosis berikutnya', notes:'Batch: '+vd.batch_number });
           }
         }
-        // Only offer "Buat E-Resep" with a real synced UUID. If the record
-        // insert didn't reach the server (still an 'id_...' placeholder, e.g.
+        // Only offer the E-Resep shortcut with a real synced UUID. If the record
+        // insert did not reach the server (still an id- placeholder, e.g.
         // offline), fall back to the EMR list — creating a prescription with a
-        // placeholder record_id would be rejected by Supabase's UUID column.
+        // placeholder record_id would be rejected by Supabase UUID column.
         const savedId = result && result.id ? String(result.id) : '';
         self.saving = false; self.saved = true; self.savedRecordId = savedId && !savedId.startsWith('id_') ? savedId : null;
       }, 400);
