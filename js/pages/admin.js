@@ -270,7 +270,7 @@ export function adminUsersData() {
           }
           await window.__store.loadFromSupabase();
           this.createMsg = hasEmail ? 'User berhasil dibuat! (tersimpan di cloud)' : 'Akun dibuat tanpa email — belum bisa login. Tambahkan email lewat tombol "Email" pada baris user untuk mengaktifkan login.';
-        } catch(e) { this.createMsg = 'Error: ' + e.message; }
+        } catch(e) { this.createMsg = 'Error: ' + e.message; this.creating = false; return; }
       } else {
         const result = store.createUser({ ...this.newUser, name: this.newUser.full_name });
         if (result.error) { this.createMsg = result.error; this.creating = false; return; }
@@ -278,6 +278,10 @@ export function adminUsersData() {
       }
       this.creating = false;
       this.newUser = { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', license_no: '', address: '' };
+      // filteredUsers reads from `store` directly (not an Alpine-reactive proxy),
+      // so the list won't refresh on its own after a create — force a re-render.
+      window.__showToast && window.__showToast('Tersimpan', this.createMsg);
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
     },
     async saveEmail() {
       this.editMsg = '';
