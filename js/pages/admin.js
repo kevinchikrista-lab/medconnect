@@ -939,8 +939,25 @@ export function adminHomeCareEdit(params) {
 export function adminPatients() {
   const patients = store.getPatients();
   const q = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
+  // Editable snapshot keyed by id — the modal looks patients up by id (safe:
+  // no free-text embedded in attributes), same pattern as the doctor panel.
+  window.__patientsForEdit = patients.map(p => ({ id: p.id, full_name: p.full_name || '', nik: p.nik || '', birth_date: p.birth_date || '', gender: p.gender || '', phone: p.phone || '', address: p.address || '', blood_type: p.blood_type || '', allergies: p.allergies || '' }));
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '' }" class="min-h-screen bg-wash">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, search: '',
+    editPatient: null, savingEdit: false, editMsg: '',
+    startEdit(id) { const p = (window.__patientsForEdit||[]).find(x=>x.id===id); this.editPatient = p ? JSON.parse(JSON.stringify(p)) : null; this.editMsg=''; },
+    async saveEdit() {
+      if (!this.editPatient || !this.editPatient.full_name.trim()) { this.editMsg='Nama lengkap wajib diisi.'; return; }
+      this.savingEdit = true;
+      const r = await window.__store.updatePatientProfile(this.editPatient.id, this.editPatient);
+      this.savingEdit = false;
+      if (r && r.error) { this.editMsg = r.error; return; }
+      const g = (window.__patientsForEdit||[]).find(x=>x.id===this.editPatient.id); if (g) Object.assign(g, this.editPatient);
+      this.editPatient = null;
+      window.__showToast && window.__showToast('Tersimpan', 'Data pasien diperbarui.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 150);
+    }
+  }" class="min-h-screen bg-wash">
     ${adminSidebar('patients')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${adminHeader()}
@@ -960,11 +977,40 @@ export function adminPatients() {
                   <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.rm_number || '-'}</td>
                   <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${p.nik || '-'}</td>
                   <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${p.phone || '-'}</td>
-                  <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/admin/patients/${p.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Lihat Rekam Medis</a>${waButton(p.phone, waSapaMsg(p.full_name), 'WA', { patientId: p.id })}</div></td>
+                  <td class="px-4 py-3"><div class="flex gap-1 items-center flex-wrap"><a href="#/admin/patients/${p.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Lihat Rekam Medis</a><button @click="startEdit('${p.id}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Edit</button>${waButton(p.phone, waSapaMsg(p.full_name), 'WA', { patientId: p.id })}</div></td>
                 </tr>
               </template>`).join('')}
             </tbody>
           </table></div>
+        </div>
+
+        <!-- Modal Edit Data Pasien -->
+        <div x-show="editPatient" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @click.self="editPatient=null">
+          <div class="bg-white rounded-3xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold text-gray-800">Edit Data Pasien</h3>
+              <button @click="editPatient=null" class="text-gray-400 hover:text-gray-700"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <template x-if="editPatient">
+              <div>
+                <div x-show="editMsg" class="mb-3 p-2 rounded-lg bg-red-50 text-red-700 text-sm" x-text="editMsg"></div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label><input type="text" x-model="editPatient.full_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">NIK</label><input type="text" x-model="editPatient.nik" maxlength="16" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label><input type="date" x-model="editPatient.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label><select x-model="editPatient.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option><option>Laki-laki</option><option>Perempuan</option></select></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Telepon</label><input type="tel" x-model="editPatient.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="editPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="editPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Alergi</label><input type="text" x-model="editPatient.allergies" placeholder="- bila tidak ada" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                </div>
+                <div class="flex gap-2 mt-5">
+                  <button @click="saveEdit()" :disabled="savingEdit" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-text="savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'"></span></button>
+                  <button @click="editPatient=null" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
       </main>
     </div>
@@ -1003,6 +1049,18 @@ export function adminPatientDetail(params) {
       this.skdOpen = false;
       if (cert) this.skdList.unshift(cert);
       alert('Draft surat dibuat & dikirim ke ' + doc.full_name + ' untuk persetujuan (ACC).\\n\\nSurat baru SAH setelah dokter menyetujui. Sementara ini yang tercetak adalah draft bertanda air.');
+    },
+    editOpen: false, savingEdit: false, editMsg: '',
+    editPatient: { full_name: '${q(patient.full_name)}', nik: '${q(patient.nik||'')}', birth_date: '${patient.birth_date || ''}', gender: '${q(patient.gender||'')}', phone: '${q(patient.phone||'')}', address: '${q(patient.address||'')}', blood_type: '${q(patient.blood_type||'')}', allergies: '${q(patient.allergies||'')}' },
+    async saveEditPatient() {
+      if (!this.editPatient.full_name.trim()) { this.editMsg='Nama lengkap wajib diisi.'; return; }
+      this.savingEdit = true;
+      const r = await window.__store.updatePatientProfile('${patient.id}', this.editPatient);
+      this.savingEdit = false;
+      if (r && r.error) { this.editMsg = r.error; return; }
+      this.editOpen = false;
+      window.__showToast && window.__showToast('Tersimpan', 'Data pasien diperbarui.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 150);
     }
   }" x-init="loadSKD()" class="min-h-screen bg-wash">
     ${adminSidebar('patients')}
@@ -1020,7 +1078,33 @@ export function adminPatientDetail(params) {
           </div>
           <div class="flex items-center gap-2 self-start lg:self-auto">
             ${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp', { patientId: patient.id })}
+            <button @click="editOpen=true; editMsg=''" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Edit Data</button>
             <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
+          </div>
+        </div>
+
+        <!-- Modal Edit Data Pasien -->
+        <div x-show="editOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @click.self="editOpen=false">
+          <div class="bg-white rounded-3xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-semibold text-gray-800">Edit Data Pasien</h3>
+              <button @click="editOpen=false" class="text-gray-400 hover:text-gray-700"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <div x-show="editMsg" class="mb-3 p-2 rounded-lg bg-red-50 text-red-700 text-sm" x-text="editMsg"></div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label><input type="text" x-model="editPatient.full_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">NIK</label><input type="text" x-model="editPatient.nik" maxlength="16" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label><input type="date" x-model="editPatient.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label><select x-model="editPatient.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option><option>Laki-laki</option><option>Perempuan</option></select></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Telepon</label><input type="tel" x-model="editPatient.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="editPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="editPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Alergi</label><input type="text" x-model="editPatient.allergies" placeholder="- bila tidak ada" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+            </div>
+            <div class="flex gap-2 mt-5">
+              <button @click="saveEditPatient()" :disabled="savingEdit" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-text="savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'"></span></button>
+              <button @click="editOpen=false" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button>
+            </div>
           </div>
         </div>
 
