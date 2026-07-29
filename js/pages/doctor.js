@@ -271,7 +271,7 @@ export function doctorPatients() {
         <div x-show="showNewForm" x-cloak x-data="{ saving: false, msg: '', msgErr: false }" class="bg-white border border-slate-100 rounded-3xl p-6 mb-6">
           <h3 class="font-semibold text-gray-800 mb-4">Registrasi Pasien Baru</h3>
           <div x-show="msg" x-cloak class="mb-3 p-2 rounded-lg text-sm" :class="msgErr ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'" x-text="msg"></div>
-          <form @submit.prevent="async function doReg(){saving=true; msg=''; msgErr=false; try{ const hadEmail=!!(newPatient.email&&newPatient.email.trim()); const r=await window.__store.register({...newPatient}); if(r&&r.error){msg=r.error; msgErr=true}else{msg=hadEmail?'Pasien berhasil didaftarkan! (tersimpan di cloud)':'Pasien didaftarkan tanpa email — rekam medis & resep tetap bisa dibuat. Untuk login pasien, admin bisa menambahkan email nanti.'; msgErr=false; newPatient={full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123'}} }catch(e){ msg='Terjadi kesalahan tak terduga: '+(e&&e.message?e.message:e); msgErr=true }finally{ saving=false } }; doReg()">
+          <form @submit.prevent="async function doReg(){saving=true; msg=''; msgErr=false; try{ const hadEmail=!!(newPatient.email&&newPatient.email.trim()); const r=await window.__store.register({...newPatient}); if(r&&r.error){msg=r.error; msgErr=true}else{ window.__showToast&&window.__showToast('Pasien tersimpan', hadEmail?'Pasien berhasil didaftarkan (tersimpan di cloud).':'Pasien didaftarkan tanpa email. Admin bisa menambahkan email nanti untuk login.'); newPatient={full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123'}; showNewForm=false; setTimeout(function(){ window.__rerender&&window.__rerender() }, 200) } }catch(e){ msg='Terjadi kesalahan tak terduga: '+(e&&e.message?e.message:e); msgErr=true }finally{ saving=false } }; doReg()">
             <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
               <div><label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label><input type="text" x-model="newPatient.full_name" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">NIK <span class="text-gray-400">(opsional)</span></label><input type="text" x-model="newPatient.nik" maxlength="16" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
@@ -1168,6 +1168,26 @@ export function doctorPrescriptionNew(params) {
       return this.allergyTerms.find(t => hay.includes(t)) || '';
     },
     get allergyConflicts() { return this.items.map((it,i)=>({i, term: this.drugAllergyHit(it)})).filter(x=>x.term); },
+    copyOpen: false, copyLoading: false, copyList: [],
+    openCopy() {
+      this.copyOpen = true; this.copyLoading = true;
+      const list = window.__store.getPrescriptionsByPatient('${patient.id}') || [];
+      this.copyList = list.map(function(rx) {
+        const its = window.__store.getPrescriptionItems(rx.id) || [];
+        return { id: rx.id, rx_number: rx.rx_number, created_at: rx.created_at, summary: its.map(function(i){ return i.drug_name; }).filter(Boolean).join(', ') };
+      });
+      this.copyLoading = false;
+    },
+    useCopy(rxId) {
+      const its = window.__store.getPrescriptionItems(rxId) || [];
+      if (!its.length) { alert('Resep ini tidak memiliki data obat untuk disalin.'); return; }
+      this.items = its.map(function(i) {
+        return { drug_name: i.drug_name || '', dosage: i.dosage || '', quantity: i.quantity || '', unit: i.unit || 'Tablet', frequency: i.frequency || '3 x 1', time: i.time || 'Sesudah makan (PC)', duration: i.duration || '', instructions: i.instructions || '', is_compound: !!i.is_compound, compound_details: i.compound_details || '', display_name: i.display_name || '' };
+      });
+      this.copyOpen = false;
+      window.__showToast && window.__showToast('Disalin', its.length + ' obat disalin dari resep lama. Sesuaikan bila perlu lalu kirim.');
+    },
+    fmtRxDate(d) { if (!d) return '-'; const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); },
     async send() {
       if (this.allergyConflicts.length && !confirm('PERINGATAN ALERGI\\n\\nAda obat yang cocok dengan alergi pasien (' + this.allergyConflicts.map(c=>'R/'+(c.i+1)+': '+c.term).join(', ') + ').\\n\\nTetap kirim resep ini?')) return;
       this.sending = true; this.error = '';
@@ -1188,7 +1208,29 @@ export function doctorPrescriptionNew(params) {
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold text-gray-800">Buat E-Resep</h2>
           <div class="flex gap-2">
+            <button @click="openCopy()" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Salin dari Resep Lama</button>
             <button @click="send()" :disabled="sending || sent || items.some(i=>!i.drug_name) || (delivery_method==='delivery' && !delivery_address.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
+          </div>
+        </div>
+
+        <!-- Modal: pilih resep lama untuk disalin -->
+        <div x-show="copyOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @click.self="copyOpen=false">
+          <div class="bg-white rounded-3xl w-full max-w-lg p-5 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-semibold text-gray-800">Salin dari Resep Lama</h3>
+              <button @click="copyOpen=false" class="text-gray-400 hover:text-gray-700"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <p class="text-xs text-gray-500 mb-3">Obat pada resep terpilih akan disalin ke form ini (tanggal kunjungan tetap hari ini). Anda bisa menyesuaikan sebelum mengirim.</p>
+            <div x-show="copyLoading" class="text-center text-gray-400 text-sm py-6">Memuat riwayat resep...</div>
+            <template x-if="!copyLoading && copyList.length===0"><p class="text-center text-gray-400 text-sm py-6">Pasien ini belum punya riwayat resep.</p></template>
+            <div class="overflow-y-auto space-y-2">
+              <template x-for="rx in copyList" :key="rx.id">
+                <button @click="useCopy(rx.id)" class="w-full text-left px-3 py-2.5 rounded-xl border border-gray-100 hover:bg-teal-50 hover:border-teal-200 transition">
+                  <div class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-gray-800" x-text="fmtRxDate(rx.created_at)"></span><span class="text-xs text-gray-400" x-text="rx.rx_number"></span></div>
+                  <p class="text-xs text-gray-500 mt-0.5 line-clamp-2" x-text="rx.summary || '(tanpa detail obat)'"></p>
+                </button>
+              </template>
+            </div>
           </div>
         </div>
         <div x-show="error" x-cloak class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium" x-text="error"></div>
@@ -1199,6 +1241,7 @@ export function doctorPrescriptionNew(params) {
             <div><span class="text-gray-500">Pasien:</span><p class="font-medium text-gray-800">${patient.full_name}</p></div>
             <div><span class="text-gray-500">Umur:</span><p class="font-medium text-gray-800">${age !== null ? age + ' tahun' : '-'}</p></div>
             <div><span class="text-gray-500">No. HP:</span><p class="font-medium text-gray-800">${patient.phone || '-'}</p></div>
+            <div><span class="text-gray-500">Tanggal Kunjungan:</span><p class="font-medium text-gray-800">${formatDate(record.visit_date)}</p></div>
             <div><span class="text-gray-500">Diagnosis:</span><p class="font-medium text-gray-800">${record.diagnosis}</p></div>
             <div class="col-span-2 lg:col-span-4"><span class="text-gray-500">Alergi:</span> <span class="font-semibold ${patient.allergies && patient.allergies !== '-' ? 'text-red-600' : 'text-gray-800'}">${patient.allergies || '-'}</span></div>
           </div>
