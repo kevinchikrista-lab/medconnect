@@ -268,10 +268,10 @@ export function doctorPatients() {
             <button @click="showNewForm = !showNewForm" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Pasien Baru</button>
           </div>
         </div>
-        <div x-show="showNewForm" x-cloak x-data="{ saving: false, msg: '' }" class="bg-white border border-slate-100 rounded-3xl p-6 mb-6">
+        <div x-show="showNewForm" x-cloak x-data="{ saving: false, msg: '', msgErr: false }" class="bg-white border border-slate-100 rounded-3xl p-6 mb-6">
           <h3 class="font-semibold text-gray-800 mb-4">Registrasi Pasien Baru</h3>
-          <div x-show="msg" class="mb-3 p-2 rounded-lg bg-green-50 text-green-700 text-sm" x-text="msg"></div>
-          <form @submit.prevent="async function doReg(){saving=true; const hadEmail=!!(newPatient.email&&newPatient.email.trim()); const r=await window.__store.register({...newPatient}); if(r.error){msg=r.error}else{msg=hadEmail?'Pasien berhasil didaftarkan! (tersimpan di cloud)':'Pasien didaftarkan tanpa email — rekam medis & resep tetap bisa dibuat. Untuk login pasien, admin bisa menambahkan email nanti.'; newPatient={full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123'}}; saving=false}; doReg()">
+          <div x-show="msg" x-cloak class="mb-3 p-2 rounded-lg text-sm" :class="msgErr ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'" x-text="msg"></div>
+          <form @submit.prevent="async function doReg(){saving=true; msg=''; msgErr=false; try{ const hadEmail=!!(newPatient.email&&newPatient.email.trim()); const r=await window.__store.register({...newPatient}); if(r&&r.error){msg=r.error; msgErr=true}else{msg=hadEmail?'Pasien berhasil didaftarkan! (tersimpan di cloud)':'Pasien didaftarkan tanpa email — rekam medis & resep tetap bisa dibuat. Untuk login pasien, admin bisa menambahkan email nanti.'; msgErr=false; newPatient={full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123'}} }catch(e){ msg='Terjadi kesalahan tak terduga: '+(e&&e.message?e.message:e); msgErr=true }finally{ saving=false } }; doReg()">
             <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
               <div><label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label><input type="text" x-model="newPatient.full_name" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">NIK <span class="text-gray-400">(opsional)</span></label><input type="text" x-model="newPatient.nik" maxlength="16" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
@@ -282,7 +282,7 @@ export function doctorPatients() {
               <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="newPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
             </div>
-            <div class="flex gap-2"><button type="submit" :disabled="saving" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Simpan</button><button type="button" @click="showNewForm=false" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button></div>
+            <div class="flex gap-2"><button type="submit" :disabled="saving" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-text="saving ? 'Menyimpan...' : 'Simpan'"></span></button><button type="button" @click="showNewForm=false" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button></div>
           </form>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
