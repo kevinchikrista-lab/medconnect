@@ -525,7 +525,7 @@ export function adminArticles() {
               <div class="flex gap-1 mt-3 pt-3 border-t border-gray-100">
                 <button onclick="Alpine.$data(document.querySelector('[x-data]')).openEdit(${JSON.stringify(a).replace(/"/g,'&quot;')})" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit</button>
                 <button onclick="window.__store.toggleArticlePublished('${a.id}'); window.location.hash='/admin/dashboard'; setTimeout(()=>window.location.hash='/admin/articles',50)" class="px-2 py-1 rounded text-xs font-medium ${a.is_published ? 'text-red-600 bg-red-50 hover:bg-red-100' : 'text-green-600 bg-green-50 hover:bg-green-100'} transition">${a.is_published ? 'Jadikan Draf' : 'Terbitkan'}</button>
-                <button onclick="if(confirm('Hapus artikel ${(a.title||'').replace(/'/g,"\\'")}?')){window.__store.deleteArticle('${a.id}'); window.location.hash='/admin/dashboard'; setTimeout(()=>window.location.hash='/admin/articles',50)}" class="px-2 py-1 rounded text-xs font-medium text-gray-500 bg-gray-50 hover:bg-gray-100 transition">Hapus</button>
+                <button onclick="if(confirm('Hapus artikel ini?')){window.__store.deleteArticle('${a.id}'); window.location.hash='/admin/dashboard'; setTimeout(()=>window.location.hash='/admin/articles',50)}" class="px-2 py-1 rounded text-xs font-medium text-gray-500 bg-gray-50 hover:bg-gray-100 transition">Hapus</button>
               </div>
             </div>
           </div>`).join('')}

@@ -182,6 +182,7 @@ export function pharmacyPrescriptions() {
                   <p class="font-semibold text-sm text-gray-800">
                     <span x-text="rx.rx_number + ' — ' + patientName(rx.patient_id)"></span>
                     <template x-if="rx.delivery_method === 'delivery'"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 align-middle">🚚 Dikirim</span></template>
+                    <template x-if="rx.service_fee_enabled"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 align-middle">💰 Jasa Dokter</span></template>
                   </p>
                   <p class="text-xs text-gray-500"><span x-text="doctorName(rx.doctor_id) + ' | ' + formatDate((rx.created_at||'').split('T')[0]) + ' | ' + itemsFor(rx.id).length + ' obat'"></span></p>
                 </div>
@@ -221,6 +222,9 @@ export function pharmacyPrescriptions() {
                   </template>
                   <template x-if="rx.notes">
                     <div class="rounded-xl border border-amber-200 bg-amber-50 p-3"><p class="text-xs font-semibold text-amber-800 mb-1">Catatan untuk Apoteker</p><p class="text-sm text-amber-900 whitespace-pre-line leading-relaxed" x-text="(rx.notes||'').trim()"></p></div>
+                  </template>
+                  <template x-if="rx.service_fee_enabled">
+                    <div class="rounded-xl border border-green-200 bg-green-50 p-3 flex items-center justify-between"><p class="text-xs font-semibold text-green-800">💰 Jasa Dokter — mohon ditarik dari pasien</p><p class="text-sm font-bold text-green-900" x-text="'Rp ' + (rx.service_fee || 0).toLocaleString('id-ID')"></p></div>
                   </template>
                   <template x-if="rx.status === 'rejected' && rx.reject_reason">
                     <div class="rounded-xl border border-red-200 bg-red-50 p-3"><p class="text-xs font-semibold text-red-800 mb-1">Alasan Ditolak</p><p class="text-sm text-red-900 whitespace-pre-line leading-relaxed" x-text="(rx.reject_reason||'').trim()"></p></div>

@@ -9,6 +9,13 @@ function getPatient() {
 function getUser() { return JSON.parse(sessionStorage.getItem('medconnect_user')); }
 function formatDate(d) { if (!d) return '-'; return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); }
 function daysUntil(d) { if (!d) return null; const diff = Math.ceil((new Date(d) - new Date()) / (1000*60*60*24)); return diff; }
+// Escape for a single-quoted JS string sitting inside a (double-quoted) x-data
+// attribute — handles backslash, both quote types, and newlines. Without this,
+// a patient's own free-text field containing a quote breaks the whole page's
+// Alpine init.
+function qAttr(s) {
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
+}
 
 export function patientDashboard() {
   const patient = getPatient();
@@ -203,7 +210,7 @@ export function patientHistory() {
             const intervalMonths = doses[0]?.booster_interval_months || 12;
             const sortedDoses = [...doses].sort((a,b) => (b.date_given||'').localeCompare(a.date_given||''));
             const latestDose = sortedDoses[0];
-            const certBtn = `<button onclick="window.__generateVaxCert('${patient.id}','${name.replace(/'/g,"\\'")}')" class="px-2 py-1 rounded text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Sertifikat</button>`;
+            const certBtn = `<button onclick="window.__generateVaxCert('${patient.id}','${qAttr(name)}')" class="px-2 py-1 rounded text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Sertifikat</button>`;
 
             if (isBooster) {
               const intervalLabel = intervalMonths >= 12 ? (intervalMonths/12)+' tahun' : intervalMonths+' bulan';
@@ -379,16 +386,16 @@ export function patientBooking(params) {
       const self = this;
       setTimeout(function() {
         window.__store.createBooking({
-          patient_id: '${patient?.id}', patient_name: '${(patient?.full_name||'').replace(/'/g,"\\'")}',
-          service_id: '${service.id}', service_name: '${service.name.replace(/'/g,"\\'")}',
-          item_name: '${item.name.replace(/'/g,"\\'")}', price: ${item.price},
+          patient_id: '${patient?.id}', patient_name: '${qAttr(patient?.full_name)}',
+          service_id: '${service.id}', service_name: '${qAttr(service.name)}',
+          item_name: '${qAttr(item.name)}', price: ${item.price},
           preferred_date: self.preferred_date, preferred_time: self.preferred_time, notes: self.notes
         });
         self.submitting = false; self.submitted = true;
       }, 500);
     },
     waLink() {
-      const msg = encodeURIComponent('Halo Klinik Prima, saya ${(patient?.full_name||'').replace(/'/g,"\\'")} ingin mendaftar layanan ${item.name.replace(/'/g,"\\'")} pada tanggal ' + this.preferred_date + ' (' + this.preferred_time + '). Terima kasih.');
+      const msg = encodeURIComponent('Halo Klinik Prima, saya ${qAttr(patient?.full_name)} ingin mendaftar layanan ${qAttr(item.name)} pada tanggal ' + this.preferred_date + ' (' + this.preferred_time + '). Terima kasih.');
       return 'https://wa.me/${adminWA}?text=' + msg;
     }
   }">
@@ -452,7 +459,7 @@ export function patientProfile() {
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
     editing: false, saving: false, saved: false,
-    form: { phone:'${(patient?.phone||'').replace(/'/g,"\\'")}', address:'${(patient?.address||'').replace(/'/g,"\\'")}', emergency_contact:'${(patient?.emergency_contact||'').replace(/'/g,"\\'")}', allergies:'${(patient?.allergies||'').replace(/'/g,"\\'")}' },
+    form: { phone:'${qAttr(patient?.phone)}', address:'${qAttr(patient?.address)}', emergency_contact:'${qAttr(patient?.emergency_contact)}', allergies:'${qAttr(patient?.allergies)}' },
     saveProfile() {
       this.saving = true;
       const self = this;

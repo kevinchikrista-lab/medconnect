@@ -3,6 +3,13 @@
 // its own sidebar/header markup and role-scoped data, then delegates the
 // actual page body to the functions below.
 
+// Escape for a single-quoted JS string sitting inside a (double-quoted) x-data
+// attribute — handles backslash, both quote types, and newlines. Without this,
+// a patient name/note containing a quote breaks the whole page's Alpine init.
+function qAttr(s) {
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
+}
+
 export function homeCareNewPage(ctx) {
   const { role, sidebar, header, doctorId, doctors = [], patients = [], historyPath, claimId, existingClaim, existingItems } = ctx;
   const isEdit = !!claimId;
@@ -29,8 +36,8 @@ export function homeCareNewPage(ctx) {
     doctorId: '${existingClaim?.doctor_id || doctorId || ''}',
     patients: window.__homecarePatients || [],
     doctors: window.__homecareDoctors || [],
-    patientId: '${existingClaim?.patient_id || ''}', patientName: '${(existingClaim?.patient_name || '').replace(/'/g, "\\'")}', patientSearch: '${(existingClaim?.patient_name || '').replace(/'/g, "\\'")}', patientDropdownOpen: false,
-    notes: '${(existingClaim?.notes || '').replace(/'/g, "\\'")}', saving: false, saved: false, deleting: false,
+    patientId: '${existingClaim?.patient_id || ''}', patientName: '${qAttr(existingClaim?.patient_name)}', patientSearch: '${qAttr(existingClaim?.patient_name)}', patientDropdownOpen: false,
+    notes: '${qAttr(existingClaim?.notes)}', saving: false, saved: false, deleting: false,
     async loadPriceList() {
       this.loading = true;
       this.priceItems = await window.__store.getPriceList();
