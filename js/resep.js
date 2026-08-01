@@ -128,7 +128,7 @@ function writeResep(w, cert) {
   :root{ --ink:#111827; --muted:#6b7280; --rule:#d1d5db; --accent:#1c3980; }
   *{margin:0;padding:0;box-sizing:border-box}
   /* --s = faktor skala; semua ukuran ikut mengecil saat kertas lebih kecil. */
-  body{font-family:'Inter',sans-serif;background:#e5e7eb;padding:22px 16px;display:flex;flex-direction:column;align-items:center;color:var(--ink);--s:1;--pw:210mm;--ph:297mm;--pad:16mm 18mm}
+  body{font-family:'Inter',sans-serif;background:#e5e7eb;padding:84px 16px 28px;display:flex;flex-direction:column;align-items:center;color:var(--ink);--s:1;--pw:210mm;--ph:297mm;--pad:16mm 18mm}
   body[data-size="a5"]{--s:.78;--pw:148mm;--ph:210mm;--pad:9mm 11mm}
   body[data-size="a4-3"]{--s:.62;--pw:210mm;--ph:99mm;--pad:5mm 9mm}
   .page{width:var(--pw);min-height:var(--ph);background:white;padding:var(--pad);box-shadow:0 8px 28px rgba(0,0,0,.14);display:flex;flex-direction:column;position:relative}
@@ -168,8 +168,9 @@ function writeResep(w, cert) {
   .sign .name{font-size:calc(14px*var(--s));font-weight:800;text-decoration:underline;text-underline-offset:3px}
   .sign .sip{font-size:calc(11px*var(--s));color:#374151;margin-top:2px}
   .foot{margin-top:calc(10px*var(--s));padding-top:calc(7px*var(--s));border-top:1px solid var(--rule);font-size:calc(9.5px*var(--s));color:var(--muted);text-align:center;line-height:1.45}
-  /* Toolbar (tidak ikut tercetak) */
-  .bar{margin-top:18px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;font-family:Inter,sans-serif}
+  /* Toolbar menempel di atas layar supaya langsung terlihat tanpa scroll
+     (halaman A4 tingginya ~1100px, kalau toolbar di bawah pasti terlewat). */
+  .bar{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;font-family:Inter,sans-serif;background:#f8fafc;border-bottom:1px solid #cbd5e1;padding:12px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
   .bar span{font-size:12px;color:#4b5563;font-weight:600;margin-right:2px}
   .bar button{background:white;color:#374151;border:1px solid #cbd5e1;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif}
   .bar button.active{background:var(--accent);color:white;border-color:var(--accent)}
@@ -178,6 +179,13 @@ function writeResep(w, cert) {
   </style>
   <style id="pagesize">@page{size:210mm 297mm;margin:0}</style>
   </head><body>
+  <div class="bar no-print">
+    <span>Ukuran kertas:</span>
+    <button type="button" data-sz="a4">A4</button>
+    <button type="button" data-sz="a5">A5</button>
+    <button type="button" data-sz="a4-3">&#8531; A4 (strip)</button>
+    <button type="button" class="print" onclick="window.print()">Cetak / PDF</button>
+  </div>
   <div class="page">
     <div class="kop">
       <img src="${origin}/assets/logos/klinik-prima-logo.png" alt="Klinik Prima">
@@ -224,13 +232,6 @@ function writeResep(w, cert) {
     </div>
 
     <div class="foot">Dokumen ini diterbitkan secara digital oleh Klinik Prima melalui platform myprima.id &middot; No. ${esc(cert.cert_number)}</div>
-  </div>
-  <div class="bar no-print">
-    <span>Ukuran kertas:</span>
-    <button type="button" data-sz="a4">A4</button>
-    <button type="button" data-sz="a5">A5</button>
-    <button type="button" data-sz="a4-3">&#8531; A4 (strip)</button>
-    <button type="button" class="print" onclick="window.print()">Cetak / PDF</button>
   </div>
   <script>
     (function(){
