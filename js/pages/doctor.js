@@ -1272,7 +1272,7 @@ export function doctorPrescriptionNew(params) {
       this.sending = false;
       if (result.success) {
         this.sent = true;
-        if (isLuar) window.__showToast && window.__showToast('Resep luar dibuat', 'Klik "Cetak Resep" pada daftar untuk mencetak kertas resepnya.');
+        if (isLuar) window.__showToast && window.__showToast('Resep luar dibuat', 'Klik tombol Cetak Kertas Resep pada daftar untuk mencetaknya.');
         setTimeout(() => window.location.hash='/doctor/prescriptions', 1000);
       } else {
         this.error = result.error || 'Gagal menyimpan resep ke server. Coba lagi.';
