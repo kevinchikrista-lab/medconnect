@@ -127,49 +127,57 @@ function writeResep(w, cert) {
   <style>
   :root{ --ink:#111827; --muted:#6b7280; --rule:#d1d5db; --accent:#1c3980; }
   *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:'Inter',sans-serif;background:#e5e7eb;padding:28px 16px;display:flex;flex-direction:column;align-items:center;color:var(--ink)}
-  .page{width:210mm;min-height:297mm;background:white;padding:16mm 18mm;box-shadow:0 8px 28px rgba(0,0,0,.14);display:flex;flex-direction:column;position:relative}
-  .kop{display:flex;align-items:center;gap:16px;border-bottom:3px double var(--accent);padding-bottom:12px}
-  .kop img{height:20mm;width:auto;object-fit:contain}
+  /* --s = faktor skala; semua ukuran ikut mengecil saat kertas lebih kecil. */
+  body{font-family:'Inter',sans-serif;background:#e5e7eb;padding:22px 16px;display:flex;flex-direction:column;align-items:center;color:var(--ink);--s:1;--pw:210mm;--ph:297mm;--pad:16mm 18mm}
+  body[data-size="a5"]{--s:.78;--pw:148mm;--ph:210mm;--pad:9mm 11mm}
+  body[data-size="a4-3"]{--s:.62;--pw:210mm;--ph:99mm;--pad:5mm 9mm}
+  .page{width:var(--pw);min-height:var(--ph);background:white;padding:var(--pad);box-shadow:0 8px 28px rgba(0,0,0,.14);display:flex;flex-direction:column;position:relative}
+  .kop{display:flex;align-items:center;gap:calc(16px*var(--s));border-bottom:3px double var(--accent);padding-bottom:calc(12px*var(--s))}
+  .kop img{height:calc(20mm*var(--s));width:auto;object-fit:contain}
   .kop-text{flex:1;text-align:center}
-  .kop-name{font-size:19px;font-weight:800;color:var(--accent);letter-spacing:.02em;line-height:1.15}
-  .kop-sub{font-size:11px;font-weight:600;color:var(--muted);margin-top:1px}
-  .kop-addr{font-size:10.5px;color:#4b5563;margin-top:5px;line-height:1.5}
-  .doc-line{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:12px}
-  .doc-line b{font-size:13px}
-  .badge-luar{display:inline-block;margin-top:8px;padding:5px 12px;border-radius:6px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:11px;font-weight:700}
-  .ident{margin:14px 0 8px;border:1px solid var(--rule);border-radius:8px;padding:10px 12px;background:#f9fafb}
+  .kop-name{font-size:calc(19px*var(--s));font-weight:800;color:var(--accent);letter-spacing:.02em;line-height:1.15}
+  .kop-sub{font-size:calc(11px*var(--s));font-weight:600;color:var(--muted);margin-top:1px}
+  .kop-addr{font-size:calc(10.5px*var(--s));color:#4b5563;margin-top:calc(5px*var(--s));line-height:1.45}
+  .doc-line{display:flex;justify-content:space-between;align-items:baseline;margin-top:calc(10px*var(--s));font-size:calc(12px*var(--s))}
+  .doc-line b{font-size:calc(13px*var(--s))}
+  .badge-luar{display:inline-block;margin-top:calc(8px*var(--s));padding:calc(5px*var(--s)) calc(12px*var(--s));border-radius:6px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:calc(11px*var(--s));font-weight:700}
+  .ident{margin:calc(12px*var(--s)) 0 calc(8px*var(--s));border:1px solid var(--rule);border-radius:8px;padding:calc(9px*var(--s)) calc(12px*var(--s));background:#f9fafb}
   .ident table{border-collapse:collapse;width:100%}
-  .ident td{font-size:12.5px;padding:2px 0;vertical-align:top}
-  .ident td.k{width:30mm;color:#374151}
-  .ident td.s{width:5mm}
+  .ident td{font-size:calc(12.5px*var(--s));padding:calc(2px*var(--s)) 0;vertical-align:top}
+  .ident td.k{width:calc(30mm*var(--s));color:#374151}
+  .ident td.s{width:calc(5mm*var(--s))}
   .ident td.v{font-weight:600}
-  .rx-head{font-size:34px;font-weight:800;color:var(--accent);margin:14px 0 4px;line-height:1}
   .rx-list{flex:1}
-  .rx-item{margin:0 0 12px 6mm;padding-bottom:8px;border-bottom:1px dashed #e5e7eb}
-  .rx-line{display:flex;align-items:baseline;gap:8px}
-  .rx-mark{font-weight:800;color:var(--accent);font-size:15px;min-width:22px}
-  .rx-name{font-weight:700;font-size:14px;flex:1}
-  .rx-qty{font-size:13px;font-weight:600;white-space:nowrap}
-  .rx-sub{font-size:11.5px;color:#4b5563;margin:3px 0 0 30px;line-height:1.5}
-  .rx-sig{font-size:12.5px;font-style:italic;color:#374151;margin:3px 0 0 30px}
-  .notes{margin-top:6px;padding:8px 10px;border-radius:6px;background:#fffbeb;border:1px solid #fde68a;font-size:11.5px;color:#92400e}
-  .fee{margin-top:6px;padding:8px 10px;border-radius:6px;background:#f0fdf4;border:1px solid #bbf7d0;font-size:11.5px;color:#166534;font-weight:600}
-  .sign-row{display:flex;justify-content:space-between;align-items:flex-end;margin-top:18px;gap:20px}
-  .verify{display:flex;align-items:center;gap:10px;max-width:78mm}
-  .verify img{width:70px;height:70px;border:1px solid var(--rule);border-radius:6px;padding:4px;background:white}
-  .verify-t{font-size:9.5px;color:var(--muted);line-height:1.5}
-  .verify-t b{color:var(--ink);font-size:10.5px}
-  .sign{text-align:center;min-width:60mm}
-  .sign .place{font-size:12.5px;margin-bottom:2px}
-  .sign .role{font-size:12.5px;margin-bottom:8px}
-  .sign-space{height:20mm}
-  .sign .name{font-size:14px;font-weight:800;text-decoration:underline;text-underline-offset:3px}
-  .sign .sip{font-size:11px;color:#374151;margin-top:2px}
-  .foot{margin-top:12px;padding-top:8px;border-top:1px solid var(--rule);font-size:9.5px;color:var(--muted);text-align:center;line-height:1.5}
-  .print-btn{margin-top:20px;background:var(--accent);color:white;border:none;padding:12px 32px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif}
-  @media print{ @page{size:A4 portrait;margin:0} body{background:white;padding:0} .page{box-shadow:none;width:210mm} .no-print{display:none!important} }
-  </style></head><body>
+  .rx-item{margin:0 0 calc(11px*var(--s)) calc(6mm*var(--s));padding-bottom:calc(7px*var(--s));border-bottom:1px dashed #e5e7eb}
+  .rx-line{display:flex;align-items:baseline;gap:calc(8px*var(--s))}
+  .rx-mark{font-weight:800;color:var(--accent);font-size:calc(15px*var(--s));min-width:calc(22px*var(--s))}
+  .rx-name{font-weight:700;font-size:calc(14px*var(--s));flex:1}
+  .rx-qty{font-size:calc(13px*var(--s));font-weight:600;white-space:nowrap}
+  .rx-sub{font-size:calc(11.5px*var(--s));color:#4b5563;margin:3px 0 0 calc(30px*var(--s));line-height:1.45}
+  .rx-sig{font-size:calc(12.5px*var(--s));font-style:italic;color:#374151;margin:3px 0 0 calc(30px*var(--s))}
+  .notes{margin-top:calc(6px*var(--s));padding:calc(7px*var(--s)) calc(10px*var(--s));border-radius:6px;background:#fffbeb;border:1px solid #fde68a;font-size:calc(11.5px*var(--s));color:#92400e}
+  .fee{margin-top:calc(6px*var(--s));padding:calc(7px*var(--s)) calc(10px*var(--s));border-radius:6px;background:#f0fdf4;border:1px solid #bbf7d0;font-size:calc(11.5px*var(--s));color:#166534;font-weight:600}
+  .sign-row{display:flex;justify-content:space-between;align-items:flex-end;margin-top:calc(16px*var(--s));gap:calc(20px*var(--s))}
+  .verify{display:flex;align-items:center;gap:calc(10px*var(--s));max-width:78mm}
+  .verify img{width:calc(70px*var(--s));height:calc(70px*var(--s));border:1px solid var(--rule);border-radius:6px;padding:calc(4px*var(--s));background:white}
+  .verify-t{font-size:calc(9.5px*var(--s));color:var(--muted);line-height:1.45}
+  .verify-t b{color:var(--ink);font-size:calc(10.5px*var(--s))}
+  .sign{text-align:center;min-width:calc(60mm*var(--s))}
+  .sign .place{font-size:calc(12.5px*var(--s));margin-bottom:2px}
+  .sign-space{height:calc(20mm*var(--s))}
+  .sign .name{font-size:calc(14px*var(--s));font-weight:800;text-decoration:underline;text-underline-offset:3px}
+  .sign .sip{font-size:calc(11px*var(--s));color:#374151;margin-top:2px}
+  .foot{margin-top:calc(10px*var(--s));padding-top:calc(7px*var(--s));border-top:1px solid var(--rule);font-size:calc(9.5px*var(--s));color:var(--muted);text-align:center;line-height:1.45}
+  /* Toolbar (tidak ikut tercetak) */
+  .bar{margin-top:18px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;font-family:Inter,sans-serif}
+  .bar span{font-size:12px;color:#4b5563;font-weight:600;margin-right:2px}
+  .bar button{background:white;color:#374151;border:1px solid #cbd5e1;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif}
+  .bar button.active{background:var(--accent);color:white;border-color:var(--accent)}
+  .bar button.print{background:var(--accent);color:white;border-color:var(--accent);padding:8px 24px}
+  @media print{ body{background:white;padding:0} .page{box-shadow:none} .no-print{display:none!important} }
+  </style>
+  <style id="pagesize">@page{size:210mm 297mm;margin:0}</style>
+  </head><body>
   <div class="page">
     <div class="kop">
       <img src="${origin}/assets/logos/klinik-prima-logo.png" alt="Klinik Prima">
@@ -217,7 +225,31 @@ function writeResep(w, cert) {
 
     <div class="foot">Dokumen ini diterbitkan secara digital oleh Klinik Prima melalui platform myprima.id &middot; No. ${esc(cert.cert_number)}</div>
   </div>
-  <button class="no-print print-btn" onclick="window.print()">Cetak / Download PDF</button>
+  <div class="bar no-print">
+    <span>Ukuran kertas:</span>
+    <button type="button" data-sz="a4">A4</button>
+    <button type="button" data-sz="a5">A5</button>
+    <button type="button" data-sz="a4-3">&#8531; A4 (strip)</button>
+    <button type="button" class="print" onclick="window.print()">Cetak / PDF</button>
+  </div>
+  <script>
+    (function(){
+      var SIZES = { 'a4':'210mm 297mm', 'a5':'148mm 210mm', 'a4-3':'210mm 99mm' };
+      function apply(sz){
+        if (!SIZES[sz]) sz = 'a4';
+        document.body.setAttribute('data-size', sz);
+        document.getElementById('pagesize').textContent = '@page{size:' + SIZES[sz] + ';margin:0}';
+        var btns = document.querySelectorAll('.bar button[data-sz]');
+        for (var i=0;i<btns.length;i++) btns[i].className = (btns[i].getAttribute('data-sz')===sz ? 'active' : '');
+        try { localStorage.setItem('medconnect_resep_size', sz); } catch(e){}
+      }
+      var btns = document.querySelectorAll('.bar button[data-sz]');
+      for (var i=0;i<btns.length;i++) (function(b){ b.onclick = function(){ apply(b.getAttribute('data-sz')); }; })(btns[i]);
+      var saved = 'a4';
+      try { saved = localStorage.getItem('medconnect_resep_size') || 'a4'; } catch(e){}
+      apply(saved);
+    })();
+  </script>
   </body></html>`;
 
   w.document.open();
