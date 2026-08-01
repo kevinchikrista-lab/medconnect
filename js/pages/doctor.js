@@ -1190,9 +1190,9 @@ export function doctorPrescriptions() {
               <div class="flex items-center justify-between cursor-pointer" @click="open=!open">
                 <div class="flex items-center gap-3">
                   <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center"><svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg></div>
-                  <div><p class="font-medium text-gray-800 text-sm">${rx.rx_number} — ${patient?.full_name || 'N/A'}</p><p class="text-xs text-gray-500">${formatDate(rx.created_at?.split('T')[0])} | ${pharmacy?.name || 'N/A'} | ${items.length} obat</p></div>
+                  <div><p class="font-medium text-gray-800 text-sm">${rx.rx_number} — ${escHtml(patient?.full_name || 'N/A')}${rx.rx_target === 'luar' ? ' <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 align-middle">RESEP LUAR</span>' : ''}</p><p class="text-xs text-gray-500">${formatDate(rx.created_at?.split('T')[0])} | ${rx.rx_target === 'luar' ? 'Tebus di apotek pilihan pasien' : escHtml(pharmacy?.name || 'N/A')} | ${items.length} obat</p></div>
                 </div>
-                <span class="px-2 py-1 rounded-full text-xs font-medium ${statusColors[rx.status] || 'bg-gray-100'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status}</span>
+                <span class="px-2 py-1 rounded-full text-xs font-medium ${rx.rx_target === 'luar' ? 'bg-amber-100 text-amber-700' : (statusColors[rx.status] || 'bg-gray-100')}">${rx.rx_target === 'luar' ? 'Resep Luar' : (CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status)}</span>
               </div>
               <div x-show="open" x-cloak class="mt-3 pl-13 text-sm space-y-2">
                 ${items.map(i => i.is_compound ? `
@@ -1203,7 +1203,8 @@ export function doctorPrescriptions() {
                 </div>` : `<div class="flex items-center gap-2 py-1 text-gray-600"><span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>${i.drug_name} ${i.dosage} — ${i.frequency} ${i.time} (${i.quantity} ${i.unit})</div>`).join('')}
                 ${rx.notes ? `<p class="mt-2 text-xs text-gray-500 italic whitespace-pre-line">Catatan: ${rx.notes}</p>` : ''}
                 ${rx.service_fee_enabled ? `<p class="mt-1 text-xs font-semibold text-green-700">💰 Jasa Dokter: Rp ${Number(rx.service_fee || 0).toLocaleString('id-ID')}</p>` : ''}
-                ${rx.cancel_reason ? `<p class="mt-1 text-xs text-red-500 italic">Alasan batal: ${rx.cancel_reason}</p>` : ''}
+                ${rx.cancel_reason ? `<p class="mt-1 text-xs text-red-500 italic">Alasan batal: ${escHtml(rx.cancel_reason)}</p>` : ''}
+                <div class="mt-3 pt-3 border-t border-gray-100"><button onclick="window.__printResep && window.__printResep('${rx.id}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition inline-flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg> Cetak Kertas Resep</button></div>
                 ${canEdit ? `<div class="flex gap-2 mt-3 pt-3 border-t border-gray-100">
                   <a href="#/doctor/prescriptions/edit/${rx.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg> Edit Resep</a>
                   <button onclick="if(confirm('Batalkan resep ${rx.rx_number}?')){const r=prompt('Alasan pembatalan:'); if(r!==null){window.__store.cancelPrescription('${rx.id}',r); window.location.hash='/doctor/dashboard'; setTimeout(()=>window.location.hash='/doctor/prescriptions',50)}}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg> Batalkan</button>
@@ -1234,6 +1235,7 @@ export function doctorPrescriptionNew(params) {
     sideOpen: window.innerWidth > 1024,
     items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}],
     pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', delivery_method: 'pickup', delivery_address: '${qAttr(patient.address)}',
+    rxTarget: 'apotek',
     serviceFeeEnabled: false, serviceFee: '',
     sending: false, sent: false, error: '',
     allergyTerms: window.__allergyTerms || [],
@@ -1265,10 +1267,12 @@ export function doctorPrescriptionNew(params) {
     async send() {
       if (this.allergyConflicts.length && !confirm('PERINGATAN ALERGI\\n\\nAda obat yang cocok dengan alergi pasien (' + this.allergyConflicts.map(c=>'R/'+(c.i+1)+': '+c.term).join(', ') + ').\\n\\nTetap kirim resep ini?')) return;
       this.sending = true; this.error = '';
-      const result = await window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:this.pharmacy_id,notes:this.notes,delivery_method:this.delivery_method,delivery_address:this.delivery_method==='delivery'?this.delivery_address:'',service_fee_enabled:this.serviceFeeEnabled,service_fee:this.serviceFeeEnabled?(parseInt(this.serviceFee)||0):0}, this.items);
+      const isLuar = this.rxTarget === 'luar';
+      const result = await window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:isLuar?null:this.pharmacy_id,notes:this.notes,rx_target:this.rxTarget,delivery_method:isLuar?'pickup':this.delivery_method,delivery_address:(!isLuar&&this.delivery_method==='delivery')?this.delivery_address:'',service_fee_enabled:this.serviceFeeEnabled,service_fee:this.serviceFeeEnabled?(parseInt(this.serviceFee)||0):0}, this.items);
       this.sending = false;
       if (result.success) {
         this.sent = true;
+        if (isLuar) window.__showToast && window.__showToast('Resep luar dibuat', 'Klik "Cetak Resep" pada daftar untuk mencetak kertas resepnya.');
         setTimeout(() => window.location.hash='/doctor/prescriptions', 1000);
       } else {
         this.error = result.error || 'Gagal menyimpan resep ke server. Coba lagi.';
@@ -1283,7 +1287,7 @@ export function doctorPrescriptionNew(params) {
           <h2 class="text-xl font-bold text-gray-800">Buat E-Resep</h2>
           <div class="flex gap-2">
             <button @click="openCopy()" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Salin dari Resep Lama</button>
-            <button @click="send()" :disabled="sending || sent || items.some(i=>!i.drug_name) || (delivery_method==='delivery' && !delivery_address.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!sending && !sent">Kirim ke Apotek</span><span x-show="sending" x-cloak>Mengirim...</span><span x-show="sent" x-cloak>Terkirim!</span></button>
+            <button @click="send()" :disabled="sending || sent || items.some(i=>!i.drug_name) || (rxTarget==='apotek' && delivery_method==='delivery' && !delivery_address.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!sending && !sent" x-text="rxTarget==='luar' ? 'Simpan Resep Luar' : 'Kirim ke Apotek'"></span><span x-show="sending" x-cloak>Menyimpan...</span><span x-show="sent" x-cloak>Tersimpan!</span></button>
           </div>
         </div>
 
@@ -1354,10 +1358,23 @@ export function doctorPrescriptionNew(params) {
             <textarea x-model="notes" rows="3" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Instruksi khusus untuk apoteker..."></textarea>
           </div>
           <div class="bg-white border border-slate-100 rounded-3xl p-4">
-            <h4 class="font-semibold text-gray-800 mb-2">Kirim ke Apotek Mitra</h4>
-            <select x-model="pharmacy_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
-              ${pharmacies.map(ph => `<option value="${ph.id}">${ph.name} — ${ph.address}</option>`).join('')}
-            </select>
+            <h4 class="font-semibold text-gray-800 mb-2">Tujuan Resep</h4>
+            <div class="space-y-2 mb-3">
+              <label class="flex items-start gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="rxTarget==='apotek' ? 'border-teal-400 bg-teal-50' : 'border-gray-200'">
+                <input type="radio" x-model="rxTarget" value="apotek" class="mt-0.5 text-teal-600 focus:ring-teal-400/50">
+                <span><span class="font-medium text-gray-800">Kirim ke Apotek Mitra</span><span class="block text-xs text-gray-500">Obat disiapkan apotek mitra klinik.</span></span>
+              </label>
+              <label class="flex items-start gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="rxTarget==='luar' ? 'border-amber-400 bg-amber-50' : 'border-gray-200'">
+                <input type="radio" x-model="rxTarget" value="luar" class="mt-0.5 text-amber-600 focus:ring-amber-400/50">
+                <span><span class="font-medium text-gray-800">Resep Luar</span><span class="block text-xs text-gray-500">Pasien menebus di apotek pilihannya. Tidak dikirim ke apotek mitra — cukup dicetak.</span></span>
+              </label>
+            </div>
+            <div x-show="rxTarget==='apotek'" x-cloak>
+              <label class="block text-xs text-gray-500 mb-1">Apotek Mitra Tujuan</label>
+              <select x-model="pharmacy_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+                ${pharmacies.map(ph => `<option value="${ph.id}">${ph.name} — ${ph.address}</option>`).join('')}
+              </select>
+            </div>
           </div>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
@@ -1368,7 +1385,7 @@ export function doctorPrescriptionNew(params) {
             <input type="number" x-model="serviceFee" min="0" step="1000" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: 50000">
           </div>
         </div>
-        <div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
+        <div x-show="rxTarget==='apotek'" x-cloak class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
           <h4 class="font-semibold text-gray-800 mb-3">Pengambilan Obat</h4>
           <div class="flex gap-3 mb-3">
             <label class="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="delivery_method==='pickup' ? 'border-teal-400 bg-teal-50 text-teal-700 font-medium' : 'border-gray-200 text-gray-600'">
@@ -1406,6 +1423,7 @@ export function doctorPrescriptionEdit(params) {
     notes: '${qAttr(rx.notes)}',
     delivery_method: '${rx.delivery_method || 'pickup'}',
     delivery_address: '${qAttr(rx.delivery_address || patient?.address)}',
+    rxTarget: '${rx.rx_target === 'luar' ? 'luar' : 'apotek'}',
     serviceFeeEnabled: ${rx.service_fee_enabled ? 'true' : 'false'}, serviceFee: '${rx.service_fee ? String(parseInt(rx.service_fee) || 0) : ''}',
     saving: false, saved: false, error: '',
     allergyTerms: window.__allergyTerms || [],
@@ -1414,7 +1432,8 @@ export function doctorPrescriptionEdit(params) {
     async saveEdit() {
       if (this.allergyConflicts.length && !confirm('PERINGATAN ALERGI\\n\\nAda obat yang cocok dengan alergi pasien (' + this.allergyConflicts.map(c=>'R/'+(c.i+1)+': '+c.term).join(', ') + ').\\n\\nTetap simpan resep ini?')) return;
       this.saving = true; this.error = '';
-      const rxResult = await window.__store.updatePrescription('${rx.id}', { pharmacy_id: this.pharmacy_id, notes: this.notes, delivery_method: this.delivery_method, delivery_address: this.delivery_method==='delivery' ? this.delivery_address : '', service_fee_enabled: this.serviceFeeEnabled, service_fee: this.serviceFeeEnabled ? (parseInt(this.serviceFee)||0) : 0, status: 'sent' });
+      const isLuar = this.rxTarget === 'luar';
+      const rxResult = await window.__store.updatePrescription('${rx.id}', { pharmacy_id: isLuar ? null : this.pharmacy_id, notes: this.notes, rx_target: this.rxTarget, delivery_method: isLuar ? 'pickup' : this.delivery_method, delivery_address: (!isLuar && this.delivery_method==='delivery') ? this.delivery_address : '', service_fee_enabled: this.serviceFeeEnabled, service_fee: this.serviceFeeEnabled ? (parseInt(this.serviceFee)||0) : 0, status: 'sent' });
       if (rxResult.error) { this.saving = false; this.error = rxResult.error; return; }
       const itemsResult = await window.__store.updatePrescriptionItems('${rx.id}', this.items);
       this.saving = false;
@@ -1464,9 +1483,25 @@ export function doctorPrescriptionEdit(params) {
         </div>
         <div class="grid lg:grid-cols-2 gap-4">
           <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-2">Keterangan Khusus</h4><textarea x-model="notes" rows="3" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none"></textarea></div>
-          <div class="bg-white border border-slate-100 rounded-3xl p-4"><h4 class="font-semibold text-gray-800 mb-2">Ganti Apotek Mitra</h4><select x-model="pharmacy_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${pharmacies.map(ph=>`<option value="${ph.id}">${ph.name} — ${ph.address}</option>`).join('')}</select></div>
+          <div class="bg-white border border-slate-100 rounded-3xl p-4">
+            <h4 class="font-semibold text-gray-800 mb-2">Tujuan Resep</h4>
+            <div class="space-y-2 mb-3">
+              <label class="flex items-start gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="rxTarget==='apotek' ? 'border-teal-400 bg-teal-50' : 'border-gray-200'">
+                <input type="radio" x-model="rxTarget" value="apotek" class="mt-0.5 text-teal-600 focus:ring-teal-400/50">
+                <span><span class="font-medium text-gray-800">Kirim ke Apotek Mitra</span></span>
+              </label>
+              <label class="flex items-start gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="rxTarget==='luar' ? 'border-amber-400 bg-amber-50' : 'border-gray-200'">
+                <input type="radio" x-model="rxTarget" value="luar" class="mt-0.5 text-amber-600 focus:ring-amber-400/50">
+                <span><span class="font-medium text-gray-800">Resep Luar</span><span class="block text-xs text-gray-500">Pasien menebus di apotek pilihannya.</span></span>
+              </label>
+            </div>
+            <div x-show="rxTarget==='apotek'" x-cloak>
+              <label class="block text-xs text-gray-500 mb-1">Apotek Mitra Tujuan</label>
+              <select x-model="pharmacy_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${pharmacies.map(ph=>`<option value="${ph.id}">${ph.name} — ${ph.address}</option>`).join('')}</select>
+            </div>
+          </div>
         </div>
-        <div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
+        <div x-show="rxTarget==='apotek'" x-cloak class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
           <h4 class="font-semibold text-gray-800 mb-3">Pengambilan Obat</h4>
           <div class="flex gap-3 mb-3">
             <label class="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="delivery_method==='pickup' ? 'border-teal-400 bg-teal-50 text-teal-700 font-medium' : 'border-gray-200 text-gray-600'">

@@ -359,6 +359,21 @@ class Store {
     return (this.data.certificates || []).find(c => c.id === id) || null;
   }
 
+  // One printed-prescription certificate per prescription — re-printing reuses
+  // the same number & QR instead of minting a new record every time.
+  async getCertificateForPrescription(rxId) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('certificates', { eq: { cert_type: 'resep' } });
+        if (Array.isArray(rows)) {
+          const hit = rows.find(c => c.details && c.details.rx_id === rxId);
+          if (hit) return hit;
+        }
+      } catch (e) { /* fall through to local */ }
+    }
+    return (this.data.certificates || []).find(c => c.cert_type === 'resep' && c.details && c.details.rx_id === rxId) || null;
+  }
+
   // Sequential letter number per (series, year) — e.g. series 'SKD' for a
   // Surat Keterangan Dokter. Same RPC-with-local-fallback pattern as the rx/
   // cert numbers above, so it stays unique across devices when online.
@@ -1144,6 +1159,10 @@ class Store {
         return { success: false, rx: null, error: 'Gagal menyimpan resep ke server: rekam medis kunjungan ini belum tersimpan ke server. Buka kembali rekam medisnya lalu simpan ulang sebelum membuat e-resep.' };
       }
     }
+    // "Resep luar": the patient fills it at a pharmacy of their choice, so it is
+    // never routed to a partner pharmacy — clear the FK so it can't surface in
+    // any pharmacy's queue (and no pharmacy notification is raised below).
+    if (rx.rx_target === 'luar') rx.pharmacy_id = null;
     const seq = await this.getNextRxNumber(year);
     const newRx = { id: generateId(), ...rx, status: 'sent', created_at: new Date().toISOString(), rx_number: 'R-' + year + '-' + String(seq).padStart(4, '0') };
     this.data.prescriptions.push(newRx);
@@ -1156,7 +1175,12 @@ class Store {
     const patient = this.getPatient(rx.patient_id);
     this.addNotification(this.data.pharmacies.find(ph => ph.id === rx.pharmacy_id)?.user_id, 'E-Resep Baru', `Resep baru ${newRx.rx_number} untuk ${patient?.full_name || 'pasien'}.`, 'prescription');
     const patientUser = this.data.patients.find(p => p.id === rx.patient_id);
-    if (patientUser) this.addNotification(patientUser.user_id, 'Resep Dikirim', `Resep ${newRx.rx_number} telah dikirim ke apotek.`, 'prescription');
+    if (patientUser) {
+      const msg = rx.rx_target === 'luar'
+        ? `Resep ${newRx.rx_number} telah dibuat. Silakan tebus di apotek pilihan Anda.`
+        : `Resep ${newRx.rx_number} telah dikirim ke apotek.`;
+      this.addNotification(patientUser.user_id, 'Resep Dibuat', msg, 'prescription');
+    }
     this._save();
     if (CONFIG.DEMO_MODE) return { success: true, rx: newRx };
 

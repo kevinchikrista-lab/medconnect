@@ -40,7 +40,7 @@ export function verifyPage(params) {
             <!-- Sah (approved / vaccine certificate) -->
             <div x-show="status === 'approved'" class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-green-500/15 border border-green-400/30">
               <div class="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0"><svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
-              <div><p class="text-green-300 font-semibold text-sm" x-text="cert.cert_type === 'skd' ? 'Surat Sah & Terverifikasi' : 'Sertifikat Sah & Terverifikasi'"></p><p class="text-green-200/70 text-xs">Dokumen ini diterbitkan resmi oleh Klinik Prima</p></div>
+              <div><p class="text-green-300 font-semibold text-sm" x-text="({ skd: 'Surat Sah & Terverifikasi', resep: 'Resep Sah & Terverifikasi' })[cert.cert_type] || 'Sertifikat Sah & Terverifikasi'"></p><p class="text-green-200/70 text-xs">Dokumen ini diterbitkan resmi oleh Klinik Prima</p></div>
             </div>
             <!-- Belum disahkan (pending ACC) -->
             <div x-show="status === 'pending'" x-cloak class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-amber-500/15 border border-amber-400/30">
@@ -63,8 +63,22 @@ export function verifyPage(params) {
                   <div class="flex justify-between py-2 border-b border-white/10" x-show="cert.doctor_name"><span class="text-teal-200/60">Dokter</span><span class="text-white font-medium" x-text="cert.doctor_name"></span></div>
                 </div>
               </template>
+              <!-- Resep (kertas resep tercetak) -->
+              <template x-if="cert.cert_type === 'resep'">
+                <div class="space-y-3">
+                  <div class="flex justify-between py-2 border-b border-white/10"><span class="text-teal-200/60">Jenis Dokumen</span><span class="text-white font-medium" x-text="(cert.details && cert.details.rx_target === 'luar') ? 'Resep (Luar)' : 'Resep Dokter'"></span></div>
+                  <div class="flex justify-between py-2 border-b border-white/10" x-show="cert.doctor_name"><span class="text-teal-200/60">Dokter</span><span class="text-white font-medium" x-text="cert.doctor_name"></span></div>
+                  <div class="py-2 border-b border-white/10">
+                    <p class="text-teal-200/60 mb-1.5">Daftar Obat</p>
+                    <template x-for="(it, ix) in ((cert.details && cert.details.items) || [])" :key="ix">
+                      <p class="text-white text-sm">R/ <span x-text="it.drug_name + (it.dosage ? ' ' + it.dosage : '')"></span><span class="text-teal-200/60" x-text="(it.quantity ? ' — No. ' + it.quantity + ' ' + (it.unit||'') : '')"></span></p>
+                    </template>
+                    <p class="text-teal-100/50 text-xs" x-show="!((cert.details && cert.details.items) || []).length">(tidak ada item obat)</p>
+                  </div>
+                </div>
+              </template>
               <!-- Vaccination certificate -->
-              <template x-if="cert.cert_type !== 'skd'">
+              <template x-if="cert.cert_type !== 'skd' && cert.cert_type !== 'resep'">
                 <div class="flex justify-between py-2 border-b border-white/10"><span class="text-teal-200/60">Vaksin</span><span class="text-white font-medium" x-text="cert.vaccine_name + (cert.vaccine_brand ? ' - ' + cert.vaccine_brand : '')"></span></div>
               </template>
               <div class="flex justify-between py-2 border-b border-white/10"><span class="text-teal-200/60">No. Dokumen</span><span class="text-white font-medium" x-text="cert.cert_number"></span></div>
