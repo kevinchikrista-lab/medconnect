@@ -27,6 +27,50 @@ function calcAge(birth) {
   return Math.floor((Date.now() - b) / (365.25 * 24 * 60 * 60 * 1000));
 }
 
+// Jumlah obat pada resep ditulis dengan angka Romawi (konvensi kefarmasian):
+// No. XV, bukan No. 15.
+function toRoman(n) {
+  const num = parseInt(n, 10);
+  if (!num || num < 1 || num > 3999) return String(n == null ? '' : n);
+  const map = [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+  let out = '', v = num;
+  for (const [val, sym] of map) { while (v >= val) { out += sym; v -= val; } }
+  return out;
+}
+
+// Satuan -> singkatan Latin yang dipakai pada signatura.
+const UNIT_LATIN = {
+  'tablet': 'tab', 'strip': 'tab', 'kapsul': 'caps', 'kapsul racikan': 'caps',
+  'puyer': 'pulv', 'sachet': 'pulv', 'botol': 'cth', 'sendok': 'cth',
+  'tube': 'ue', 'ampul': 'amp',
+};
+
+// Waktu minum -> singkatan Latin.
+const TIME_LATIN = {
+  'sebelum makan (ac)': 'a.c.', 'sesudah makan (pc)': 'p.c.',
+  'pagi': 'mane', 'siang': 'meridie', 'malam': 'nocte',
+  'pagi & malam': 'mane et nocte', 'sebelum tidur': 'h.s.',
+};
+
+// Bangun signatura gaya resep: "S 3 dd tab I p.c."
+// (frekuensi '3 x 1' + satuan Tablet + waktu 'Sesudah makan (PC)').
+function signatura(item) {
+  const freq = String(item.frequency || '').trim();
+  const unit = UNIT_LATIN[String(item.unit || '').toLowerCase()] || '';
+  let core = '';
+  const m = freq.match(/^(\d+)\s*x\s*(\d+)$/i);
+  if (m) {
+    core = m[1] + ' dd' + (unit ? ' ' + unit : '') + ' ' + toRoman(m[2]);
+  } else if (/prn/i.test(freq)) {
+    core = 'prn' + (unit ? ' ' + unit + ' I' : '');
+  } else {
+    core = freq;
+  }
+  const t = TIME_LATIN[String(item.time || '').toLowerCase()];
+  const tail = t || (item.time || '');
+  return ('S ' + core + (tail ? ' ' + tail : '')).replace(/\s+/g, ' ').trim();
+}
+
 function doctorInitials(name) {
   if (!name) return 'DR';
   const cleaned = String(name).replace(/\b(dr|drg|dr\.|drg\.)\b/gi, '').replace(/\./g, '').trim();
@@ -97,18 +141,25 @@ async function ensureResepCert(rx, patient, doctor, items) {
 }
 
 function itemHtml(i, idx) {
+  const qty = i.quantity ? 'No. ' + toRoman(i.quantity) : '';
+  const sig = signatura(i);
+  const extra = [i.duration ? esc(i.duration) : '', i.instructions ? esc(i.instructions) : ''].filter(Boolean).join(' &middot; ');
+
   if (i.is_compound) {
+    // Pada racikan, yang ditulis sebagai isi resep adalah KOMPOSISInya.
+    // Nama tampil ("Obat Batuk") hanya keterangan untuk pasien/apoteker.
+    const komposisi = esc(i.compound_details) || esc(i.drug_name) || ('Racikan ' + (idx + 1));
     return `
       <div class="rx-item">
-        <div class="rx-line"><span class="rx-mark">R/</span><span class="rx-name">${esc(i.drug_name) || 'Racikan ' + (idx + 1)}</span><span class="rx-qty">No. ${esc(i.quantity) || '-'}</span></div>
-        <div class="rx-sub">Komposisi: ${esc(i.compound_details) || '-'}</div>
-        <div class="rx-sig">S ${esc(i.frequency)} ${esc(i.time)}${i.duration ? ' &middot; ' + esc(i.duration) : ''}${i.instructions ? ' &middot; ' + esc(i.instructions) : ''}</div>
+        <div class="rx-line"><span class="rx-mark">R/</span><span class="rx-name">${komposisi}</span><span class="rx-qty">${qty}</span></div>
+        <div class="rx-sig">${esc(sig)}${extra ? ' &middot; ' + extra : ''}</div>
+        ${i.drug_name ? `<div class="rx-sub">Ket: ${esc(i.drug_name)}</div>` : ''}
       </div>`;
   }
   return `
       <div class="rx-item">
-        <div class="rx-line"><span class="rx-mark">R/</span><span class="rx-name">${esc(i.drug_name)}${i.dosage ? ' ' + esc(i.dosage) : ''}</span><span class="rx-qty">No. ${esc(i.quantity) || '-'} ${esc(i.unit)}</span></div>
-        <div class="rx-sig">S ${esc(i.frequency)} ${esc(i.time)}${i.duration ? ' &middot; ' + esc(i.duration) : ''}${i.instructions ? ' &middot; ' + esc(i.instructions) : ''}</div>
+        <div class="rx-line"><span class="rx-mark">R/</span><span class="rx-name">${esc(i.drug_name)}${i.dosage ? ' ' + esc(i.dosage) : ''}</span><span class="rx-qty">${qty}</span></div>
+        <div class="rx-sig">${esc(sig)}${extra ? ' &middot; ' + extra : ''}</div>
       </div>`;
 }
 
@@ -174,7 +225,6 @@ function writeResep(w, cert) {
   .verify-t b{color:var(--ink);font-size:calc(10.5px*var(--s))}
   .sign{text-align:center;min-width:calc(60mm*var(--s))}
   .sign .place{font-size:calc(12.5px*var(--s));margin-bottom:2px}
-  .sign-space{height:calc(20mm*var(--s))}
   .sign .name{font-size:calc(14px*var(--s));font-weight:800;text-decoration:underline;text-underline-offset:3px}
   .sign .sip{font-size:calc(11px*var(--s));color:#374151;margin-top:2px}
   .foot{margin-top:calc(10px*var(--s));padding-top:calc(7px*var(--s));border-top:1px solid var(--rule);font-size:calc(9.5px*var(--s));color:var(--muted);text-align:center;line-height:1.45}
@@ -235,9 +285,9 @@ function writeResep(w, cert) {
       </div>
       <div class="sign">
         <div class="place">Dokter Penulis Resep,</div>
-        <div class="sign-space"></div>
         <div class="name">${esc(cert.doctor_name || d.doctor_name || '-').toUpperCase()}</div>
         <div class="sip">SIP: ${esc(d.doctor_sip || '-')}</div>
+        <div class="sip" style="font-style:italic;color:#9ca3af;margin-top:3px">Sah tanpa tanda tangan basah &mdash; diverifikasi via QR</div>
       </div>
     </div>
 
