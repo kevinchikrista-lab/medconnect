@@ -130,7 +130,17 @@ function writeResep(w, cert) {
   /* --s = faktor skala; semua ukuran ikut mengecil saat kertas lebih kecil. */
   body{font-family:'Inter',sans-serif;background:#e5e7eb;padding:84px 16px 28px;display:flex;flex-direction:column;align-items:center;color:var(--ink);--s:1;--pw:210mm;--ph:297mm;--pad:16mm 18mm}
   body[data-size="a5"]{--s:.78;--pw:148mm;--ph:210mm;--pad:9mm 11mm}
-  body[data-size="a4-3"]{--s:.62;--pw:210mm;--ph:99mm;--pad:5mm 9mm}
+  /* 1/3 A4 PORTRAIT (99x210mm) — blanko resep klasik: sempit & tinggi.
+     Lebarnya cuma ~87mm setelah padding, jadi kop & blok tanda tangan
+     ditumpuk vertikal agar tidak berdesakan. */
+  body[data-size="a4-3"]{--s:.55;--pw:99mm;--ph:210mm;--pad:6mm 6mm}
+  body[data-size="a4-3"] .kop{flex-direction:column;text-align:center;gap:calc(6px*var(--s))}
+  body[data-size="a4-3"] .kop img{height:calc(14mm*var(--s))}
+  body[data-size="a4-3"] .doc-line{flex-direction:column;align-items:flex-start;gap:1px}
+  body[data-size="a4-3"] .ident td.k{width:auto;padding-right:calc(4px*var(--s))}
+  body[data-size="a4-3"] .sign-row{flex-direction:column;align-items:stretch;gap:calc(12px*var(--s))}
+  body[data-size="a4-3"] .verify{max-width:none;justify-content:center}
+  body[data-size="a4-3"] .sign{min-width:0}
   .page{width:var(--pw);min-height:var(--ph);background:white;padding:var(--pad);box-shadow:0 8px 28px rgba(0,0,0,.14);display:flex;flex-direction:column;position:relative}
   .kop{display:flex;align-items:center;gap:calc(16px*var(--s));border-bottom:3px double var(--accent);padding-bottom:calc(12px*var(--s))}
   .kop img{height:calc(20mm*var(--s));width:auto;object-fit:contain}
@@ -183,7 +193,7 @@ function writeResep(w, cert) {
     <span>Ukuran kertas:</span>
     <button type="button" data-sz="a4">A4</button>
     <button type="button" data-sz="a5">A5</button>
-    <button type="button" data-sz="a4-3">&#8531; A4 (strip)</button>
+    <button type="button" data-sz="a4-3">&#8531; A4 (99&times;210mm)</button>
     <button type="button" class="print" onclick="window.print()">Cetak / PDF</button>
   </div>
   <div class="page">
@@ -235,7 +245,7 @@ function writeResep(w, cert) {
   </div>
   <script>
     (function(){
-      var SIZES = { 'a4':'210mm 297mm', 'a5':'148mm 210mm', 'a4-3':'210mm 99mm' };
+      var SIZES = { 'a4':'210mm 297mm', 'a5':'148mm 210mm', 'a4-3':'99mm 210mm' };
       function apply(sz){
         if (!SIZES[sz]) sz = 'a4';
         document.body.setAttribute('data-size', sz);
