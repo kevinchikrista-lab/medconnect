@@ -2,6 +2,7 @@ import { store } from '../store.js';
 import { patientBottomNav } from './patient.js';
 
 function getUser() { return JSON.parse(sessionStorage.getItem('medconnect_user')); }
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function formatTime(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -39,7 +40,7 @@ export function notificationsPage() {
   };
 
   return `
-  <div x-data="{ notifications: ${JSON.stringify(notifications).replace(/'/g, "\\'")} }" class="min-h-screen bg-gray-50 ${user?.role === 'patient' ? 'pb-20' : ''}">
+  <div class="min-h-screen bg-gray-50 ${user?.role === 'patient' ? 'pb-20' : ''}">
     <header class="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-gray-100 px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-3">
         <a href="${backLink}" class="p-2 rounded-lg hover:bg-gray-100 transition"><svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></a>
@@ -61,10 +62,10 @@ export function notificationsPage() {
               <div class="w-10 h-10 rounded-lg ${typeColors[n.type] || typeColors.system} flex items-center justify-center flex-shrink-0">${typeIcons[n.type] || typeIcons.system}</div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between gap-2">
-                  <h3 class="text-sm font-semibold ${n.is_read ? 'text-gray-700' : 'text-gray-900'}">${n.title}</h3>
+                  <h3 class="text-sm font-semibold ${n.is_read ? 'text-gray-700' : 'text-gray-900'}">${esc(n.title)}</h3>
                   ${!n.is_read ? '<span class="w-2 h-2 rounded-full bg-teal-500 flex-shrink-0"></span>' : ''}
                 </div>
-                <p class="text-sm ${n.is_read ? 'text-gray-500' : 'text-gray-700'} mt-0.5">${n.message}</p>
+                <p class="text-sm ${n.is_read ? 'text-gray-500' : 'text-gray-700'} mt-0.5">${esc(n.message)}</p>
                 <p class="text-xs text-gray-400 mt-1">${formatTime(n.created_at)}</p>
               </div>
             </div>

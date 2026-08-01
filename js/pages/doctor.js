@@ -160,6 +160,37 @@ function secondaryDxCard() {
     </div>`;
 }
 
+// Shared "Riwayat Rekam Medis" reference panel — a dropdown to pick an old
+// visit plus a read-only summary, used on the Kunjungan Baru page so the
+// doctor can check prior records without leaving the form. All values render
+// via x-text (Alpine-escaped), so free text in old notes can't break anything.
+function oldRecordsPanelInner() {
+  return `
+    <select x-model="selectedOldId" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 mb-3">
+      <option value="">— Pilih kunjungan lama —</option>
+      <template x-for="r in oldRecords" :key="r.id">
+        <option :value="r.id" x-text="fmtOldDate(r.visit_date) + ' — ' + (r.diagnosis || 'tanpa diagnosis')"></option>
+      </template>
+    </select>
+    <p x-show="oldRecords.length===0" class="text-xs text-gray-400">Belum ada riwayat kunjungan sebelumnya.</p>
+    <template x-if="selectedOld">
+      <div class="space-y-2.5 text-sm border-t border-gray-100 pt-3">
+        <div><p class="text-xs text-gray-400 font-medium">Diagnosis</p><p class="text-gray-800" x-text="selectedOld.diagnosis || '-'"></p></div>
+        <div x-show="selectedOld.anamnesis"><p class="text-xs text-gray-400 font-medium">Anamnesis</p><p class="text-gray-700 whitespace-pre-line" x-text="selectedOld.anamnesis"></p></div>
+        <div x-show="selectedOld.examination"><p class="text-xs text-gray-400 font-medium">Pemeriksaan Fisik</p><p class="text-gray-700 whitespace-pre-line" x-text="selectedOld.examination"></p></div>
+        <div x-show="Object.values(selectedOld.vital_signs||{}).some(v=>v)">
+          <p class="text-xs text-gray-400 font-medium mb-1">Vital Signs</p>
+          <div class="flex flex-wrap gap-1.5">
+            <template x-for="(v,k) in selectedOld.vital_signs" :key="k"><span x-show="v" class="px-1.5 py-0.5 rounded bg-gray-50 border border-gray-200 text-xs text-gray-600" x-text="k.toUpperCase()+': '+v"></span></template>
+          </div>
+        </div>
+        <div x-show="selectedOld.therapy"><p class="text-xs text-gray-400 font-medium">Terapi</p><p class="text-gray-700 whitespace-pre-line" x-text="selectedOld.therapy"></p></div>
+        <div x-show="selectedOld.follow_up_date"><p class="text-xs text-gray-400 font-medium">Kontrol Berikutnya</p><p class="text-gray-700" x-text="fmtOldDate(selectedOld.follow_up_date) + (selectedOld.follow_up_notes ? ' — '+selectedOld.follow_up_notes : '')"></p></div>
+        <div x-show="selectedOld.notes"><p class="text-xs text-gray-400 font-medium">Catatan</p><p class="text-gray-700 whitespace-pre-line" x-text="selectedOld.notes"></p></div>
+      </div>
+    </template>`;
+}
+
 export function doctorDashboard() {
   const doc = getDoctor();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -505,7 +536,7 @@ export function doctorEMR(params) {
                     <div x-show="editing" x-cloak class="absolute right-0 mt-2 z-10"></div>
                   </div>
                   <template x-if="editing"><div class="ml-11 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm" x-data="{
-                    ef: { dose_number: ${d.dose_number}, total_doses: ${d.total_doses}, vaccine_brand:'${(d.vaccine_brand||'').replace(/'/g,"\\'")}', batch_number:'${(d.batch_number||'').replace(/'/g,"\\'")}', location:'${(d.location||'').replace(/'/g,"\\'")}', date_given:'${d.date_given||''}', next_dose_date:'${d.next_dose_date||''}' },
+                    ef: { dose_number: ${d.dose_number}, total_doses: ${d.total_doses}, vaccine_brand:'${qAttr(d.vaccine_brand)}', batch_number:'${qAttr(d.batch_number)}', location:'${qAttr(d.location)}', date_given:'${d.date_given||''}', next_dose_date:'${d.next_dose_date||''}' },
                     saveVax() { window.__store.updateVaccination('${d.id}', this.ef); window.location.hash='/doctor/dashboard'; setTimeout(()=>window.location.hash='/doctor/emr/${params.patientId}',50); }
                   }">
                     <p class="text-xs font-semibold text-blue-700 mb-2">Edit Vaksinasi</p>
@@ -548,15 +579,15 @@ export function doctorEMR(params) {
                       <template x-if="showForm">
                         <div class="mt-3 p-4 rounded-lg bg-white border border-amber-200" x-data="{
                           af: {
-                            vaccine_name: '${name.replace(/'/g,"\\'")}',
-                            vaccine_brand: '${brand.replace(/'/g,"\\'")}',
+                            vaccine_name: '${qAttr(name)}',
+                            vaccine_brand: '${qAttr(brand)}',
                             vax_mode: '${isBooster ? 'booster' : 'series'}',
                             dose_number: ${isBooster ? lastDose.dose_number + 1 : nextDoseNum},
                             total_doses: ${totalD},
                             batch_number: '',
                             date_given: new Date().toLocaleDateString('en-CA'),
                             next_dose_date: '',
-                            location: '${loc.replace(/'/g,"\\'")}',
+                            location: '${qAttr(loc)}',
                             ${isBooster ? 'booster_interval_months: '+boosterInterval+',' : ''}
                             notes: ''
                           },
@@ -790,6 +821,15 @@ export function doctorEMRNew(params) {
   window.__peSystems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
   window.__peState = buildPeState(null).state;
   window.__peOtherInit = '';
+  // Old visits for the reference panel — passed via a global (not embedded in
+  // x-data) so free text (anamnesis/therapy/notes) can never break the page.
+  const oldRecords = store.getRecords(patient.id);
+  window.__oldRecords = oldRecords.map(r => ({
+    id: r.id, visit_date: r.visit_date || '', diagnosis: r.diagnosis || '', anamnesis: r.anamnesis || '',
+    examination: r.examination || '', therapy: r.therapy || '', follow_up_date: r.follow_up_date || '',
+    follow_up_notes: r.follow_up_notes || '', notes: r.notes || '',
+    vital_signs: r.vital_signs || {},
+  }));
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
@@ -865,12 +905,15 @@ export function doctorEMRNew(params) {
         self.saving = false; self.saved = true; self.savedRecordId = savedId && !savedId.startsWith('id_') ? savedId : null;
       }, 400);
     },
-    savedRecordId: null
+    savedRecordId: null,
+    oldRecords: window.__oldRecords || [], selectedOldId: '', oldPanelOpen: window.innerWidth > 1024,
+    get selectedOld() { return this.oldRecords.find(r => r.id === this.selectedOldId) || null; },
+    fmtOldDate(d) { if (!d) return '-'; const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); }
   }" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
-      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+      <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="flex items-center justify-between mb-6">
           <div class="flex items-center gap-2 text-sm text-gray-500"><a href="#/doctor/emr/${patient.id}" class="hover:text-teal-600 transition">${escHtml(patient.full_name)}</a><span>/</span><span class="text-gray-800 font-medium">Kunjungan Baru</span></div>
           <div class="flex gap-2">
@@ -878,8 +921,14 @@ export function doctorEMRNew(params) {
             <a href="#/doctor/emr/${patient.id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
+        <div class="grid lg:grid-cols-[1fr_320px] gap-4 items-start">
+        <div class="min-w-0">
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <div class="flex items-center gap-4"><div class="w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${patient.full_name.split(' ').map(n=>n[0]).join('').slice(0,2)}</div><div><h3 class="font-bold text-gray-800">${escHtml(patient.full_name)}</h3><p class="text-sm text-gray-500">${escHtml(patient.gender)}, ${patient.birth_date ? Math.floor((Date.now()-new Date(patient.birth_date))/(365.25*24*60*60*1000))+' thn' : '-'} | Gol. ${escHtml(patient.blood_type || '-')} | Alergi: ${escHtml(patient.allergies || '-')}</p></div></div>
+        </div>
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4 lg:hidden">
+          <button type="button" @click="oldPanelOpen=!oldPanelOpen" class="w-full flex items-center justify-between text-sm font-semibold text-gray-800"><span>📋 Riwayat Rekam Medis (<span x-text="oldRecords.length"></span>)</span><svg class="w-4 h-4 text-gray-400 transition" :class="oldPanelOpen && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></button>
+          <div x-show="oldPanelOpen" x-cloak class="mt-3">${oldRecordsPanelInner()}</div>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-3">Tipe Kunjungan & Lokasi</h4>
@@ -1023,6 +1072,12 @@ export function doctorEMRNew(params) {
             </div>
           </template>
         </div>
+        </div>
+        <aside class="hidden lg:block bg-white border border-slate-100 rounded-3xl p-4 sticky top-4">
+          <h4 class="font-semibold text-gray-800 mb-3">📋 Riwayat Rekam Medis (<span x-text="oldRecords.length"></span>)</h4>
+          ${oldRecordsPanelInner()}
+        </aside>
+        </div>
         <!-- Success overlay -->
         <div x-show="saved" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
           <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
@@ -1147,6 +1202,7 @@ export function doctorPrescriptions() {
                   <p class="text-xs text-gray-500 mt-1">${i.frequency} ${i.time} — ${i.quantity} ${i.unit}</p>
                 </div>` : `<div class="flex items-center gap-2 py-1 text-gray-600"><span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>${i.drug_name} ${i.dosage} — ${i.frequency} ${i.time} (${i.quantity} ${i.unit})</div>`).join('')}
                 ${rx.notes ? `<p class="mt-2 text-xs text-gray-500 italic whitespace-pre-line">Catatan: ${rx.notes}</p>` : ''}
+                ${rx.service_fee_enabled ? `<p class="mt-1 text-xs font-semibold text-green-700">💰 Jasa Dokter: Rp ${Number(rx.service_fee || 0).toLocaleString('id-ID')}</p>` : ''}
                 ${rx.cancel_reason ? `<p class="mt-1 text-xs text-red-500 italic">Alasan batal: ${rx.cancel_reason}</p>` : ''}
                 ${canEdit ? `<div class="flex gap-2 mt-3 pt-3 border-t border-gray-100">
                   <a href="#/doctor/prescriptions/edit/${rx.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg> Edit Resep</a>
@@ -1177,7 +1233,8 @@ export function doctorPrescriptionNew(params) {
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
     items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}],
-    pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', delivery_method: 'pickup', delivery_address: '${(patient.address || '').replace(/'/g, "\\'")}',
+    pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', delivery_method: 'pickup', delivery_address: '${qAttr(patient.address)}',
+    serviceFeeEnabled: false, serviceFee: '',
     sending: false, sent: false, error: '',
     allergyTerms: window.__allergyTerms || [],
     drugAllergyHit(item) {
@@ -1208,7 +1265,7 @@ export function doctorPrescriptionNew(params) {
     async send() {
       if (this.allergyConflicts.length && !confirm('PERINGATAN ALERGI\\n\\nAda obat yang cocok dengan alergi pasien (' + this.allergyConflicts.map(c=>'R/'+(c.i+1)+': '+c.term).join(', ') + ').\\n\\nTetap kirim resep ini?')) return;
       this.sending = true; this.error = '';
-      const result = await window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:this.pharmacy_id,notes:this.notes,delivery_method:this.delivery_method,delivery_address:this.delivery_method==='delivery'?this.delivery_address:''}, this.items);
+      const result = await window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:this.pharmacy_id,notes:this.notes,delivery_method:this.delivery_method,delivery_address:this.delivery_method==='delivery'?this.delivery_address:'',service_fee_enabled:this.serviceFeeEnabled,service_fee:this.serviceFeeEnabled?(parseInt(this.serviceFee)||0):0}, this.items);
       this.sending = false;
       if (result.success) {
         this.sent = true;
@@ -1304,6 +1361,14 @@ export function doctorPrescriptionNew(params) {
           </div>
         </div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" x-model="serviceFeeEnabled" class="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-400/50"><span class="font-semibold text-gray-800">Sertakan Jasa Dokter (jasa peresepan)</span></label>
+          <p class="text-xs text-gray-400 mt-1 ml-6">Bila dicentang, apotek akan diminta menarik biaya jasa dokter dari pasien saat pengambilan obat.</p>
+          <div x-show="serviceFeeEnabled" x-cloak class="mt-3 ml-6 max-w-xs">
+            <label class="block text-xs text-gray-500 mb-1">Nominal Jasa Dokter (Rp)</label>
+            <input type="number" x-model="serviceFee" min="0" step="1000" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: 50000">
+          </div>
+        </div>
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
           <h4 class="font-semibold text-gray-800 mb-3">Pengambilan Obat</h4>
           <div class="flex gap-3 mb-3">
             <label class="flex items-center gap-2 px-3 py-2 border rounded-lg text-sm cursor-pointer transition" :class="delivery_method==='pickup' ? 'border-teal-400 bg-teal-50 text-teal-700 font-medium' : 'border-gray-200 text-gray-600'">
@@ -1330,7 +1395,6 @@ export function doctorPrescriptionEdit(params) {
   const patient = store.getPatient(rx.patient_id);
   const existingItems = store.getPrescriptionItems(rx.id);
   const pharmacies = store.getPharmacies();
-  const itemsJson = JSON.stringify(existingItems.map(i => ({drug_name:i.drug_name,dosage:i.dosage,quantity:i.quantity,unit:i.unit,frequency:i.frequency,time:i.time,duration:i.duration,instructions:i.instructions,is_compound:!!i.is_compound,compound_details:i.compound_details||'',display_name:i.display_name||''}))).replace(/'/g,"\\'");
   window.__editRxItems = existingItems.map(i => ({drug_name:i.drug_name,dosage:i.dosage,quantity:i.quantity,unit:i.unit,frequency:i.frequency,time:i.time,duration:i.duration,instructions:i.instructions,is_compound:!!i.is_compound,compound_details:i.compound_details||'',display_name:i.display_name||''}));
   window.__allergyTerms = ((patient && patient.allergies) || '').split(/[,;\n]+/).map(s => s.trim().toLowerCase()).filter(t => t && t !== '-' && t.length >= 3);
 
@@ -1339,9 +1403,10 @@ export function doctorPrescriptionEdit(params) {
     sideOpen: window.innerWidth > 1024,
     items: window.__editRxItems || [],
     pharmacy_id: '${rx.pharmacy_id}',
-    notes: '${(rx.notes||'').replace(/'/g,"\\'")}',
+    notes: '${qAttr(rx.notes)}',
     delivery_method: '${rx.delivery_method || 'pickup'}',
-    delivery_address: '${(rx.delivery_address || patient?.address || '').replace(/'/g, "\\'")}',
+    delivery_address: '${qAttr(rx.delivery_address || patient?.address)}',
+    serviceFeeEnabled: ${rx.service_fee_enabled ? 'true' : 'false'}, serviceFee: '${rx.service_fee ? String(parseInt(rx.service_fee) || 0) : ''}',
     saving: false, saved: false, error: '',
     allergyTerms: window.__allergyTerms || [],
     drugAllergyHit(item) { const hay = ((item.drug_name||'') + ' ' + (item.compound_details||'')).toLowerCase(); return this.allergyTerms.find(t => hay.includes(t)) || ''; },
@@ -1349,7 +1414,7 @@ export function doctorPrescriptionEdit(params) {
     async saveEdit() {
       if (this.allergyConflicts.length && !confirm('PERINGATAN ALERGI\\n\\nAda obat yang cocok dengan alergi pasien (' + this.allergyConflicts.map(c=>'R/'+(c.i+1)+': '+c.term).join(', ') + ').\\n\\nTetap simpan resep ini?')) return;
       this.saving = true; this.error = '';
-      const rxResult = await window.__store.updatePrescription('${rx.id}', { pharmacy_id: this.pharmacy_id, notes: this.notes, delivery_method: this.delivery_method, delivery_address: this.delivery_method==='delivery' ? this.delivery_address : '', status: 'sent' });
+      const rxResult = await window.__store.updatePrescription('${rx.id}', { pharmacy_id: this.pharmacy_id, notes: this.notes, delivery_method: this.delivery_method, delivery_address: this.delivery_method==='delivery' ? this.delivery_address : '', service_fee_enabled: this.serviceFeeEnabled, service_fee: this.serviceFeeEnabled ? (parseInt(this.serviceFee)||0) : 0, status: 'sent' });
       if (rxResult.error) { this.saving = false; this.error = rxResult.error; return; }
       const itemsResult = await window.__store.updatePrescriptionItems('${rx.id}', this.items);
       this.saving = false;
@@ -1414,6 +1479,14 @@ export function doctorPrescriptionEdit(params) {
           <div x-show="delivery_method === 'delivery'" x-cloak>
             <label class="block text-xs text-gray-500 mb-1">Alamat Pengiriman *</label>
             <textarea x-model="delivery_address" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Alamat lengkap tujuan pengiriman"></textarea>
+          </div>
+        </div>
+        <div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" x-model="serviceFeeEnabled" class="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-400/50"><span class="font-semibold text-gray-800">Sertakan Jasa Dokter (jasa peresepan)</span></label>
+          <p class="text-xs text-gray-400 mt-1 ml-6">Bila dicentang, apotek akan diminta menarik biaya jasa dokter dari pasien saat pengambilan obat.</p>
+          <div x-show="serviceFeeEnabled" x-cloak class="mt-3 ml-6 max-w-xs">
+            <label class="block text-xs text-gray-500 mb-1">Nominal Jasa Dokter (Rp)</label>
+            <input type="number" x-model="serviceFee" min="0" step="1000" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: 50000">
           </div>
         </div>
       </main>
