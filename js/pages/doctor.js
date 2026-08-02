@@ -271,10 +271,10 @@ export function doctorPatients() {
   const patients = store.getPatients();
   // Editable snapshot keyed by id — the modal looks patients up by id (safe:
   // no free-text embedded in attributes), avoiding the special-char break.
-  window.__patientsForEdit = patients.map(p => ({ id: p.id, full_name: p.full_name || '', nik: p.nik || '', birth_date: p.birth_date || '', gender: p.gender || '', phone: p.phone || '', address: p.address || '', blood_type: p.blood_type || '', allergies: p.allergies || '' }));
+  window.__patientsForEdit = patients.map(p => ({ id: p.id, full_name: p.full_name || '', nik: p.nik || '', birth_date: p.birth_date || '', gender: p.gender || '', phone: p.phone || '', address: p.address || '', blood_type: p.blood_type || '', allergies: p.allergies || '', family_name: p.family_name || '', family_phone: p.family_phone || '', family_relation: p.family_relation || '' }));
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', showNewForm: false,
-    newPatient: { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123' },
+    newPatient: { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',family_name:'',family_phone:'',family_relation:'',email:'',password:'pasien123' },
     regSaving: false, regMsg: '', regMsgErr: false,
     async registerPatient() {
       this.regSaving = true; this.regMsg = ''; this.regMsgErr = false;
@@ -283,7 +283,7 @@ export function doctorPatients() {
         const r = await window.__store.register({ ...this.newPatient });
         if (r && r.error) { this.regMsg = r.error; this.regMsgErr = true; this.regSaving = false; return; }
         window.__showToast && window.__showToast('Pasien tersimpan', hadEmail ? 'Pasien berhasil didaftarkan (tersimpan di cloud).' : 'Pasien didaftarkan tanpa email. Admin bisa menambahkan email nanti untuk login.');
-        this.newPatient = { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',email:'',password:'pasien123' };
+        this.newPatient = { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',family_name:'',family_phone:'',family_relation:'',email:'',password:'pasien123' };
         this.showNewForm = false; this.regSaving = false;
         setTimeout(function(){ window.__rerender && window.__rerender(); }, 200);
       } catch (e) {
@@ -329,6 +329,10 @@ export function doctorPatients() {
               <div><label class="block text-xs text-gray-600 mb-1">Email <span class="text-gray-400">(opsional)</span></label><input type="email" x-model="newPatient.email" placeholder="Kosongkan jika tanpa login" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="newPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
+              <div class="col-span-2 lg:col-span-3 pt-2 border-t border-gray-100"><p class="text-xs font-semibold text-gray-600">Kontak Keluarga / Wali <span class="font-normal text-gray-400">— untuk pasien anak, lansia, atau yang tidak memegang HP sendiri</span></p></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Nama Keluarga / Wali</label><input type="text" x-model="newPatient.family_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">No. HP Keluarga</label><input type="tel" x-model="newPatient.family_phone" placeholder="0812..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Hubungan dengan Pasien</label><select x-model="newPatient.family_relation" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option>${(CONFIG.FAMILY_RELATIONS||[]).map(r=>`<option>${r}</option>`).join('')}</select></div>
             </div>
             <div class="flex gap-2"><button type="submit" :disabled="regSaving" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-text="regSaving ? 'Menyimpan...' : 'Simpan'"></span></button><button type="button" @click="showNewForm=false" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</button></div>
           </form>
@@ -372,6 +376,10 @@ export function doctorPatients() {
                   <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="editPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
                   <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="editPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
                   <div><label class="block text-xs text-gray-600 mb-1">Alergi</label><input type="text" x-model="editPatient.allergies" placeholder="- bila tidak ada" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div class="col-span-2 pt-2 border-t border-gray-100"><p class="text-xs font-semibold text-gray-600">Kontak Keluarga / Wali</p></div>
+                  <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Nama Keluarga / Wali</label><input type="text" x-model="editPatient.family_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">No. HP Keluarga</label><input type="tel" x-model="editPatient.family_phone" placeholder="0812..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Hubungan dgn Pasien</label><select x-model="editPatient.family_relation" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option>${(CONFIG.FAMILY_RELATIONS||[]).map(r=>`<option>${r}</option>`).join('')}</select></div>
                 </div>
                 <div class="flex gap-2 mt-5">
                   <button @click="saveEdit()" :disabled="savingEdit" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-text="savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'"></span></button>
@@ -457,7 +465,8 @@ export function doctorEMR(params) {
             <div class="flex flex-wrap gap-3 text-xs">
               <span class="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 font-medium">Gol. Darah: ${escHtml(patient.blood_type || '-')}</span>
               <span class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 font-medium">Alergi: ${escHtml(patient.allergies || '-')}</span>
-              <span class="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-medium">Telp: ${escHtml(patient.phone)}</span>
+              <span class="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-medium">Telp: ${escHtml(patient.phone || '-')}</span>
+              ${patient.family_phone || patient.family_name ? `<span class="px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 font-medium">Keluarga: ${escHtml(patient.family_name || '-')}${patient.family_relation ? ' (' + escHtml(patient.family_relation) + ')' : ''}${patient.family_phone ? ' — ' + escHtml(patient.family_phone) : ''}</span>` : ''}
             </div>
           </div>
         </div>
