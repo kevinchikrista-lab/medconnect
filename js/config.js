@@ -113,4 +113,7 @@ export const CONFIG = {
 
   // Sumber datangnya calon pasien.
   CRM_SOURCES: ['WhatsApp', 'Instagram', 'Facebook', 'TikTok', 'Referral', 'Walk-in', 'Iklan', 'Website', 'Lainnya'],
+
+  // Hubungan kontak keluarga/wali dengan pasien (mis. pasien anak -> Ibu).
+  FAMILY_RELATIONS: ['Ayah', 'Ibu', 'Suami', 'Istri', 'Anak', 'Saudara Kandung', 'Kakek/Nenek', 'Wali', 'Lainnya'],
 };

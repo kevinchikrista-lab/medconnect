@@ -901,7 +901,9 @@ class Store {
           birth_date: userData.birth_date || null, gender: userData.gender || '',
           phone: userData.phone || '', address: userData.address || '',
           blood_type: userData.blood_type || '', allergies: userData.allergies || '-',
-          emergency_contact: userData.emergency_contact || ''
+          emergency_contact: userData.emergency_contact || '',
+          family_name: userData.family_name || '', family_phone: userData.family_phone || '',
+          family_relation: userData.family_relation || ''
         };
         try { const n = await this.getNextRmNumber(); if (n) patientPayload.rm_number = String(n).padStart(6, '0'); } catch (e) { /* assigned lazily later */ }
         await supabase.insert('patients', patientPayload);
@@ -1014,7 +1016,7 @@ class Store {
   updatePatientProfile(patientId, updates) {
     const p = this.data.patients.find(x => x.id === patientId);
     if (!p) return { error: 'Pasien tidak ditemukan' };
-    const allowed = ['full_name', 'nik', 'birth_date', 'gender', 'phone', 'address', 'blood_type', 'allergies', 'emergency_contact', 'rm_number'];
+    const allowed = ['full_name', 'nik', 'birth_date', 'gender', 'phone', 'address', 'blood_type', 'allergies', 'emergency_contact', 'rm_number', 'family_name', 'family_phone', 'family_relation'];
     const patch = {};
     allowed.forEach(k => { if (updates[k] !== undefined) { p[k] = updates[k]; patch[k] = updates[k]; } });
     // Empty date binds as '' which Postgres rejects for the DATE column, so

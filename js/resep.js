@@ -27,6 +27,42 @@ function calcAge(birth) {
   return Math.floor((Date.now() - b) / (365.25 * 24 * 60 * 60 * 1000));
 }
 
+// Jumlah obat pada resep ditulis dengan angka Romawi (konvensi kefarmasian):
+// No. XV, bukan No. 15.
+function toRoman(n) {
+  const num = parseInt(n, 10);
+  if (!num || num < 1 || num > 3999) return String(n == null ? '' : n);
+  const map = [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+  let out = '', v = num;
+  for (const [val, sym] of map) { while (v >= val) { out += sym; v -= val; } }
+  return out;
+}
+
+// Satuan -> singkatan sediaan pada signatura (huruf besar, spt kaidah resep).
+const UNIT_ABBR = {
+  'tablet': 'TAB', 'strip': 'TAB', 'kapsul': 'CAPS', 'kapsul racikan': 'CAPS',
+  'puyer': 'PULV', 'sachet': 'PULV', 'botol': 'CTH', 'sendok': 'CTH',
+  'tube': 'UE', 'ampul': 'AMP',
+};
+
+// Bangun signatura gaya resep: "S 2 dd TAB I Sesudah makan (PC)".
+// (frekuensi '2 x 1' + satuan Tablet + waktu apa adanya).
+function signatura(item) {
+  const freq = String(item.frequency || '').trim();
+  const unit = UNIT_ABBR[String(item.unit || '').toLowerCase()] || '';
+  let core = '';
+  const m = freq.match(/^(\d+)\s*x\s*(\d+)$/i);
+  if (m) {
+    core = m[1] + ' dd' + (unit ? ' ' + unit : '') + ' ' + toRoman(m[2]);
+  } else if (/prn/i.test(freq)) {
+    core = 'prn' + (unit ? ' ' + unit + ' I' : '');
+  } else {
+    core = freq;
+  }
+  const tail = item.time || '';
+  return ('S ' + core + (tail ? ' ' + tail : '')).replace(/\s+/g, ' ').trim();
+}
+
 function doctorInitials(name) {
   if (!name) return 'DR';
   const cleaned = String(name).replace(/\b(dr|drg|dr\.|drg\.)\b/gi, '').replace(/\./g, '').trim();
@@ -97,18 +133,27 @@ async function ensureResepCert(rx, patient, doctor, items) {
 }
 
 function itemHtml(i, idx) {
+  const qty = i.quantity ? 'No. ' + toRoman(i.quantity) : '';
+  const sig = signatura(i);
+  const extra = [i.duration ? esc(i.duration) : '', i.instructions ? esc(i.instructions) : ''].filter(Boolean).join(' &middot; ');
+
   if (i.is_compound) {
+    // Pada racikan, yang ditulis sebagai isi resep adalah KOMPOSISInya.
+    // Nama tampil ("Obat Batuk") hanya keterangan untuk pasien/apoteker.
+    const komposisi = esc(i.compound_details) || esc(i.drug_name) || ('Racikan ' + (idx + 1));
     return `
       <div class="rx-item">
-        <div class="rx-line"><span class="rx-mark">R/</span><span class="rx-name">${esc(i.drug_name) || 'Racikan ' + (idx + 1)}</span><span class="rx-qty">No. ${esc(i.quantity) || '-'}</span></div>
-        <div class="rx-sub">Komposisi: ${esc(i.compound_details) || '-'}</div>
-        <div class="rx-sig">S ${esc(i.frequency)} ${esc(i.time)}${i.duration ? ' &middot; ' + esc(i.duration) : ''}${i.instructions ? ' &middot; ' + esc(i.instructions) : ''}</div>
+        <div class="rx-line"><span class="rx-mark">R/</span><span class="rx-name">${komposisi}</span><span class="rx-qty">${qty}</span></div>
+        <div class="rx-sig">${esc(sig)}${extra ? ' &middot; ' + extra : ''}</div>
+        ${i.drug_name ? `<div class="rx-sub">Ket: ${esc(i.drug_name)}</div>` : ''}
       </div>`;
   }
+  // Sediaan (TABLET/KAPSUL/...) ditulis setelah nama+dosis, sebelum "No. VI".
+  const sediaan = i.unit ? ' ' + esc(String(i.unit).toUpperCase()) : '';
   return `
       <div class="rx-item">
-        <div class="rx-line"><span class="rx-mark">R/</span><span class="rx-name">${esc(i.drug_name)}${i.dosage ? ' ' + esc(i.dosage) : ''}</span><span class="rx-qty">No. ${esc(i.quantity) || '-'} ${esc(i.unit)}</span></div>
-        <div class="rx-sig">S ${esc(i.frequency)} ${esc(i.time)}${i.duration ? ' &middot; ' + esc(i.duration) : ''}${i.instructions ? ' &middot; ' + esc(i.instructions) : ''}</div>
+        <div class="rx-line"><span class="rx-mark">R/</span><span class="rx-name">${esc(i.drug_name)}${i.dosage ? ' ' + esc(i.dosage) : ''}${sediaan}</span><span class="rx-qty">${qty}</span></div>
+        <div class="rx-sig">${esc(sig)}${extra ? ' &middot; ' + extra : ''}</div>
       </div>`;
 }
 
@@ -134,8 +179,12 @@ function writeResep(w, cert) {
      Lebarnya cuma ~87mm setelah padding, jadi kop & blok tanda tangan
      ditumpuk vertikal agar tidak berdesakan. */
   body[data-size="a4-3"]{--s:.55;--pw:99mm;--ph:210mm;--pad:6mm 6mm}
-  body[data-size="a4-3"] .kop{flex-direction:column;text-align:center;gap:calc(6px*var(--s))}
-  body[data-size="a4-3"] .kop img{height:calc(14mm*var(--s))}
+  /* Logo tetap di kiri (tidak ditumpuk) supaya nama klinik dapat ruang lebar
+     dan bisa dicetak lebih besar. */
+  body[data-size="a4-3"] .kop{gap:calc(10px*var(--s))}
+  body[data-size="a4-3"] .kop img{height:calc(15mm*var(--s))}
+  body[data-size="a4-3"] .kop-name{font-size:calc(30px*var(--s));line-height:1.1}
+  body[data-size="a4-3"] .kop-sub{font-size:calc(13px*var(--s))}
   body[data-size="a4-3"] .doc-line{flex-direction:column;align-items:flex-start;gap:1px}
   body[data-size="a4-3"] .ident td.k{width:auto;padding-right:calc(4px*var(--s))}
   body[data-size="a4-3"] .sign-row{flex-direction:column;align-items:stretch;gap:calc(12px*var(--s))}
@@ -166,7 +215,6 @@ function writeResep(w, cert) {
   .rx-sub{font-size:calc(11.5px*var(--s));color:#4b5563;margin:3px 0 0 calc(30px*var(--s));line-height:1.45}
   .rx-sig{font-size:calc(12.5px*var(--s));font-style:italic;color:#374151;margin:3px 0 0 calc(30px*var(--s))}
   .notes{margin-top:calc(6px*var(--s));padding:calc(7px*var(--s)) calc(10px*var(--s));border-radius:6px;background:#fffbeb;border:1px solid #fde68a;font-size:calc(11.5px*var(--s));color:#92400e}
-  .fee{margin-top:calc(6px*var(--s));padding:calc(7px*var(--s)) calc(10px*var(--s));border-radius:6px;background:#f0fdf4;border:1px solid #bbf7d0;font-size:calc(11.5px*var(--s));color:#166534;font-weight:600}
   .sign-row{display:flex;justify-content:space-between;align-items:flex-end;margin-top:calc(16px*var(--s));gap:calc(20px*var(--s))}
   .verify{display:flex;align-items:center;gap:calc(10px*var(--s));max-width:78mm}
   .verify img{width:calc(70px*var(--s));height:calc(70px*var(--s));border:1px solid var(--rule);border-radius:6px;padding:calc(4px*var(--s));background:white}
@@ -174,7 +222,6 @@ function writeResep(w, cert) {
   .verify-t b{color:var(--ink);font-size:calc(10.5px*var(--s))}
   .sign{text-align:center;min-width:calc(60mm*var(--s))}
   .sign .place{font-size:calc(12.5px*var(--s));margin-bottom:2px}
-  .sign-space{height:calc(20mm*var(--s))}
   .sign .name{font-size:calc(14px*var(--s));font-weight:800;text-decoration:underline;text-underline-offset:3px}
   .sign .sip{font-size:calc(11px*var(--s));color:#374151;margin-top:2px}
   .foot{margin-top:calc(10px*var(--s));padding-top:calc(7px*var(--s));border-top:1px solid var(--rule);font-size:calc(9.5px*var(--s));color:var(--muted);text-align:center;line-height:1.45}
@@ -225,7 +272,6 @@ function writeResep(w, cert) {
     <div class="rx-list">
       ${items.length ? items.map(itemHtml).join('') : '<p style="margin-left:6mm;color:#6b7280;font-size:13px">(tidak ada item obat)</p>'}
       ${d.notes ? `<div class="notes"><b>Catatan:</b> ${esc(d.notes)}</div>` : ''}
-      ${d.service_fee_enabled ? `<div class="fee">Jasa Dokter: Rp ${Number(d.service_fee || 0).toLocaleString('id-ID')}</div>` : ''}
     </div>
 
     <div class="sign-row">
@@ -235,9 +281,9 @@ function writeResep(w, cert) {
       </div>
       <div class="sign">
         <div class="place">Dokter Penulis Resep,</div>
-        <div class="sign-space"></div>
         <div class="name">${esc(cert.doctor_name || d.doctor_name || '-').toUpperCase()}</div>
         <div class="sip">SIP: ${esc(d.doctor_sip || '-')}</div>
+        <div class="sip" style="font-style:italic;color:#9ca3af;margin-top:3px">Sah tanpa tanda tangan basah &mdash; diverifikasi via QR</div>
       </div>
     </div>
 
@@ -282,5 +328,32 @@ export async function printResepById(rxId) {
   const items = store.getPrescriptionItems(rx.id);
   const cert = await ensureResepCert(rx, patient, doctor, items);
   if (!cert) { if (w) w.close(); alert('Gagal menyiapkan kertas resep.'); return; }
-  writeResep(w, cert);
+
+  // Nomor & QR sengaja dipakai ulang, TAPI identitas pasien selalu diambil
+  // ulang dari data terkini saat mencetak. Tanpa ini, resep yang sertifikatnya
+  // dibuat sebelum alamat/tgl lahir/BB terisi akan selamanya mencetak "-".
+  const linked = (store.data.medical_records || []).find(r => r.id === rx.record_id);
+  const vs = (linked && linked.vital_signs) || {};
+  const fresh = {
+    no_rm: (patient && patient.rm_number) || '',
+    tgl_lahir: (patient && patient.birth_date) || '',
+    gender: (patient && patient.gender) || '',
+    alamat: (patient && patient.address) || '',
+    berat_badan: vs.bb || '',
+    tinggi_badan: vs.tb || '',
+    practice_place: (linked && linked.location) || '',
+    doctor_name: (doctor && doctor.full_name) || '',
+    doctor_sip: (doctor && doctor.sip_number) || '',
+    rx_target: rx.rx_target || 'apotek',
+    notes: rx.notes || '',
+  };
+  const merged = Object.assign({}, cert.details || {});
+  // Hanya timpa bila data terkini benar-benar ada, supaya tidak menghapus
+  // data lama yang mungkin sudah benar.
+  Object.keys(fresh).forEach(k => { if (fresh[k]) merged[k] = fresh[k]; });
+  writeResep(w, Object.assign({}, cert, {
+    details: merged,
+    patient_name: (patient && patient.full_name) || cert.patient_name,
+    doctor_name: (doctor && doctor.full_name) || cert.doctor_name,
+  }));
 }

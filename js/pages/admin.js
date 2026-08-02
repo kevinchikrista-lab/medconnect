@@ -11,6 +11,12 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// Escape untuk teks bebas yang dirender sebagai HTML — '<' pada data pasien
+// bisa merusak markup di sekitarnya bila tidak di-escape.
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // new Date().toISOString().split('T')[0] reads the UTC date — WIB is
 // UTC+7, so from local midnight to 7am that's still "yesterday" in UTC.
 function todayLocal() {
@@ -93,6 +99,9 @@ export function adminUsers() {
                 <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">NIK</label><input type="text" x-model="newUser.nik" maxlength="16" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
                 <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label><input type="date" x-model="newUser.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
                 <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label><select x-model="newUser.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option><option>Laki-laki</option><option>Perempuan</option></select></div></template>
+                <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">Nama Keluarga / Wali</label><input type="text" x-model="newUser.family_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
+                <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">No. HP Keluarga</label><input type="tel" x-model="newUser.family_phone" placeholder="0812..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
+                <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">Hubungan dgn Pasien</label><select x-model="newUser.family_relation" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option>${(CONFIG.FAMILY_RELATIONS||[]).map(r=>`<option>${r}</option>`).join('')}</select></div></template>
                 <template x-if="newUser.role==='pharmacy'"><div><label class="block text-xs text-gray-600 mb-1">No. SIPA</label><input type="text" x-model="newUser.license_no" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
                 <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newUser.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
@@ -218,7 +227,7 @@ export function adminUsersData() {
       const vax = window.__store.getVaccinations(user.profile.id);
       return [...new Set(vax.map(v => v.vaccine_name))];
     },
-    newUser: { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', birth_date: '', gender: '', license_no: '', address: '' },
+    newUser: { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', birth_date: '', gender: '', license_no: '', address: '', family_name: '', family_phone: '', family_relation: '' },
     get filteredUsers() {
       let users = store.getUsers(this.filter || undefined);
       if (this.search) {
@@ -264,7 +273,7 @@ export function adminUsersData() {
           if (this.newUser.role === 'doctor' || this.newUser.role === 'owner') {
             await supabase.insert('doctors', { profile_id: profileId, full_name: this.newUser.full_name, sip_number: this.newUser.sip_number || '', specialization: this.newUser.specialization || '', phone: this.newUser.phone || '', is_available: true });
           } else if (this.newUser.role === 'patient') {
-            await supabase.insert('patients', { profile_id: profileId, full_name: this.newUser.full_name, nik: this.newUser.nik || '', birth_date: this.newUser.birth_date || null, gender: this.newUser.gender || '', phone: this.newUser.phone || '', address: this.newUser.address || '', allergies: '-', emergency_contact: '' });
+            await supabase.insert('patients', { profile_id: profileId, full_name: this.newUser.full_name, nik: this.newUser.nik || '', birth_date: this.newUser.birth_date || null, gender: this.newUser.gender || '', phone: this.newUser.phone || '', address: this.newUser.address || '', allergies: '-', emergency_contact: '', family_name: this.newUser.family_name || '', family_phone: this.newUser.family_phone || '', family_relation: this.newUser.family_relation || '' });
           } else if (this.newUser.role === 'pharmacy') {
             await supabase.insert('pharmacies', { profile_id: profileId, name: this.newUser.full_name, phone: this.newUser.phone || '', address: this.newUser.address || '', license_no: this.newUser.license_no || '', operating_hours: '' });
           }
@@ -277,7 +286,7 @@ export function adminUsersData() {
         this.createMsg = 'User berhasil dibuat!';
       }
       this.creating = false;
-      this.newUser = { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', license_no: '', address: '' };
+      this.newUser = { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', birth_date: '', gender: '', license_no: '', address: '', family_name: '', family_phone: '', family_relation: '' };
       // filteredUsers reads from `store` directly (not an Alpine-reactive proxy),
       // so the list won't refresh on its own after a create — force a re-render.
       window.__showToast && window.__showToast('Tersimpan', this.createMsg);
@@ -941,7 +950,7 @@ export function adminPatients() {
   const q = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
   // Editable snapshot keyed by id — the modal looks patients up by id (safe:
   // no free-text embedded in attributes), same pattern as the doctor panel.
-  window.__patientsForEdit = patients.map(p => ({ id: p.id, full_name: p.full_name || '', nik: p.nik || '', birth_date: p.birth_date || '', gender: p.gender || '', phone: p.phone || '', address: p.address || '', blood_type: p.blood_type || '', allergies: p.allergies || '' }));
+  window.__patientsForEdit = patients.map(p => ({ id: p.id, full_name: p.full_name || '', nik: p.nik || '', birth_date: p.birth_date || '', gender: p.gender || '', phone: p.phone || '', address: p.address || '', blood_type: p.blood_type || '', allergies: p.allergies || '', family_name: p.family_name || '', family_phone: p.family_phone || '', family_relation: p.family_relation || '' }));
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, search: '',
     editPatient: null, savingEdit: false, editMsg: '',
@@ -1003,6 +1012,10 @@ export function adminPatients() {
                   <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="editPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
                   <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="editPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
                   <div><label class="block text-xs text-gray-600 mb-1">Alergi</label><input type="text" x-model="editPatient.allergies" placeholder="- bila tidak ada" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div class="col-span-2 pt-2 border-t border-gray-100"><p class="text-xs font-semibold text-gray-600">Kontak Keluarga / Wali</p></div>
+                  <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Nama Keluarga / Wali</label><input type="text" x-model="editPatient.family_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">No. HP Keluarga</label><input type="tel" x-model="editPatient.family_phone" placeholder="0812..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Hubungan dgn Pasien</label><select x-model="editPatient.family_relation" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option>${(CONFIG.FAMILY_RELATIONS||[]).map(r=>`<option>${r}</option>`).join('')}</select></div>
                 </div>
                 <div class="flex gap-2 mt-5">
                   <button @click="saveEdit()" :disabled="savingEdit" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-text="savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'"></span></button>
@@ -1051,7 +1064,7 @@ export function adminPatientDetail(params) {
       alert('Draft surat dibuat & dikirim ke ' + doc.full_name + ' untuk persetujuan (ACC).\\n\\nSurat baru SAH setelah dokter menyetujui. Sementara ini yang tercetak adalah draft bertanda air.');
     },
     editOpen: false, savingEdit: false, editMsg: '',
-    editPatient: { full_name: '${q(patient.full_name)}', nik: '${q(patient.nik||'')}', birth_date: '${patient.birth_date || ''}', gender: '${q(patient.gender||'')}', phone: '${q(patient.phone||'')}', address: '${q(patient.address||'')}', blood_type: '${q(patient.blood_type||'')}', allergies: '${q(patient.allergies||'')}' },
+    editPatient: { full_name: '${q(patient.full_name)}', nik: '${q(patient.nik||'')}', birth_date: '${patient.birth_date || ''}', gender: '${q(patient.gender||'')}', phone: '${q(patient.phone||'')}', address: '${q(patient.address||'')}', blood_type: '${q(patient.blood_type||'')}', allergies: '${q(patient.allergies||'')}', family_name: '${q(patient.family_name||'')}', family_phone: '${q(patient.family_phone||'')}', family_relation: '${q(patient.family_relation||'')}' },
     async saveEditPatient() {
       if (!this.editPatient.full_name.trim()) { this.editMsg='Nama lengkap wajib diisi.'; return; }
       this.savingEdit = true;
@@ -1074,6 +1087,7 @@ export function adminPatientDetail(params) {
             <div>
               <h2 class="text-lg font-bold text-gray-800">${patient.full_name}</h2>
               <p class="text-sm text-gray-500">${patient.gender || '-'}${age !== null ? ', '+age+' thn' : ''} | No. RM: ${patient.rm_number || '-'} | NIK: ${patient.nik || '-'}</p>
+              ${patient.family_phone || patient.family_name ? `<p class="text-xs text-violet-700 mt-0.5">Keluarga: ${escHtml(patient.family_name || '-')}${patient.family_relation ? ' (' + escHtml(patient.family_relation) + ')' : ''}${patient.family_phone ? ' — ' + escHtml(patient.family_phone) : ''}</p>` : ''}
             </div>
           </div>
           <div class="flex items-center gap-2 self-start lg:self-auto">
@@ -1100,6 +1114,10 @@ export function adminPatientDetail(params) {
               <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="editPatient.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Gol. Darah</label><select x-model="editPatient.blood_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">-</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
               <div><label class="block text-xs text-gray-600 mb-1">Alergi</label><input type="text" x-model="editPatient.allergies" placeholder="- bila tidak ada" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div class="col-span-2 pt-2 border-t border-gray-100"><p class="text-xs font-semibold text-gray-600">Kontak Keluarga / Wali</p></div>
+                  <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Nama Keluarga / Wali</label><input type="text" x-model="editPatient.family_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">No. HP Keluarga</label><input type="tel" x-model="editPatient.family_phone" placeholder="0812..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Hubungan dgn Pasien</label><select x-model="editPatient.family_relation" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option>${(CONFIG.FAMILY_RELATIONS||[]).map(r=>`<option>${r}</option>`).join('')}</select></div>
             </div>
             <div class="flex gap-2 mt-5">
               <button @click="saveEditPatient()" :disabled="savingEdit" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-text="savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'"></span></button>
