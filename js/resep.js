@@ -13,6 +13,13 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+// Sama seperti esc(), tapi setiap ENTER pada teks menjadi baris baru.
+// HTML menggabungkan baris secara default, sehingga komposisi racikan yang
+// diketik per-baris akan menyambung jadi satu paragraf panjang tanpa ini.
+function escMultiline(s) {
+  return esc(s).replace(/\r\n|\r|\n/g, '<br>');
+}
+
 function fmtDate(d) {
   if (!d) return '-';
   const dt = new Date(d);
@@ -140,7 +147,7 @@ function itemHtml(i, idx) {
   if (i.is_compound) {
     // Pada racikan, yang ditulis sebagai isi resep adalah KOMPOSISInya.
     // Nama tampil ("Obat Batuk") hanya keterangan untuk pasien/apoteker.
-    const komposisi = esc(i.compound_details) || esc(i.drug_name) || ('Racikan ' + (idx + 1));
+    const komposisi = escMultiline(i.compound_details) || esc(i.drug_name) || ('Racikan ' + (idx + 1));
     return `
       <div class="rx-item">
         <div class="rx-line"><span class="rx-mark">R/</span><span class="rx-name">${komposisi}</span><span class="rx-qty">${qty}</span></div>
@@ -271,7 +278,7 @@ function writeResep(w, cert) {
 
     <div class="rx-list">
       ${items.length ? items.map(itemHtml).join('') : '<p style="margin-left:6mm;color:#6b7280;font-size:13px">(tidak ada item obat)</p>'}
-      ${d.notes ? `<div class="notes"><b>Catatan:</b> ${esc(d.notes)}</div>` : ''}
+      ${d.notes ? `<div class="notes"><b>Catatan:</b> ${escMultiline(d.notes)}</div>` : ''}
     </div>
 
     <div class="sign-row">
