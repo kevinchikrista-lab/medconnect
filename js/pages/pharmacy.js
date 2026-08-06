@@ -42,6 +42,10 @@ export function pharmacyDashboard() {
     itemCount(rxId) { return window.__store.getPrescriptionItems(rxId).length; },
     patientName(id) { return window.__store.getPatient(id)?.full_name || 'N/A'; },
     doctorName(id) { return window.__store.getDoctor(id)?.full_name || 'N/A'; },
+    patientContact(id) {
+      const p = window.__store.getPatient(id) || {};
+      return { phone: p.phone || '', famName: p.family_name || '', famPhone: p.family_phone || '', famRel: p.family_relation || '' };
+    },
     timeAgo(dateStr) {
       const diff = Date.now() - new Date(dateStr).getTime();
       const mins = Math.floor(diff / 60000);
@@ -95,6 +99,10 @@ export function pharmacyDashboard() {
                     </div>
                     <p class="text-sm text-gray-700">Pasien: <span class="font-medium" x-text="patientName(rx.patient_id)"></span></p>
                     <p class="text-xs text-gray-500"><span x-text="'Dokter: ' + doctorName(rx.doctor_id)"></span> | <span x-text="itemCount(rx.id) + ' obat'"></span></p>
+                    <p class="text-xs text-slate-600 mt-0.5">
+                      <span x-text="'HP: ' + (patientContact(rx.patient_id).phone || '-')"></span>
+                      <template x-if="patientContact(rx.patient_id).famPhone"><span x-text="' | Keluarga' + (patientContact(rx.patient_id).famRel ? ' ('+patientContact(rx.patient_id).famRel+')' : '') + ': ' + patientContact(rx.patient_id).famPhone"></span></template>
+                    </p>
                   </div>
                   <div class="flex gap-1 flex-shrink-0">
                     <template x-if="rx.status === 'sent'">
@@ -147,6 +155,12 @@ export function pharmacyPrescriptions() {
     itemsFor(rxId) { return window.__store.getPrescriptionItems(rxId); },
     patientName(id) { return window.__store.getPatient(id)?.full_name || 'N/A'; },
     doctorName(id) { return window.__store.getDoctor(id)?.full_name || ''; },
+    // Kontak pasien + keluarga/wali — apotek perlu ini untuk konfirmasi obat
+    // siap diambil / pengiriman, terutama pasien anak yang tak pegang HP.
+    patientContact(id) {
+      const p = window.__store.getPatient(id) || {};
+      return { phone: p.phone || '', famName: p.family_name || '', famPhone: p.family_phone || '', famRel: p.family_relation || '' };
+    },
     formatDate(d) { if (!d) return '-'; return new Date(d).toLocaleDateString('id-ID', { day:'numeric', month:'short', year:'numeric' }); },
     init() {
       if (window.__pagePollInterval) clearInterval(window.__pagePollInterval);
@@ -192,6 +206,21 @@ export function pharmacyPrescriptions() {
                 </div>
               </div>
               <div x-show="open" x-cloak class="p-4 border-t-2 border-gray-200 space-y-3">
+                  <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p class="text-xs font-semibold text-slate-700 mb-1.5">Kontak Pasien</p>
+                    <div class="text-sm text-slate-800 space-y-0.5">
+                      <p><span class="text-slate-500">No. HP Pasien:</span>
+                        <template x-if="patientContact(rx.patient_id).phone"><a :href="'tel:'+patientContact(rx.patient_id).phone" class="font-medium text-blue-700 hover:underline" x-text="patientContact(rx.patient_id).phone"></a></template>
+                        <template x-if="!patientContact(rx.patient_id).phone"><span class="text-slate-400">-</span></template>
+                      </p>
+                      <template x-if="patientContact(rx.patient_id).famPhone || patientContact(rx.patient_id).famName">
+                        <p><span class="text-slate-500">Keluarga / Wali:</span>
+                          <span class="font-medium" x-text="patientContact(rx.patient_id).famName || '-'"></span><span class="text-slate-500" x-text="patientContact(rx.patient_id).famRel ? ' ('+patientContact(rx.patient_id).famRel+')' : ''"></span>
+                          <template x-if="patientContact(rx.patient_id).famPhone"><span> &mdash; <a :href="'tel:'+patientContact(rx.patient_id).famPhone" class="font-medium text-blue-700 hover:underline" x-text="patientContact(rx.patient_id).famPhone"></a></span></template>
+                        </p>
+                      </template>
+                    </div>
+                  </div>
                   <div class="space-y-2">
                     <template x-for="(item, idx) in itemsFor(rx.id)" :key="item.id">
                       <div>
