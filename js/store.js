@@ -1480,8 +1480,26 @@ class Store {
     return { success: true, vaccination: vax, record };
   }
 
-  getPendingVaccinationsForDoctor(doctorId) {
+  // Ambil ulang dari server dulu: admin bisa saja menginput setelah tab dokter
+  // dibuka, dan tanpa ini antreannya baru muncul setelah aplikasi di-reload.
+  // Baris segar digabungkan ke data lokal supaya approve/reject (yang bekerja
+  // pada data lokal) menemukan barisnya.
+  async getPendingVaccinationsForDoctor(doctorId) {
     if (!doctorId) return [];
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('vaccinations', { eq: { approval_status: 'pending' } });
+        if (Array.isArray(rows) && rows.length) {
+          const byId = new Map((this.data.vaccinations || []).map(v => [v.id, v]));
+          rows.forEach(r => {
+            const local = byId.get(r.id);
+            if (local) Object.assign(local, r);
+            else this.data.vaccinations.push(r);
+          });
+          this._save();
+        }
+      } catch (e) { /* offline / tabel belum siap — pakai data lokal */ }
+    }
     return (this.data.vaccinations || [])
       .filter(v => this.vaxApprovalStatus(v) === 'pending' && v.approval_doctor_id === doctorId)
       .sort((a, b) => String(b.date_given || '').localeCompare(String(a.date_given || '')));

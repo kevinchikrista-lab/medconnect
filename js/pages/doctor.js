@@ -1646,11 +1646,12 @@ export function doctorSKDApproval() {
     async load() {
       this.loading = true;
       try { this.items = await window.__store.getPendingSKDForDoctor('${doc?.id}'); } catch(e) { this.items = []; }
-      try { this.vaxItems = window.__store.getPendingVaccinationsForDoctor('${doc?.id}'); } catch(e) { this.vaxItems = []; }
+      try { this.vaxItems = await window.__store.getPendingVaccinationsForDoctor('${doc?.id}'); } catch(e) { this.vaxItems = []; }
       this.loading = false;
     },
     patientName(id) { return (window.__store.getPatient(id) || {}).full_name || 'Pasien'; },
     vaxDose(v) { return v.vax_mode === 'booster' ? ('Booster ke-' + (v.dose_number || 1)) : ('Dosis ' + (v.dose_number || 1) + '/' + (v.total_doses || 1)); },
+    previewVax(v) { window.__generateVaxCert(v.patient_id, v.vaccine_name, { draft: true }); },
     async approveVax(v) {
       if (!confirm('Setujui catatan vaksinasi ' + v.vaccine_name + ' untuk ' + this.patientName(v.patient_id) + '?\\n\\nSetelah disetujui, sertifikat vaksin bisa dicetak.')) return;
       const r = await window.__store.approveVaccination(v.id);
@@ -1711,6 +1712,7 @@ export function doctorSKDApproval() {
                       <p class="text-xs text-gray-500" x-show="v.notes" x-text="'Catatan: ' + v.notes"></p>
                     </div>
                     <div class="flex gap-2 flex-wrap">
+                      <button @click="previewVax(v)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 transition">Lihat Draft</button>
                       <button @click="rejectVax(v)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Tolak</button>
                       <button @click="approveVax(v)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">Setujui &amp; Sahkan</button>
                     </div>
