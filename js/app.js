@@ -288,6 +288,20 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
   const vaccinations = store.getVaccinations(patientId).filter(v => v.vaccine_name === vaccineName);
   if (!patient || vaccinations.length === 0) return;
 
+  // Catatan vaksinasi yang diinput admin belum sah sampai dokter meng-ACC.
+  // Sertifikat bernomor & ber-QR tidak boleh terbit selama masih menggantung —
+  // begitu terbit, nomornya terpakai dan QR-nya terverifikasi sebagai sah.
+  const unapproved = store.getUnapprovedDoses(patientId, vaccineName);
+  if (unapproved.length) {
+    const rejected = unapproved.filter(v => store.vaxApprovalStatus(v) === 'rejected');
+    alert(rejected.length
+      ? `Sertifikat belum bisa dicetak: ${rejected.length} catatan dosis ${vaccineName} DITOLAK dokter.` +
+        (rejected[0].reject_reason ? `\n\nAlasan: ${rejected[0].reject_reason}` : '') +
+        '\n\nPerbaiki datanya lalu ajukan ulang.'
+      : `Sertifikat belum bisa dicetak: ${unapproved.length} catatan dosis ${vaccineName} masih menunggu persetujuan (ACC) dokter.`);
+    return;
+  }
+
   // Open the window synchronously (right on the click) so popup blockers don't intervene,
   // then fill it in once the async cert-number + log lookups resolve.
   const w = window.open('', '_blank');

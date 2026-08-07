@@ -1379,6 +1379,17 @@ class Store {
     return newVax;
   }
 
+  // Sama seperti createVaccination, tapi menunggu insert ke Supabase selesai
+  // supaya pemanggilnya bisa tahu apakah baris benar-benar tersimpan (id sudah
+  // berupa UUID asli) atau ditolak (masih placeholder 'id_...').
+  async createVaccinationAwaited(vax) {
+    const newVax = { id: generateId(), ...vax };
+    this.data.vaccinations.push(newVax);
+    this._save();
+    await this._syncInsert('vaccinations', newVax, sanitizeDates(newVax, ['date_given', 'next_dose_date']));
+    return newVax;
+  }
+
   updateVaccination(vaxId, updates) {
     const v = this.data.vaccinations.find(x => x.id === vaxId);
     if (!v) return { error: 'Data vaksinasi tidak ditemukan' };
@@ -1392,6 +1403,121 @@ class Store {
     this.data.vaccinations = this.data.vaccinations.filter(x => x.id !== vaxId);
     this._save();
     if (!CONFIG.DEMO_MODE) supabase.delete('vaccinations', vaxId).catch(() => {});
+  }
+
+  // ---- Vaksinasi yang diinput admin → ACC dokter --------------------------
+  // Baris lama (dan semua yang diinput dokter sendiri) tidak punya kolom ini,
+  // jadi tanpa nilai dianggap sudah sah — bukan menunggu persetujuan.
+  vaxApprovalStatus(v) { return (v && v.approval_status) || 'approved'; }
+
+  // Admin mencatat vaksinasi atas nama dokter. Dua hal sekaligus: baris
+  // vaksinasi berstatus 'pending', dan rekam medis kunjungan agar riwayat
+  // pasien tetap lengkap seperti kalau dokter yang mengisi.
+  async addVaccinationByAdmin(data) {
+    const doctorId = data.approval_doctor_id || data.administered_by || '';
+    if (!doctorId) return { error: 'Pilih dokter penanggung jawab (yang akan meng-ACC) terlebih dahulu.' };
+    if (!data.patient_id) return { error: 'Pasien tidak ditemukan' };
+    if (!data.vaccine_name) return { error: 'Nama vaksin wajib diisi' };
+    if (!data.date_given) return { error: 'Tanggal pemberian wajib diisi' };
+
+    const modeLabel = data.vax_mode === 'booster'
+      ? ' (booster ke-' + (data.dose_number || 1) + ')'
+      : ' dosis ' + (data.dose_number || 1) + '/' + (data.total_doses || 1);
+
+    const vax = await this.createVaccinationAwaited({
+      patient_id: data.patient_id,
+      vaccine_name: data.vaccine_name,
+      vaccine_brand: data.vaccine_brand || '',
+      vax_mode: data.vax_mode || 'series',
+      dose_number: Number(data.dose_number) || 1,
+      total_doses: Number(data.total_doses) || 1,
+      booster_interval_months: Number(data.booster_interval_months) || 12,
+      date_given: data.date_given,
+      next_dose_date: data.next_dose_date || '',
+      batch_number: data.batch_number || '',
+      administered_by: doctorId,
+      location: data.location || '',
+      notes: data.notes || '',
+      approval_status: 'pending',
+      approval_doctor_id: doctorId,
+      approval_created_by: data.created_by || '',
+      reject_reason: '',
+    });
+
+    // Kolom approval_* datang dari supabase-vaccination-approval.sql. Kalau
+    // migrasi itu belum dijalankan, Postgres menolak seluruh baris dan id-nya
+    // tetap placeholder 'id_...' — hentikan di sini dengan pesan jelas daripada
+    // membiarkan admin mengira datanya sudah tersimpan di server.
+    if (!CONFIG.DEMO_MODE && String(vax.id).startsWith('id_')) {
+      this.data.vaccinations = this.data.vaccinations.filter(x => x.id !== vax.id);
+      this._save();
+      return { error: 'Gagal menyimpan ke server. Pastikan migrasi supabase-vaccination-approval.sql sudah dijalankan di Supabase.' };
+    }
+
+    // Rekam medis kunjungan — sama bentuknya dengan yang dibuat dokter, supaya
+    // vaksinasi ini ikut muncul di riwayat rekam medis pasien.
+    let record = null;
+    try {
+      record = await this.createRecord({
+        patient_id: data.patient_id, doctor_id: doctorId,
+        visit_type: 'vaccination', visit_date: data.date_given,
+        location: data.location || '',
+        anamnesis: 'Vaksinasi ' + data.vaccine_name + ' ' + (data.vaccine_brand || '') + modeLabel,
+        diagnosis: 'Vaksinasi ' + data.vaccine_name,
+        therapy: 'Pemberian vaksin ' + (data.vaccine_brand || data.vaccine_name) + modeLabel,
+        vital_signs: {},
+        follow_up_date: data.next_dose_date || '',
+        follow_up_notes: data.vax_mode === 'booster' ? 'Booster berikutnya' : 'Vaksin dosis berikutnya',
+        notes: [data.batch_number ? 'Batch: ' + data.batch_number : '', 'Diinput admin, menunggu ACC dokter.', data.notes || ''].filter(Boolean).join(' | '),
+      });
+    } catch (e) { /* vaksinasi tetap tersimpan walau rekam medis gagal */ }
+
+    const d = this.data.doctors.find(x => x.id === doctorId);
+    if (d && d.user_id) {
+      this.addNotification(d.user_id, 'Vaksinasi Menunggu ACC',
+        `Catatan vaksinasi ${data.vaccine_name} untuk ${(this.getPatient(data.patient_id) || {}).full_name || 'pasien'} dibuat admin dan menunggu persetujuan (ACC) Anda.`, 'system');
+    }
+    return { success: true, vaccination: vax, record };
+  }
+
+  getPendingVaccinationsForDoctor(doctorId) {
+    if (!doctorId) return [];
+    return (this.data.vaccinations || [])
+      .filter(v => this.vaxApprovalStatus(v) === 'pending' && v.approval_doctor_id === doctorId)
+      .sort((a, b) => String(b.date_given || '').localeCompare(String(a.date_given || '')));
+  }
+
+  async approveVaccination(vaxId) {
+    const v = (this.data.vaccinations || []).find(x => x.id === vaxId);
+    if (!v) return { error: 'Data vaksinasi tidak ditemukan' };
+    const updates = { approval_status: 'approved', approved_at: new Date().toISOString(), reject_reason: '' };
+    const r = this.updateVaccination(vaxId, updates);
+    if (r && r.error) return r;
+    if (v.approval_created_by) {
+      this.addNotification(v.approval_created_by, 'Vaksinasi Disahkan',
+        `Catatan vaksinasi ${v.vaccine_name || ''} untuk ${(this.getPatient(v.patient_id) || {}).full_name || 'pasien'} telah disetujui (ACC). Sertifikat sudah bisa dicetak.`, 'system');
+    }
+    return { success: true };
+  }
+
+  async rejectVaccination(vaxId, reason) {
+    const v = (this.data.vaccinations || []).find(x => x.id === vaxId);
+    if (!v) return { error: 'Data vaksinasi tidak ditemukan' };
+    const r = this.updateVaccination(vaxId, { approval_status: 'rejected', reject_reason: reason || '' });
+    if (r && r.error) return r;
+    if (v.approval_created_by) {
+      this.addNotification(v.approval_created_by, 'Vaksinasi Ditolak',
+        `Catatan vaksinasi ${v.vaccine_name || ''} untuk ${(this.getPatient(v.patient_id) || {}).full_name || 'pasien'} ditolak dokter.${reason ? ' Alasan: ' + reason : ''}`, 'system');
+    }
+    return { success: true };
+  }
+
+  // Dosis yang belum di-ACC untuk satu vaksin — sertifikat tidak boleh terbit
+  // selama masih ada yang menggantung.
+  getUnapprovedDoses(patientId, vaccineName) {
+    return (this.data.vaccinations || []).filter(v =>
+      v.patient_id === patientId && v.vaccine_name === vaccineName &&
+      this.vaxApprovalStatus(v) !== 'approved');
   }
 
   // ---- Lokasi / Tempat Praktik (master data) ------------------------------

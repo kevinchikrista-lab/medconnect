@@ -1642,11 +1642,27 @@ export function doctorEMREdit(params) {
 export function doctorSKDApproval() {
   const doc = getDoctor();
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, items: [],
+  <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, items: [], vaxItems: [],
     async load() {
       this.loading = true;
       try { this.items = await window.__store.getPendingSKDForDoctor('${doc?.id}'); } catch(e) { this.items = []; }
+      try { this.vaxItems = window.__store.getPendingVaccinationsForDoctor('${doc?.id}'); } catch(e) { this.vaxItems = []; }
       this.loading = false;
+    },
+    patientName(id) { return (window.__store.getPatient(id) || {}).full_name || 'Pasien'; },
+    vaxDose(v) { return v.vax_mode === 'booster' ? ('Booster ke-' + (v.dose_number || 1)) : ('Dosis ' + (v.dose_number || 1) + '/' + (v.total_doses || 1)); },
+    async approveVax(v) {
+      if (!confirm('Setujui catatan vaksinasi ' + v.vaccine_name + ' untuk ' + this.patientName(v.patient_id) + '?\\n\\nSetelah disetujui, sertifikat vaksin bisa dicetak.')) return;
+      const r = await window.__store.approveVaccination(v.id);
+      if (r && r.error) { alert(r.error); return; }
+      this.load();
+    },
+    async rejectVax(v) {
+      const reason = prompt('Alasan menolak catatan vaksinasi ' + v.vaccine_name + ' untuk ' + this.patientName(v.patient_id) + ':');
+      if (reason === null) return;
+      const r = await window.__store.rejectVaccination(v.id, reason || '');
+      if (r && r.error) { alert(r.error); return; }
+      this.load();
     },
     preview(id) { window.__printSKD(id); },
     async approve(item) {
@@ -1671,11 +1687,45 @@ export function doctorSKDApproval() {
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-4xl mx-auto">
-        <h2 class="text-xl font-bold text-gray-800 mb-1">Surat Menunggu ACC</h2>
-        <p class="text-sm text-gray-500 mb-6">Surat keterangan yang dibuat oleh admin & menunggu persetujuan Anda. Setelah disetujui, surat menjadi sah dan QR-nya valid.</p>
+        <h2 class="text-xl font-bold text-gray-800 mb-1">Menunggu ACC</h2>
+        <p class="text-sm text-gray-500 mb-6">Surat keterangan &amp; catatan vaksinasi yang dibuat oleh admin dan menunggu persetujuan Anda. Setelah disetujui, dokumennya menjadi sah dan QR-nya valid.</p>
         <div x-show="loading" class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Memuat...</div>
-        <template x-if="!loading && items.length === 0">
-          <div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Tidak ada surat yang menunggu persetujuan.</div>
+
+        <!-- Vaksinasi yang diinput admin -->
+        <template x-if="!loading && vaxItems.length > 0">
+          <div class="mb-6">
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Vaksinasi <span x-text="'(' + vaxItems.length + ')'"></span></h3>
+            <div class="space-y-3">
+              <template x-for="v in vaxItems" :key="v.id">
+                <div class="bg-white border border-slate-100 rounded-3xl p-4">
+                  <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">Vaksinasi</span>
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">Menunggu ACC</span>
+                      </div>
+                      <p class="font-semibold text-gray-800 mt-2" x-text="patientName(v.patient_id)"></p>
+                      <p class="text-sm text-gray-700" x-text="v.vaccine_name + (v.vaccine_brand ? ' — ' + v.vaccine_brand : '')"></p>
+                      <p class="text-xs text-gray-500" x-text="vaxDose(v) + (v.date_given ? ' | ' + v.date_given : '') + (v.batch_number ? ' | Batch: ' + v.batch_number : '')"></p>
+                      <p class="text-xs text-gray-500" x-show="v.location" x-text="'Lokasi: ' + v.location"></p>
+                      <p class="text-xs text-gray-500" x-show="v.notes" x-text="'Catatan: ' + v.notes"></p>
+                    </div>
+                    <div class="flex gap-2 flex-wrap">
+                      <button @click="rejectVax(v)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Tolak</button>
+                      <button @click="approveVax(v)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">Setujui &amp; Sahkan</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="!loading && items.length === 0 && vaxItems.length === 0">
+          <div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Tidak ada dokumen yang menunggu persetujuan.</div>
+        </template>
+        <template x-if="!loading && items.length > 0">
+          <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Surat Keterangan <span x-text="'(' + items.length + ')'"></span></h3>
         </template>
         <div class="space-y-3">
           <template x-for="item in items" :key="item.id">
@@ -1910,7 +1960,7 @@ function doctorSidebar(active) {
     { id: 'patients', label: 'Pasien', icon: 'groups', href: '#/doctor/patients' },
     { id: 'emr', label: 'Rekam Medis', icon: 'clinical_notes', href: '#/doctor/records' },
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/doctor/prescriptions' },
-    { id: 'skd-approval', label: 'Surat Menunggu ACC', icon: 'assignment_turned_in', href: '#/doctor/skd-approval' },
+    { id: 'skd-approval', label: 'Menunggu ACC', icon: 'assignment_turned_in', href: '#/doctor/skd-approval' },
     { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/doctor/crm' },
     { id: 'chat', label: 'Pesan', icon: 'forum', href: '#/doctor/chat', badge: unreadChat },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/doctor/homecare/history' },
