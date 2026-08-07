@@ -571,10 +571,13 @@ export function doctorEMR(params) {
 
                     const scheduledDate = lastDose.next_dose_date || '';
                     const brand = lastDose.vaccine_brand || '';
-                    const loc = lastDose.location || 'Klinik Utama Prima';
+                    const activeLocs = store.getLocationNames();
+                    const loc = lastDose.location || activeLocs[0];
                     const boosterInterval = doses[0]?.booster_interval_months || 12;
                     const label = isBooster ? 'Berikan Booster' : `Berikan Dosis ${nextDoseNum}/${totalD}`;
-                    const locations = (CONFIG.LOCATIONS || ['Klinik Utama Prima','Home Care','Telemedicine']);
+                    // Tempat dosis sebelumnya ikut jadi opsi walau sudah dihapus
+                    // dari master, supaya nilai awal select-nya tetap cocok.
+                    const locations = (loc && !activeLocs.includes(loc)) ? [loc].concat(activeLocs) : activeLocs;
 
                     return `<div class="p-3 rounded-lg bg-amber-50 border border-amber-200" x-data="{showForm:false}">
                       <div class="flex items-center gap-3">
@@ -825,7 +828,7 @@ export function doctorEMRNew(params) {
   const doc = getDoctor();
   const patient = store.getPatient(params.patientId);
   if (!patient) return '<div class="p-8 text-center text-gray-500">Pasien tidak ditemukan</div>';
-  const locations = CONFIG.LOCATIONS || ['Klinik Utama Prima','Home Care','Telemedicine'];
+  const locations = store.getLocationNames();
   window.__icd10 = ICD10;
   window.__peSystems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
   window.__peState = buildPeState(null).state;
@@ -1543,7 +1546,14 @@ export function doctorEMREdit(params) {
   const record = store.data.medical_records.find(r => r.id === params.recordId);
   if (!record) return '<div class="p-8 text-center text-gray-500">Rekam medis tidak ditemukan</div>';
   const patient = store.getPatient(record.patient_id);
-  const locations = CONFIG.LOCATIONS || ['Klinik Utama Prima','Home Care','Telemedicine'];
+  // Tempat yang tersimpan di rekam medis ini bisa saja sudah dihapus /
+  // dinonaktifkan dari master lokasi. Kalau tidak ikut dimasukkan sebagai
+  // pilihan, <select> tidak punya opsi yang cocok dan lokasi kunjungan lama
+  // akan tertimpa diam-diam saat dokter menyimpan hasil edit.
+  const activeLocations = store.getLocationNames();
+  const locations = (record.location && !activeLocations.includes(record.location))
+    ? [record.location].concat(activeLocations)
+    : activeLocations;
   window.__icd10 = ICD10;
   // Pass the existing record into Alpine via a global instead of embedding each
   // field inside the x-data string — a newline, double-quote or backslash in

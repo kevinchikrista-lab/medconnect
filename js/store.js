@@ -198,6 +198,14 @@ const DEMO_DATA = {
     { id: 'v_7', patient_id: 'p_1', vaccine_name: 'Typhoid', vaccine_brand: 'Typhim Vi', vax_mode: 'booster', dose_number: 1, total_doses: 1, booster_interval_months: 36, date_given: '2024-06-15', next_dose_date: '2027-06-15', batch_number: 'TYP-2024-005', administered_by: 'd_1', location: 'Klinik Utama Prima', notes: 'Booster setiap 3 tahun' },
   ],
 
+  // Master lokasi / tempat praktik. Dikelola dari halaman Super Admin
+  // (Lokasi Praktik) dan disinkronkan ke tabel practice_locations.
+  practice_locations: [
+    { id: 'loc_1', name: 'Klinik Utama Prima', address: 'Jl. Dr. Wahidin, Gg. Sepakat 8 No. 88BC, Pontianak', phone: '0895-1882-4216', notes: '', is_active: true, sort_order: 10 },
+    { id: 'loc_2', name: 'Home Care', address: '', phone: '', notes: 'Kunjungan ke rumah pasien', is_active: true, sort_order: 20 },
+    { id: 'loc_3', name: 'Telemedicine', address: '', phone: '', notes: 'Konsultasi jarak jauh', is_active: true, sort_order: 30 },
+  ],
+
   health_services: [
     { id: 'hs_1', name: 'Vaksinasi Dewasa', description: 'Layanan vaksinasi lengkap untuk dewasa. Tersedia berbagai pilihan vaksin sesuai kebutuhan Anda.', category: 'Vaksinasi', price: 0, image_url: 'https://placehold.co/400x250/0d9488/white?text=Vaksinasi', is_active: true, items: [
       { name: 'Influenza (Vaxigrip Tetra)', price: 350000, desc: 'Vaksin flu tahunan, direkomendasikan setiap tahun' },
@@ -837,6 +845,9 @@ class Store {
       if (consultations.length) this.data.consultations = consultations;
       if (consultationMessages.length) this.data.consultation_messages = consultationMessages;
       this.data.articles = articles;
+      // Dimuat terpisah (bukan di Promise.all di atas) supaya bila tabel
+      // practice_locations belum dibuat, sinkronisasi data lain tetap jalan.
+      this.loadLocations().catch(() => {});
       this._save(this.data);
       console.log('Data loaded from Supabase:', { profiles: profiles.length, doctors: doctors.length, patients: patients.length });
     } catch (e) { console.warn('Failed to load from Supabase, using local data:', e); }
@@ -1381,6 +1392,104 @@ class Store {
     this.data.vaccinations = this.data.vaccinations.filter(x => x.id !== vaxId);
     this._save();
     if (!CONFIG.DEMO_MODE) supabase.delete('vaccinations', vaxId).catch(() => {});
+  }
+
+  // ---- Lokasi / Tempat Praktik (master data) ------------------------------
+  // Dulu di-hardcode sebagai CONFIG.LOCATIONS. Sekarang dikelola dari halaman
+  // Super Admin dan disimpan di tabel practice_locations. CONFIG.LOCATIONS
+  // tetap dipakai sebagai cadangan bila tabelnya belum dibuat / gagal dimuat,
+  // supaya dropdown lokasi tidak pernah kosong.
+  getAllLocations() {
+    const rows = this.data.practice_locations || [];
+    return rows.slice().sort((a, b) => (a.sort_order || 100) - (b.sort_order || 100) || String(a.name || '').localeCompare(String(b.name || '')));
+  }
+
+  getActiveLocations() { return this.getAllLocations().filter(l => l.is_active !== false); }
+
+  // Dipakai untuk mengisi <select> — selalu mengembalikan array nama (string).
+  getLocationNames() {
+    const names = this.getActiveLocations().map(l => l.name).filter(Boolean);
+    return names.length ? names : (CONFIG.LOCATIONS || ['Klinik Utama Prima', 'Home Care', 'Telemedicine']);
+  }
+
+  // Cari data lengkap sebuah tempat dari namanya (nama itulah yang tersimpan
+  // di medical_records.location), agar alamatnya bisa dicetak di kop resep.
+  findLocationByName(name) {
+    const key = String(name || '').trim().toLowerCase();
+    if (!key) return null;
+    return this.getAllLocations().find(l => String(l.name || '').trim().toLowerCase() === key) || null;
+  }
+
+  async loadLocations() {
+    if (CONFIG.DEMO_MODE) return this.getAllLocations();
+    try {
+      const rows = await supabase.select('practice_locations', { order: 'sort_order.asc' });
+      // select() mengembalikan [] baik saat tabel belum ada maupun saat memang
+      // kosong, jadi hanya timpa bila benar-benar ada isinya — supaya daftar
+      // lokal tidak terhapus hanya karena SQL-nya belum dijalankan.
+      if (Array.isArray(rows) && rows.length) { this.data.practice_locations = rows; this._save(); }
+    } catch (e) { /* tabel belum dibuat — pakai cadangan CONFIG.LOCATIONS */ }
+    return this.getAllLocations();
+  }
+
+  async createLocation(data) {
+    const payload = {
+      name: String(data.name || '').trim(), address: data.address || '', phone: data.phone || '',
+      notes: data.notes || '', is_active: data.is_active !== false,
+      sort_order: Number(data.sort_order) || 100,
+    };
+    if (!payload.name) return { error: 'Nama tempat wajib diisi' };
+    if (this.findLocationByName(payload.name)) return { error: 'Tempat dengan nama itu sudah ada' };
+    if (CONFIG.DEMO_MODE) {
+      const rec = { id: generateId(), ...payload };
+      this.data.practice_locations = (this.data.practice_locations || []).concat(rec);
+      this._save();
+      return { success: true, item: rec };
+    }
+    const inserted = await supabase.insert('practice_locations', payload);
+    if (inserted && inserted.error) return { error: inserted.error };
+    this.data.practice_locations = (this.data.practice_locations || []).concat(inserted || { id: generateId(), ...payload });
+    this._save();
+    return { success: true, item: inserted || null };
+  }
+
+  async updateLocation(id, updates) {
+    const l = (this.data.practice_locations || []).find(x => x.id === id);
+    const nextName = updates.name !== undefined ? String(updates.name || '').trim() : (l && l.name);
+    if (updates.name !== undefined && !nextName) return { error: 'Nama tempat wajib diisi' };
+    const clash = nextName && this.findLocationByName(nextName);
+    if (clash && clash.id !== id) return { error: 'Tempat dengan nama itu sudah ada' };
+    if (l) { Object.assign(l, updates); this._save(); }
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.update('practice_locations', id, updates).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    return { success: true };
+  }
+
+  async toggleLocationActive(id) {
+    const l = (this.data.practice_locations || []).find(x => x.id === id);
+    if (!l) return { error: 'Tempat tidak ditemukan' };
+    return this.updateLocation(id, { is_active: !(l.is_active !== false) });
+  }
+
+  // Menghapus tempat TIDAK mengubah rekam medis lama: kolom location di sana
+  // menyimpan teks nama, bukan referensi, jadi riwayat tetap utuh.
+  async deleteLocation(id) {
+    this.data.practice_locations = (this.data.practice_locations || []).filter(x => x.id !== id);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.delete('practice_locations', id).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    return { success: true };
+  }
+
+  // Berapa kali sebuah nama tempat dipakai — ditampilkan sebelum menghapus.
+  countLocationUsage(name) {
+    const key = String(name || '').trim().toLowerCase();
+    const hit = (arr) => (arr || []).filter(r => String(r.location || '').trim().toLowerCase() === key).length;
+    return hit(this.data.medical_records) + hit(this.data.vaccinations);
   }
 
   // Health Services

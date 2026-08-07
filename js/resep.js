@@ -173,6 +173,13 @@ function writeResep(w, cert) {
   const age = calcAge(d.tgl_lahir);
   const isLuar = (d.rx_target || 'apotek') === 'luar';
   const items = d.items || [];
+  // Kop surat mengikuti tempat praktik resep ini. Kalau tempatnya terdaftar di
+  // master Lokasi Praktik DAN alamatnya diisi, alamat itu yang dicetak; kalau
+  // tidak (mis. Home Care / Telemedicine yang alamatnya kosong), jatuh kembali
+  // ke alamat & kontak klinik utama.
+  const place = store.findLocationByName(d.practice_place);
+  const kopAddr = (place && place.address) || CONFIG.CLINIC_ADDRESS || '';
+  const kopPhone = (place && place.phone) || CONFIG.CLINIC_WHATSAPP_DISPLAY || '';
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Resep - ${esc(cert.patient_name)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -256,7 +263,7 @@ function writeResep(w, cert) {
       <div class="kop-text">
         <div class="kop-name">KLINIK KASIH ANUGERAH PRIMA</div>
         <div class="kop-sub">(PRIMA KLINIK)</div>
-        <div class="kop-addr">${esc(CONFIG.CLINIC_ADDRESS || '')}<br>No. HP / WA : ${esc(CONFIG.CLINIC_WHATSAPP_DISPLAY || '')} &nbsp;|&nbsp; email: primaklinik.ptk@gmail.com</div>
+        <div class="kop-addr">${esc(kopAddr)}<br>No. HP / WA : ${esc(kopPhone)} &nbsp;|&nbsp; email: primaklinik.ptk@gmail.com</div>
       </div>
     </div>
 

@@ -1309,6 +1309,126 @@ export function adminStock() {
   </div>`;
 }
 
+// Bungkus sebuah nilai jadi literal string JS bertanda kutip TUNGGAL yang aman
+// dipakai di dalam atribut HTML bertanda kutip ganda (mis. onclick="..."):
+// kutip ganda pada datanya diubah jadi entity, jadi atributnya tidak terpotong.
+function jsStr(s) {
+  return "'" + String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, '\\n')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;') + "'";
+}
+
+// Master data Lokasi / Tempat Praktik. Nama tempat di sini yang muncul di
+// dropdown "Lokasi / Tempat" pada rekam medis & vaksinasi, dan yang tercetak
+// sebagai "Tempat Praktik" di kertas resep (alamatnya ikut ke kop surat).
+export function adminLocations() {
+  const rows = store.getAllLocations();
+  const fallback = CONFIG.LOCATIONS || [];
+  const card = (l) => {
+    const used = store.countLocationUsage(l.name);
+    const off = l.is_active === false;
+    return `<div class="bg-white border border-slate-100 rounded-2xl p-4 flex items-start gap-3 ${off ? 'opacity-60' : ''}">
+      <span class="w-10 h-10 rounded-xl bg-[#2b7ee0]/10 flex items-center justify-center shrink-0"><span class="ms text-[20px] text-brand-dark">location_on</span></span>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <h4 class="font-semibold text-gray-800 text-sm">${escHtml(l.name)}</h4>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${off ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'}">${off ? 'Nonaktif' : 'Aktif'}</span>
+          ${used ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700">Dipakai ${used}x</span>` : ''}
+        </div>
+        <p class="text-xs text-gray-500 mt-1">${l.address ? escHtml(l.address) : '<span class="text-gray-300">Belum ada alamat &mdash; kop resep memakai alamat klinik</span>'}</p>
+        ${l.phone ? `<p class="text-xs text-gray-400 mt-0.5">Telp: ${escHtml(l.phone)}</p>` : ''}
+        ${l.notes ? `<p class="text-xs text-gray-400 mt-0.5 italic">${escHtml(l.notes)}</p>` : ''}
+        <div class="flex gap-1.5 mt-3 flex-wrap">
+          <button onclick="window.__locEdit(${jsStr(l.id)},${jsStr(l.name)},${jsStr(l.address)},${jsStr(l.phone)},${jsStr(l.notes)},${Number(l.sort_order) || 100})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit</button>
+          <button onclick="window.__locToggle(${jsStr(l.id)})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">${off ? 'Aktifkan' : 'Nonaktifkan'}</button>
+          <button onclick="window.__locDelete(${jsStr(l.id)},${jsStr(l.name)},${used})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition">Hapus</button>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  return `
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024,
+    showForm: false, editing: null, msg: '', saving: false,
+    form: { name:'', address:'', phone:'', notes:'', sort_order:100 },
+    openNew() { this.editing = null; this.form = { name:'', address:'', phone:'', notes:'', sort_order:100 }; this.msg = ''; this.showForm = true; },
+    async save() {
+      if (this.saving) return;
+      const name = (this.form.name || '').trim();
+      if (!name) { this.msg = 'Nama tempat wajib diisi'; return; }
+      this.saving = true; this.msg = '';
+      const payload = { name: name, address: this.form.address, phone: this.form.phone, notes: this.form.notes, sort_order: Number(this.form.sort_order) || 100 };
+      const res = this.editing
+        ? await window.__store.updateLocation(this.editing, payload)
+        : await window.__store.createLocation(payload);
+      this.saving = false;
+      if (res && res.error) { this.msg = res.error; return; }
+      this.showForm = false;
+      window.__showToast && window.__showToast('Tersimpan', this.editing ? 'Tempat diperbarui.' : 'Tempat baru ditambahkan.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
+    }
+  }" x-init="
+    window.__locEdit = (id,name,address,phone,notes,sort) => { editing = id; form = { name: name, address: address, phone: phone, notes: notes, sort_order: sort }; msg = ''; showForm = true; };
+    window.__locToggle = async (id) => { const r = await window.__store.toggleLocationActive(id); if (r && r.error) { alert(r.error); return; } window.__rerender && window.__rerender(); };
+    window.__locDelete = async (id,name,used) => {
+      const warn = used ? ('\\n\\nTempat ini tercatat pada ' + used + ' rekam medis/vaksinasi. Riwayat lama TIDAK berubah, tapi tempat ini tidak lagi muncul di pilihan.') : '';
+      if (!confirm('Hapus tempat: ' + name + '?' + warn)) return;
+      const r = await window.__store.deleteLocation(id);
+      if (r && r.error) { alert(r.error); return; }
+      window.__showToast && window.__showToast('Terhapus', name + ' dihapus dari daftar tempat.');
+      window.__rerender && window.__rerender();
+    };
+  " class="min-h-screen bg-wash">
+    ${adminSidebar('locations')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-xl font-bold text-gray-800">Lokasi / Tempat Praktik</h2>
+          <button @click="openNew()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Tambah Tempat</button>
+        </div>
+        <p class="text-sm text-gray-500 mb-6">Daftar ini yang muncul di pilihan <b>Lokasi / Tempat</b> pada rekam medis &amp; vaksinasi, dan yang tercetak sebagai <b>Tempat Praktik</b> di kertas resep. Bila sebuah tempat diisi alamatnya, alamat itulah yang dipakai di kop kertas resep &mdash; kalau dikosongkan, dipakai alamat klinik utama.</p>
+
+        <!-- Modal tambah / edit -->
+        <div x-show="showForm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showForm=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <h3 class="text-lg font-bold text-gray-800 mb-4" x-text="editing ? 'Edit Tempat' : 'Tambah Tempat Baru'"></h3>
+            <div x-show="msg" x-cloak class="mb-3 p-2 rounded-lg text-sm bg-red-50 text-red-700" x-text="msg"></div>
+            <div class="space-y-3">
+              <div><label class="block text-xs text-gray-600 mb-1">Nama Tempat *</label><input type="text" x-model="form.name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Contoh: Klinik Utama Prima"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Alamat</label><textarea x-model="form.address" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Alamat lengkap (dicetak di kop kertas resep)"></textarea></div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">No. Telp / WA</label><input type="text" x-model="form.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="0812..."></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Urutan Tampil</label><input type="number" x-model="form.sort_order" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              </div>
+              <div><label class="block text-xs text-gray-600 mb-1">Catatan</label><input type="text" x-model="form.notes" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Opsional"></div>
+            </div>
+            <div class="flex gap-2 justify-end mt-5">
+              <button @click="showForm=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="save()" :disabled="saving" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving">Simpan</span><span x-show="saving" x-cloak>Menyimpan...</span></button>
+            </div>
+          </div>
+        </div>
+
+        ${rows.length === 0 ? `<div class="bg-white rounded-2xl border border-slate-100 p-8 text-center">
+          <p class="text-sm text-gray-500 mb-2">Belum ada tempat tersimpan.</p>
+          <p class="text-xs text-gray-400">Sementara ini pilihan lokasi memakai daftar bawaan: ${fallback.map(f => escHtml(f)).join(', ') || '-'}. Tambahkan tempat di sini untuk menggantikannya.</p>
+        </div>` : `<div class="grid sm:grid-cols-2 gap-3">${rows.map(card).join('')}</div>`}
+
+        <div class="mt-6 bg-blue-50 border border-blue-100 rounded-2xl p-4">
+          <p class="text-xs text-blue-800 leading-relaxed"><b>Catatan:</b> menghapus sebuah tempat tidak mengubah rekam medis atau data vaksinasi yang sudah tersimpan &mdash; nama tempat di sana tersimpan sebagai teks, jadi riwayat lama tetap utuh. Tempat yang dihapus hanya berhenti muncul di pilihan. Kalau hanya ingin menyembunyikan sementara, pakai <b>Nonaktifkan</b>.</p>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
 function adminSidebar(active) {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const items = [
@@ -1322,6 +1442,7 @@ function adminSidebar(active) {
     { id: 'consultations', label: 'Riwayat Konsultasi', icon: 'forum' },
     { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/admin/crm' },
     { id: 'stock', label: 'Stok Opening', icon: 'inventory_2', href: '#/admin/stock' },
+    { id: 'locations', label: 'Lokasi Praktik', icon: 'location_on', href: '#/admin/locations' },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/admin/homecare/history' },
     { id: 'bugs', label: 'Laporan Bug', icon: 'bug_report', href: '#/admin/bugs' },
   ].map(i => ({ ...i, href: i.href || `#/admin/${i.id === 'dashboard' ? 'dashboard' : i.id}` }));
