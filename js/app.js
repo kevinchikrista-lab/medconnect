@@ -283,7 +283,12 @@ window.addEventListener('auth-changed', () => {
   router.resolve();
 });
 
-window.__generateVaxCert = async function(patientId, vaccineName) {
+// opts.draft = true → pratinjau untuk dokter yang akan meng-ACC. Wujudnya
+// sertifikat yang sama persis, tapi TANPA menerbitkan apa pun: nomor sertifikat
+// tidak diambil dari urutan, tidak ada QR verifikasi (belum ada yang bisa
+// diverifikasi), dan seluruh halaman diberi cap air DRAFT.
+window.__generateVaxCert = async function(patientId, vaccineName, opts) {
+  const isDraft = !!(opts && opts.draft);
   const patient = store.getPatient(patientId);
   const vaccinations = store.getVaccinations(patientId).filter(v => v.vaccine_name === vaccineName);
   if (!patient || vaccinations.length === 0) return;
@@ -291,7 +296,8 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
   // Catatan vaksinasi yang diinput admin belum sah sampai dokter meng-ACC.
   // Sertifikat bernomor & ber-QR tidak boleh terbit selama masih menggantung —
   // begitu terbit, nomornya terpakai dan QR-nya terverifikasi sebagai sah.
-  const unapproved = store.getUnapprovedDoses(patientId, vaccineName);
+  // Pratinjau draft justru dipakai SAAT masih menggantung, jadi dilewati.
+  const unapproved = isDraft ? [] : store.getUnapprovedDoses(patientId, vaccineName);
   if (unapproved.length) {
     const rejected = unapproved.filter(v => store.vaxApprovalStatus(v) === 'rejected');
     alert(rejected.length
@@ -305,7 +311,8 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
   // Open the window synchronously (right on the click) so popup blockers don't intervene,
   // then fill it in once the async cert-number + log lookups resolve.
   const w = window.open('', '_blank');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Memuat sertifikat...</title></head><body style="font-family:Inter,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:#4338ca;background:#f5f4fb"><p>Menyiapkan sertifikat...</p></body></html>');
+  if (!w) { alert('Pratinjau diblokir oleh browser. Izinkan pop-up untuk situs ini lalu coba lagi.'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${isDraft ? 'Memuat draft...' : 'Memuat sertifikat...'}</title></head><body style="font-family:Inter,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:#4338ca;background:#f5f4fb"><p>${isDraft ? 'Menyiapkan draft...' : 'Menyiapkan sertifikat...'}</p></body></html>`);
 
   const latestDose = vaccinations.filter(v=>v.date_given).sort((a,b)=>b.date_given.localeCompare(a.date_given))[0];
   const latestBrand = latestDose?.vaccine_brand || vaccinations[0]?.vaccine_brand || '';
@@ -320,7 +327,11 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
   // Reuse the same cert number / QR if this patient+vaccine already has one issued
   // (re-downloading doesn't burn a new sequential number); otherwise mint a fresh one.
   let certRecord, certNum;
-  try {
+  if (isDraft) {
+    // Pratinjau: jangan sentuh urutan nomor dan jangan catat sertifikat apa pun.
+    certNum = 'BELUM TERBIT';
+    certRecord = { id: '' };
+  } else try {
     const existing = await store.getCertificateForPatientVaccine(patientId, vaccineName);
     if (existing) {
       certNum = existing.cert_number;
@@ -448,6 +459,26 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
   }
   .print-btn:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(67,56,202,.36)}
 
+  /* Cap air DRAFT — hanya pada pratinjau sebelum ACC dokter. */
+  .draft-mark{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    pointer-events:none;z-index:5;
+  }
+  .draft-mark span{
+    font-family:Inter,sans-serif;font-size:78px;font-weight:800;letter-spacing:.12em;
+    color:rgba(220,38,38,.13);border:6px solid rgba(220,38,38,.13);
+    padding:16px 44px;border-radius:14px;transform:rotate(-24deg);white-space:nowrap;
+  }
+  .draft-banner{
+    background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:10px;
+    padding:10px 14px;font-size:12.5px;font-weight:600;line-height:1.5;margin-bottom:14px;
+  }
+  .draft-qr{
+    display:flex;align-items:center;justify-content:center;text-align:center;
+    width:76px;height:76px;border:1.5px dashed #c4b5fd;border-radius:8px;
+    font-size:9.5px;font-weight:600;color:#7c6fb5;line-height:1.35;
+  }
+
   @media print{
     @page{size:A4 portrait;margin:0}
     html,body{background:white;padding:0}
@@ -458,6 +489,7 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
   <div class="cert">
     <div class="motif motif-bl"></div>
     <div class="motif motif-br"></div>
+    ${isDraft ? '<div class="draft-mark"><span>DRAFT</span></div>' : ''}
     <div class="cert-inner">
       <div class="header">
         <div class="logo-left">
@@ -473,6 +505,7 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
         </div>
       </div>
 
+      ${isDraft ? `<div class="draft-banner">DRAFT &mdash; menunggu persetujuan (ACC) dokter.<br>Periksa identitas pasien, nama &amp; merk vaksin, dosis, tanggal, dan nomor batch di bawah ini. Sertifikat baru terbit (bernomor &amp; ber-QR) setelah Anda menekan <b>Setujui &amp; Sahkan</b>.</div>` : ''}
       <div class="no-surat">No. Surat: <b>${certNum}</b></div>
 
       <div class="given-to">Dengan ini menerangkan bahwa</div>
@@ -497,10 +530,14 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
       <div class="spacer"></div>
 
       <div class="verify-block">
-        <div class="verify-qr"><img src="${qrUrl}" alt="QR Verifikasi" width="76" height="76"></div>
+        ${isDraft
+          ? '<div class="verify-qr draft-qr">QR terbit<br>setelah ACC</div>'
+          : `<div class="verify-qr"><img src="${qrUrl}" alt="QR Verifikasi" width="76" height="76"></div>`}
         <div class="verify-text">
-          <div class="verify-title">Verifikasi Keaslian Dokumen</div>
-          <div class="verify-desc">Pindai kode QR untuk memverifikasi keabsahan sertifikat ini secara online melalui sistem Klinik Prima.</div>
+          <div class="verify-title">${isDraft ? 'Belum Disahkan' : 'Verifikasi Keaslian Dokumen'}</div>
+          <div class="verify-desc">${isDraft
+            ? 'Ini pratinjau untuk pemeriksaan dokter. Nomor sertifikat dan QR verifikasi baru diterbitkan setelah dokter menekan Setujui &amp; Sahkan.'
+            : 'Pindai kode QR untuk memverifikasi keabsahan sertifikat ini secara online melalui sistem Klinik Prima.'}</div>
         </div>
         <div class="stamp">
           <div class="stamp-ring">
@@ -512,12 +549,14 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
       </div>
 
       <div class="footer">
-        <div class="footer-id">No. Sertifikat: ${certNum} &nbsp;|&nbsp; Diterbitkan: ${certDate}</div>
-        <div class="footer-note">Dokumen ini diterbitkan secara digital oleh Klinik Prima melalui platform Primuni.id</div>
+        <div class="footer-id">${isDraft ? 'Nomor sertifikat belum diterbitkan' : `No. Sertifikat: ${certNum} &nbsp;|&nbsp; Diterbitkan: ${certDate}`}</div>
+        <div class="footer-note">${isDraft ? 'Pratinjau internal &mdash; belum sah dan tidak untuk diserahkan ke pasien.' : 'Dokumen ini diterbitkan secara digital oleh Klinik Prima melalui platform Primuni.id'}</div>
       </div>
     </div>
   </div>
-  <button class="no-print print-btn" id="printBtn" onclick="printCertNow()">Cetak / Download PDF</button>
+  ${isDraft
+    ? '<p class="no-print" style="margin-top:22px;font-family:Inter,sans-serif;font-size:13px;color:#b91c1c;font-weight:600;text-align:center;max-width:520px;line-height:1.6">Ini hanya pratinjau. Tutup jendela ini, lalu tekan <b>Setujui &amp; Sahkan</b> atau <b>Tolak</b> di halaman Menunggu ACC.</p>'
+    : '<button class="no-print print-btn" id="printBtn" onclick="printCertNow()">Cetak / Download PDF</button>'}
   <script>
     function printCertNow() {
       var btn = document.getElementById('printBtn');
