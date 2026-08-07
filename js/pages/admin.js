@@ -1050,6 +1050,25 @@ export function adminPatientDetail(params) {
       berat_badan: '${q(latestVs.bb||'')}', tinggi_badan: '${q(latestVs.tb||'')}', tekanan_darah: '${q(latestVs.td||'')}', nadi: '${q(latestVs.nadi||'')}',
       keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
       diagnosis: '${q(records[0] && records[0].diagnosis || '')}', rest_days: '', from_date: '${new Date().toISOString().split('T')[0]}', to_date: '' },
+    vaxOpen: false, vaxSaving: false, vaxMsg: '', vaxDoctorId: '${doctors[0]?.id || ''}',
+    vax: { vaccine_name:'', vaccine_brand:'', vax_mode:'series', dose_number:1, total_doses:1, booster_interval_months:12, date_given:'${new Date().toISOString().split('T')[0]}', next_dose_date:'', batch_number:'', location:'${q(store.getLocationNames()[0] || '')}', notes:'' },
+    openVax() { this.vaxMsg = ''; this.vaxOpen = true; },
+    async submitVax() {
+      if (this.vaxSaving) return;
+      if (!this.vaxDoctorId) { this.vaxMsg = 'Pilih dokter penanggung jawab (yang meng-ACC) terlebih dahulu.'; return; }
+      if (!(this.vax.vaccine_name || '').trim()) { this.vaxMsg = 'Nama vaksin wajib diisi.'; return; }
+      if (!this.vax.date_given) { this.vaxMsg = 'Tanggal pemberian wajib diisi.'; return; }
+      this.vaxSaving = true; this.vaxMsg = '';
+      const r = await window.__store.addVaccinationByAdmin({
+        patient_id: '${patient.id}', created_by: '${adminId}', approval_doctor_id: this.vaxDoctorId, ...this.vax,
+      });
+      this.vaxSaving = false;
+      if (r && r.error) { this.vaxMsg = r.error; return; }
+      this.vaxOpen = false;
+      const dn = (window.__skdDoctors || []).find(d => d.id === this.vaxDoctorId);
+      window.__showToast && window.__showToast('Terkirim untuk ACC', 'Catatan vaksinasi tersimpan di rekam medis dan menunggu persetujuan ' + ((dn && dn.full_name) || 'dokter') + '.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 300);
+    },
     skdStatus(s) { return (s.details && s.details.approval && s.details.approval.status) || 'approved'; },
     async loadSKD() { try { this.skdList = await window.__store.getSKDForPatient('${patient.id}'); } catch(e) { this.skdList = []; } this.skdLoading = false; },
     reprintSKD(id) { window.__printSKD(id); },
@@ -1167,8 +1186,72 @@ export function adminPatientDetail(params) {
           </div>`;
         }).join('')}
 
-        <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3 mt-6">Vaksinasi (${vaccinations.length})</h3>
-        ${vaccinations.length === 0 ? '<div class="bg-white rounded-3xl border border-slate-100 p-6 text-center text-gray-400 text-sm">Belum ada data vaksinasi</div>' : `<div class="bg-white border border-slate-100 rounded-3xl divide-y divide-gray-50">${vaccinations.map(v => `<div class="p-3 flex items-center justify-between text-sm"><div><p class="font-medium text-gray-800">${v.vaccine_name} ${v.vaccine_brand||''}</p><p class="text-xs text-gray-500">Dosis ${v.dose_number||'-'}/${v.total_doses||'-'}${v.date_given ? ' — '+formatDate(v.date_given) : ''}</p></div></div>`).join('')}</div>`}
+        <div class="flex items-center justify-between mb-3 mt-6">
+          <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider">Vaksinasi (${vaccinations.length})</h3>
+          <button @click="openVax()" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">+ Catat Vaksinasi</button>
+        </div>
+        ${vaccinations.length === 0 ? '<div class="bg-white rounded-3xl border border-slate-100 p-6 text-center text-gray-400 text-sm">Belum ada data vaksinasi</div>' : `<div class="bg-white border border-slate-100 rounded-3xl divide-y divide-gray-50">${vaccinations.map(v => {
+          const st = store.vaxApprovalStatus(v);
+          const badge = st === 'pending'
+            ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-700">Menunggu ACC</span>'
+            : st === 'rejected'
+              ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">Ditolak</span>'
+              : '<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-700">Sah</span>';
+          const dr = (store.getDoctor(v.approval_doctor_id || v.administered_by) || {}).full_name || '';
+          return `<div class="p-3 flex items-center justify-between text-sm gap-3">
+            <div class="min-w-0">
+              <p class="font-medium text-gray-800 flex items-center gap-2 flex-wrap">${escHtml(v.vaccine_name)} ${escHtml(v.vaccine_brand || '')} ${badge}</p>
+              <p class="text-xs text-gray-500">${v.vax_mode === 'booster' ? 'Booster ke-' + (v.dose_number || 1) : 'Dosis ' + (v.dose_number || '-') + '/' + (v.total_doses || '-')}${v.date_given ? ' — ' + formatDate(v.date_given) : ''}${v.batch_number ? ' | Batch: ' + escHtml(v.batch_number) : ''}${v.location ? ' | ' + escHtml(v.location) : ''}</p>
+              ${dr ? `<p class="text-xs text-gray-400">Dokter: ${escHtml(dr)}</p>` : ''}
+              ${st === 'rejected' && v.reject_reason ? `<p class="text-xs text-red-600 mt-0.5">Alasan ditolak: ${escHtml(v.reject_reason)}</p>` : ''}
+            </div>
+          </div>`;
+        }).join('')}</div>`}
+        ${vaccinations.some(v => store.vaxApprovalStatus(v) !== 'approved') ? `<div class="mt-2 p-3 rounded-xl bg-orange-50 border border-orange-100"><p class="text-xs text-orange-800">Sertifikat vaksin belum bisa dicetak selama masih ada dosis yang menunggu / ditolak ACC dokter.</p></div>` : ''}
+
+        <!-- Modal: admin mencatat vaksinasi (butuh ACC dokter) -->
+        <div x-show="vaxOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="vaxOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4"><h3 class="text-lg font-bold text-gray-800">Catat Vaksinasi</h3><button @click="vaxOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button></div>
+            <p class="text-xs text-gray-500 mb-4">Pasien: <span class="font-medium text-gray-700">${escHtml(patient.full_name)}</span>. Catatan ini juga otomatis tersimpan sebagai kunjungan di rekam medis.</p>
+            <div x-show="vaxMsg" x-cloak class="mb-3 p-2 rounded-lg text-sm bg-red-50 text-red-700" x-text="vaxMsg"></div>
+            <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-100">
+              <label class="block text-xs font-semibold text-amber-800 mb-1">Dokter penanggung jawab (yang meng-ACC) *</label>
+              <select x-model="vaxDoctorId" class="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/50">
+                ${doctors.length === 0 ? '<option value="">Belum ada dokter terdaftar</option>' : doctors.map(d => `<option value="${d.id}">${escHtml(d.full_name)}</option>`).join('')}
+              </select>
+              <p class="text-[11px] text-amber-600 mt-1">Catatan ini berstatus menunggu ACC sampai dokter tersebut menyetujuinya. Sertifikat baru bisa dicetak setelah di-ACC.</p>
+            </div>
+            <div class="space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Nama Vaksin *</label><input type="text" x-model="vax.vaccine_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Contoh: Meningitis ACYW135"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Merk / Brand</label><input type="text" x-model="vax.vaccine_brand" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Contoh: Menveo"></div>
+              </div>
+              <div class="flex gap-2">
+                <button @click="vax.vax_mode='series'" :class="vax.vax_mode==='series' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Seri (berdosis)</button>
+                <button @click="vax.vax_mode='booster'" :class="vax.vax_mode==='booster' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Booster / ulangan</button>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1" x-text="vax.vax_mode==='booster' ? 'Pemberian ke-' : 'Dosis ke-'"></label><input type="number" min="1" x-model="vax.dose_number" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+                <div x-show="vax.vax_mode==='series'"><label class="block text-xs text-gray-600 mb-1">Total Dosis</label><input type="number" min="1" x-model="vax.total_doses" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+                <div x-show="vax.vax_mode==='booster'" x-cloak><label class="block text-xs text-gray-600 mb-1">Interval Ulangan (bulan)</label><input type="number" min="1" x-model="vax.booster_interval_months" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Tanggal Pemberian *</label><input type="date" x-model="vax.date_given" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Jadwal Berikutnya</label><input type="date" x-model="vax.next_dose_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">No. Batch</label><input type="text" x-model="vax.batch_number" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Contoh: MNV-2026-A1"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Lokasi</label><select x-model="vax.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">${store.getLocationNames().map(l => `<option>${escHtml(l)}</option>`).join('')}</select></div>
+              </div>
+              <div><label class="block text-xs text-gray-600 mb-1">Catatan</label><input type="text" x-model="vax.notes" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Mis. tidak ada KIPI"></div>
+            </div>
+            <div class="flex gap-2 justify-end mt-5">
+              <button @click="vaxOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="submitVax()" :disabled="vaxSaving" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)"><span x-show="!vaxSaving">Simpan &amp; Kirim untuk ACC</span><span x-show="vaxSaving" x-cloak>Menyimpan...</span></button>
+            </div>
+          </div>
+        </div>
 
         <!-- SKD modal (admin, dengan pilih dokter ACC) -->
         <div x-show="skdOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="skdOpen=false">
@@ -1309,6 +1392,126 @@ export function adminStock() {
   </div>`;
 }
 
+// Bungkus sebuah nilai jadi literal string JS bertanda kutip TUNGGAL yang aman
+// dipakai di dalam atribut HTML bertanda kutip ganda (mis. onclick="..."):
+// kutip ganda pada datanya diubah jadi entity, jadi atributnya tidak terpotong.
+function jsStr(s) {
+  return "'" + String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, '\\n')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;') + "'";
+}
+
+// Master data Lokasi / Tempat Praktik. Nama tempat di sini yang muncul di
+// dropdown "Lokasi / Tempat" pada rekam medis & vaksinasi, dan yang tercetak
+// sebagai "Tempat Praktik" di kertas resep (alamatnya ikut ke kop surat).
+export function adminLocations() {
+  const rows = store.getAllLocations();
+  const fallback = CONFIG.LOCATIONS || [];
+  const card = (l) => {
+    const used = store.countLocationUsage(l.name);
+    const off = l.is_active === false;
+    return `<div class="bg-white border border-slate-100 rounded-2xl p-4 flex items-start gap-3 ${off ? 'opacity-60' : ''}">
+      <span class="w-10 h-10 rounded-xl bg-[#2b7ee0]/10 flex items-center justify-center shrink-0"><span class="ms text-[20px] text-brand-dark">location_on</span></span>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <h4 class="font-semibold text-gray-800 text-sm">${escHtml(l.name)}</h4>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${off ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'}">${off ? 'Nonaktif' : 'Aktif'}</span>
+          ${used ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700">Dipakai ${used}x</span>` : ''}
+        </div>
+        <p class="text-xs text-gray-500 mt-1">${l.address ? escHtml(l.address) : '<span class="text-gray-300">Belum ada alamat &mdash; kop resep memakai alamat klinik</span>'}</p>
+        ${l.phone ? `<p class="text-xs text-gray-400 mt-0.5">Telp: ${escHtml(l.phone)}</p>` : ''}
+        ${l.notes ? `<p class="text-xs text-gray-400 mt-0.5 italic">${escHtml(l.notes)}</p>` : ''}
+        <div class="flex gap-1.5 mt-3 flex-wrap">
+          <button onclick="window.__locEdit(${jsStr(l.id)},${jsStr(l.name)},${jsStr(l.address)},${jsStr(l.phone)},${jsStr(l.notes)},${Number(l.sort_order) || 100})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit</button>
+          <button onclick="window.__locToggle(${jsStr(l.id)})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">${off ? 'Aktifkan' : 'Nonaktifkan'}</button>
+          <button onclick="window.__locDelete(${jsStr(l.id)},${jsStr(l.name)},${used})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition">Hapus</button>
+        </div>
+      </div>
+    </div>`;
+  };
+
+  return `
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024,
+    showForm: false, editing: null, msg: '', saving: false,
+    form: { name:'', address:'', phone:'', notes:'', sort_order:100 },
+    openNew() { this.editing = null; this.form = { name:'', address:'', phone:'', notes:'', sort_order:100 }; this.msg = ''; this.showForm = true; },
+    async save() {
+      if (this.saving) return;
+      const name = (this.form.name || '').trim();
+      if (!name) { this.msg = 'Nama tempat wajib diisi'; return; }
+      this.saving = true; this.msg = '';
+      const payload = { name: name, address: this.form.address, phone: this.form.phone, notes: this.form.notes, sort_order: Number(this.form.sort_order) || 100 };
+      const res = this.editing
+        ? await window.__store.updateLocation(this.editing, payload)
+        : await window.__store.createLocation(payload);
+      this.saving = false;
+      if (res && res.error) { this.msg = res.error; return; }
+      this.showForm = false;
+      window.__showToast && window.__showToast('Tersimpan', this.editing ? 'Tempat diperbarui.' : 'Tempat baru ditambahkan.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
+    }
+  }" x-init="
+    window.__locEdit = (id,name,address,phone,notes,sort) => { editing = id; form = { name: name, address: address, phone: phone, notes: notes, sort_order: sort }; msg = ''; showForm = true; };
+    window.__locToggle = async (id) => { const r = await window.__store.toggleLocationActive(id); if (r && r.error) { alert(r.error); return; } window.__rerender && window.__rerender(); };
+    window.__locDelete = async (id,name,used) => {
+      const warn = used ? ('\\n\\nTempat ini tercatat pada ' + used + ' rekam medis/vaksinasi. Riwayat lama TIDAK berubah, tapi tempat ini tidak lagi muncul di pilihan.') : '';
+      if (!confirm('Hapus tempat: ' + name + '?' + warn)) return;
+      const r = await window.__store.deleteLocation(id);
+      if (r && r.error) { alert(r.error); return; }
+      window.__showToast && window.__showToast('Terhapus', name + ' dihapus dari daftar tempat.');
+      window.__rerender && window.__rerender();
+    };
+  " class="min-h-screen bg-wash">
+    ${adminSidebar('locations')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-xl font-bold text-gray-800">Lokasi / Tempat Praktik</h2>
+          <button @click="openNew()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Tambah Tempat</button>
+        </div>
+        <p class="text-sm text-gray-500 mb-6">Daftar ini yang muncul di pilihan <b>Lokasi / Tempat</b> pada rekam medis &amp; vaksinasi, dan yang tercetak sebagai <b>Tempat Praktik</b> di kertas resep. Bila sebuah tempat diisi alamatnya, alamat itulah yang dipakai di kop kertas resep &mdash; kalau dikosongkan, dipakai alamat klinik utama.</p>
+
+        <!-- Modal tambah / edit -->
+        <div x-show="showForm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showForm=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <h3 class="text-lg font-bold text-gray-800 mb-4" x-text="editing ? 'Edit Tempat' : 'Tambah Tempat Baru'"></h3>
+            <div x-show="msg" x-cloak class="mb-3 p-2 rounded-lg text-sm bg-red-50 text-red-700" x-text="msg"></div>
+            <div class="space-y-3">
+              <div><label class="block text-xs text-gray-600 mb-1">Nama Tempat *</label><input type="text" x-model="form.name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Contoh: Klinik Utama Prima"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Alamat</label><textarea x-model="form.address" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Alamat lengkap (dicetak di kop kertas resep)"></textarea></div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">No. Telp / WA</label><input type="text" x-model="form.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="0812..."></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Urutan Tampil</label><input type="number" x-model="form.sort_order" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              </div>
+              <div><label class="block text-xs text-gray-600 mb-1">Catatan</label><input type="text" x-model="form.notes" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Opsional"></div>
+            </div>
+            <div class="flex gap-2 justify-end mt-5">
+              <button @click="showForm=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="save()" :disabled="saving" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving">Simpan</span><span x-show="saving" x-cloak>Menyimpan...</span></button>
+            </div>
+          </div>
+        </div>
+
+        ${rows.length === 0 ? `<div class="bg-white rounded-2xl border border-slate-100 p-8 text-center">
+          <p class="text-sm text-gray-500 mb-2">Belum ada tempat tersimpan.</p>
+          <p class="text-xs text-gray-400">Sementara ini pilihan lokasi memakai daftar bawaan: ${fallback.map(f => escHtml(f)).join(', ') || '-'}. Tambahkan tempat di sini untuk menggantikannya.</p>
+        </div>` : `<div class="grid sm:grid-cols-2 gap-3">${rows.map(card).join('')}</div>`}
+
+        <div class="mt-6 bg-blue-50 border border-blue-100 rounded-2xl p-4">
+          <p class="text-xs text-blue-800 leading-relaxed"><b>Catatan:</b> menghapus sebuah tempat tidak mengubah rekam medis atau data vaksinasi yang sudah tersimpan &mdash; nama tempat di sana tersimpan sebagai teks, jadi riwayat lama tetap utuh. Tempat yang dihapus hanya berhenti muncul di pilihan. Kalau hanya ingin menyembunyikan sementara, pakai <b>Nonaktifkan</b>.</p>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
 function adminSidebar(active) {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const items = [
@@ -1322,6 +1525,7 @@ function adminSidebar(active) {
     { id: 'consultations', label: 'Riwayat Konsultasi', icon: 'forum' },
     { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/admin/crm' },
     { id: 'stock', label: 'Stok Opening', icon: 'inventory_2', href: '#/admin/stock' },
+    { id: 'locations', label: 'Lokasi Praktik', icon: 'location_on', href: '#/admin/locations' },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/admin/homecare/history' },
     { id: 'bugs', label: 'Laporan Bug', icon: 'bug_report', href: '#/admin/bugs' },
   ].map(i => ({ ...i, href: i.href || `#/admin/${i.id === 'dashboard' ? 'dashboard' : i.id}` }));

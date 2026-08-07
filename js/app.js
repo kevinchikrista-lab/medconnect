@@ -2,7 +2,7 @@ import { router } from './router.js';
 import { store } from './store.js';
 import { CONFIG } from './config.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
-import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock } from './pages/admin.js';
+import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations } from './pages/admin.js';
 import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
@@ -220,6 +220,7 @@ router.add('/admin/patients', () => render(adminPatients));
 router.add('/admin/bugs', () => render(adminBugs));
 router.add('/admin/crm', () => render(adminCrm));
 router.add('/admin/stock', () => render(adminStock));
+router.add('/admin/locations', () => render(adminLocations));
 router.add('/admin/patients/:patientId', (p) => render(adminPatientDetail, p));
 router.add('/admin/services', () => render(adminServices));
 router.add('/admin/articles', () => render(adminArticles));
@@ -286,6 +287,20 @@ window.__generateVaxCert = async function(patientId, vaccineName) {
   const patient = store.getPatient(patientId);
   const vaccinations = store.getVaccinations(patientId).filter(v => v.vaccine_name === vaccineName);
   if (!patient || vaccinations.length === 0) return;
+
+  // Catatan vaksinasi yang diinput admin belum sah sampai dokter meng-ACC.
+  // Sertifikat bernomor & ber-QR tidak boleh terbit selama masih menggantung —
+  // begitu terbit, nomornya terpakai dan QR-nya terverifikasi sebagai sah.
+  const unapproved = store.getUnapprovedDoses(patientId, vaccineName);
+  if (unapproved.length) {
+    const rejected = unapproved.filter(v => store.vaxApprovalStatus(v) === 'rejected');
+    alert(rejected.length
+      ? `Sertifikat belum bisa dicetak: ${rejected.length} catatan dosis ${vaccineName} DITOLAK dokter.` +
+        (rejected[0].reject_reason ? `\n\nAlasan: ${rejected[0].reject_reason}` : '') +
+        '\n\nPerbaiki datanya lalu ajukan ulang.'
+      : `Sertifikat belum bisa dicetak: ${unapproved.length} catatan dosis ${vaccineName} masih menunggu persetujuan (ACC) dokter.`);
+    return;
+  }
 
   // Open the window synchronously (right on the click) so popup blockers don't intervene,
   // then fill it in once the async cert-number + log lookups resolve.

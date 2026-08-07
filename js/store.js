@@ -198,6 +198,14 @@ const DEMO_DATA = {
     { id: 'v_7', patient_id: 'p_1', vaccine_name: 'Typhoid', vaccine_brand: 'Typhim Vi', vax_mode: 'booster', dose_number: 1, total_doses: 1, booster_interval_months: 36, date_given: '2024-06-15', next_dose_date: '2027-06-15', batch_number: 'TYP-2024-005', administered_by: 'd_1', location: 'Klinik Utama Prima', notes: 'Booster setiap 3 tahun' },
   ],
 
+  // Master lokasi / tempat praktik. Dikelola dari halaman Super Admin
+  // (Lokasi Praktik) dan disinkronkan ke tabel practice_locations.
+  practice_locations: [
+    { id: 'loc_1', name: 'Klinik Utama Prima', address: 'Jl. Dr. Wahidin, Gg. Sepakat 8 No. 88BC, Pontianak', phone: '0895-1882-4216', notes: '', is_active: true, sort_order: 10 },
+    { id: 'loc_2', name: 'Home Care', address: '', phone: '', notes: 'Kunjungan ke rumah pasien', is_active: true, sort_order: 20 },
+    { id: 'loc_3', name: 'Telemedicine', address: '', phone: '', notes: 'Konsultasi jarak jauh', is_active: true, sort_order: 30 },
+  ],
+
   health_services: [
     { id: 'hs_1', name: 'Vaksinasi Dewasa', description: 'Layanan vaksinasi lengkap untuk dewasa. Tersedia berbagai pilihan vaksin sesuai kebutuhan Anda.', category: 'Vaksinasi', price: 0, image_url: 'https://placehold.co/400x250/0d9488/white?text=Vaksinasi', is_active: true, items: [
       { name: 'Influenza (Vaxigrip Tetra)', price: 350000, desc: 'Vaksin flu tahunan, direkomendasikan setiap tahun' },
@@ -837,6 +845,9 @@ class Store {
       if (consultations.length) this.data.consultations = consultations;
       if (consultationMessages.length) this.data.consultation_messages = consultationMessages;
       this.data.articles = articles;
+      // Dimuat terpisah (bukan di Promise.all di atas) supaya bila tabel
+      // practice_locations belum dibuat, sinkronisasi data lain tetap jalan.
+      this.loadLocations().catch(() => {});
       this._save(this.data);
       console.log('Data loaded from Supabase:', { profiles: profiles.length, doctors: doctors.length, patients: patients.length });
     } catch (e) { console.warn('Failed to load from Supabase, using local data:', e); }
@@ -1368,6 +1379,17 @@ class Store {
     return newVax;
   }
 
+  // Sama seperti createVaccination, tapi menunggu insert ke Supabase selesai
+  // supaya pemanggilnya bisa tahu apakah baris benar-benar tersimpan (id sudah
+  // berupa UUID asli) atau ditolak (masih placeholder 'id_...').
+  async createVaccinationAwaited(vax) {
+    const newVax = { id: generateId(), ...vax };
+    this.data.vaccinations.push(newVax);
+    this._save();
+    await this._syncInsert('vaccinations', newVax, sanitizeDates(newVax, ['date_given', 'next_dose_date']));
+    return newVax;
+  }
+
   updateVaccination(vaxId, updates) {
     const v = this.data.vaccinations.find(x => x.id === vaxId);
     if (!v) return { error: 'Data vaksinasi tidak ditemukan' };
@@ -1381,6 +1403,219 @@ class Store {
     this.data.vaccinations = this.data.vaccinations.filter(x => x.id !== vaxId);
     this._save();
     if (!CONFIG.DEMO_MODE) supabase.delete('vaccinations', vaxId).catch(() => {});
+  }
+
+  // ---- Vaksinasi yang diinput admin → ACC dokter --------------------------
+  // Baris lama (dan semua yang diinput dokter sendiri) tidak punya kolom ini,
+  // jadi tanpa nilai dianggap sudah sah — bukan menunggu persetujuan.
+  vaxApprovalStatus(v) { return (v && v.approval_status) || 'approved'; }
+
+  // Admin mencatat vaksinasi atas nama dokter. Dua hal sekaligus: baris
+  // vaksinasi berstatus 'pending', dan rekam medis kunjungan agar riwayat
+  // pasien tetap lengkap seperti kalau dokter yang mengisi.
+  async addVaccinationByAdmin(data) {
+    const doctorId = data.approval_doctor_id || data.administered_by || '';
+    if (!doctorId) return { error: 'Pilih dokter penanggung jawab (yang akan meng-ACC) terlebih dahulu.' };
+    if (!data.patient_id) return { error: 'Pasien tidak ditemukan' };
+    if (!data.vaccine_name) return { error: 'Nama vaksin wajib diisi' };
+    if (!data.date_given) return { error: 'Tanggal pemberian wajib diisi' };
+
+    const modeLabel = data.vax_mode === 'booster'
+      ? ' (booster ke-' + (data.dose_number || 1) + ')'
+      : ' dosis ' + (data.dose_number || 1) + '/' + (data.total_doses || 1);
+
+    const vax = await this.createVaccinationAwaited({
+      patient_id: data.patient_id,
+      vaccine_name: data.vaccine_name,
+      vaccine_brand: data.vaccine_brand || '',
+      vax_mode: data.vax_mode || 'series',
+      dose_number: Number(data.dose_number) || 1,
+      total_doses: Number(data.total_doses) || 1,
+      booster_interval_months: Number(data.booster_interval_months) || 12,
+      date_given: data.date_given,
+      next_dose_date: data.next_dose_date || '',
+      batch_number: data.batch_number || '',
+      administered_by: doctorId,
+      location: data.location || '',
+      notes: data.notes || '',
+      approval_status: 'pending',
+      approval_doctor_id: doctorId,
+      approval_created_by: data.created_by || '',
+      reject_reason: '',
+    });
+
+    // Kolom approval_* datang dari supabase-vaccination-approval.sql. Kalau
+    // migrasi itu belum dijalankan, Postgres menolak seluruh baris dan id-nya
+    // tetap placeholder 'id_...' — hentikan di sini dengan pesan jelas daripada
+    // membiarkan admin mengira datanya sudah tersimpan di server.
+    if (!CONFIG.DEMO_MODE && String(vax.id).startsWith('id_')) {
+      this.data.vaccinations = this.data.vaccinations.filter(x => x.id !== vax.id);
+      this._save();
+      return { error: 'Gagal menyimpan ke server. Pastikan migrasi supabase-vaccination-approval.sql sudah dijalankan di Supabase.' };
+    }
+
+    // Rekam medis kunjungan — sama bentuknya dengan yang dibuat dokter, supaya
+    // vaksinasi ini ikut muncul di riwayat rekam medis pasien.
+    let record = null;
+    try {
+      record = await this.createRecord({
+        patient_id: data.patient_id, doctor_id: doctorId,
+        visit_type: 'vaccination', visit_date: data.date_given,
+        location: data.location || '',
+        anamnesis: 'Vaksinasi ' + data.vaccine_name + ' ' + (data.vaccine_brand || '') + modeLabel,
+        diagnosis: 'Vaksinasi ' + data.vaccine_name,
+        therapy: 'Pemberian vaksin ' + (data.vaccine_brand || data.vaccine_name) + modeLabel,
+        vital_signs: {},
+        follow_up_date: data.next_dose_date || '',
+        follow_up_notes: data.vax_mode === 'booster' ? 'Booster berikutnya' : 'Vaksin dosis berikutnya',
+        notes: [data.batch_number ? 'Batch: ' + data.batch_number : '', 'Diinput admin, menunggu ACC dokter.', data.notes || ''].filter(Boolean).join(' | '),
+      });
+    } catch (e) { /* vaksinasi tetap tersimpan walau rekam medis gagal */ }
+
+    const d = this.data.doctors.find(x => x.id === doctorId);
+    if (d && d.user_id) {
+      this.addNotification(d.user_id, 'Vaksinasi Menunggu ACC',
+        `Catatan vaksinasi ${data.vaccine_name} untuk ${(this.getPatient(data.patient_id) || {}).full_name || 'pasien'} dibuat admin dan menunggu persetujuan (ACC) Anda.`, 'system');
+    }
+    return { success: true, vaccination: vax, record };
+  }
+
+  getPendingVaccinationsForDoctor(doctorId) {
+    if (!doctorId) return [];
+    return (this.data.vaccinations || [])
+      .filter(v => this.vaxApprovalStatus(v) === 'pending' && v.approval_doctor_id === doctorId)
+      .sort((a, b) => String(b.date_given || '').localeCompare(String(a.date_given || '')));
+  }
+
+  async approveVaccination(vaxId) {
+    const v = (this.data.vaccinations || []).find(x => x.id === vaxId);
+    if (!v) return { error: 'Data vaksinasi tidak ditemukan' };
+    const updates = { approval_status: 'approved', approved_at: new Date().toISOString(), reject_reason: '' };
+    const r = this.updateVaccination(vaxId, updates);
+    if (r && r.error) return r;
+    if (v.approval_created_by) {
+      this.addNotification(v.approval_created_by, 'Vaksinasi Disahkan',
+        `Catatan vaksinasi ${v.vaccine_name || ''} untuk ${(this.getPatient(v.patient_id) || {}).full_name || 'pasien'} telah disetujui (ACC). Sertifikat sudah bisa dicetak.`, 'system');
+    }
+    return { success: true };
+  }
+
+  async rejectVaccination(vaxId, reason) {
+    const v = (this.data.vaccinations || []).find(x => x.id === vaxId);
+    if (!v) return { error: 'Data vaksinasi tidak ditemukan' };
+    const r = this.updateVaccination(vaxId, { approval_status: 'rejected', reject_reason: reason || '' });
+    if (r && r.error) return r;
+    if (v.approval_created_by) {
+      this.addNotification(v.approval_created_by, 'Vaksinasi Ditolak',
+        `Catatan vaksinasi ${v.vaccine_name || ''} untuk ${(this.getPatient(v.patient_id) || {}).full_name || 'pasien'} ditolak dokter.${reason ? ' Alasan: ' + reason : ''}`, 'system');
+    }
+    return { success: true };
+  }
+
+  // Dosis yang belum di-ACC untuk satu vaksin — sertifikat tidak boleh terbit
+  // selama masih ada yang menggantung.
+  getUnapprovedDoses(patientId, vaccineName) {
+    return (this.data.vaccinations || []).filter(v =>
+      v.patient_id === patientId && v.vaccine_name === vaccineName &&
+      this.vaxApprovalStatus(v) !== 'approved');
+  }
+
+  // ---- Lokasi / Tempat Praktik (master data) ------------------------------
+  // Dulu di-hardcode sebagai CONFIG.LOCATIONS. Sekarang dikelola dari halaman
+  // Super Admin dan disimpan di tabel practice_locations. CONFIG.LOCATIONS
+  // tetap dipakai sebagai cadangan bila tabelnya belum dibuat / gagal dimuat,
+  // supaya dropdown lokasi tidak pernah kosong.
+  getAllLocations() {
+    const rows = this.data.practice_locations || [];
+    return rows.slice().sort((a, b) => (a.sort_order || 100) - (b.sort_order || 100) || String(a.name || '').localeCompare(String(b.name || '')));
+  }
+
+  getActiveLocations() { return this.getAllLocations().filter(l => l.is_active !== false); }
+
+  // Dipakai untuk mengisi <select> — selalu mengembalikan array nama (string).
+  getLocationNames() {
+    const names = this.getActiveLocations().map(l => l.name).filter(Boolean);
+    return names.length ? names : (CONFIG.LOCATIONS || ['Klinik Utama Prima', 'Home Care', 'Telemedicine']);
+  }
+
+  // Cari data lengkap sebuah tempat dari namanya (nama itulah yang tersimpan
+  // di medical_records.location), agar alamatnya bisa dicetak di kop resep.
+  findLocationByName(name) {
+    const key = String(name || '').trim().toLowerCase();
+    if (!key) return null;
+    return this.getAllLocations().find(l => String(l.name || '').trim().toLowerCase() === key) || null;
+  }
+
+  async loadLocations() {
+    if (CONFIG.DEMO_MODE) return this.getAllLocations();
+    try {
+      const rows = await supabase.select('practice_locations', { order: 'sort_order.asc' });
+      // select() mengembalikan [] baik saat tabel belum ada maupun saat memang
+      // kosong, jadi hanya timpa bila benar-benar ada isinya — supaya daftar
+      // lokal tidak terhapus hanya karena SQL-nya belum dijalankan.
+      if (Array.isArray(rows) && rows.length) { this.data.practice_locations = rows; this._save(); }
+    } catch (e) { /* tabel belum dibuat — pakai cadangan CONFIG.LOCATIONS */ }
+    return this.getAllLocations();
+  }
+
+  async createLocation(data) {
+    const payload = {
+      name: String(data.name || '').trim(), address: data.address || '', phone: data.phone || '',
+      notes: data.notes || '', is_active: data.is_active !== false,
+      sort_order: Number(data.sort_order) || 100,
+    };
+    if (!payload.name) return { error: 'Nama tempat wajib diisi' };
+    if (this.findLocationByName(payload.name)) return { error: 'Tempat dengan nama itu sudah ada' };
+    if (CONFIG.DEMO_MODE) {
+      const rec = { id: generateId(), ...payload };
+      this.data.practice_locations = (this.data.practice_locations || []).concat(rec);
+      this._save();
+      return { success: true, item: rec };
+    }
+    const inserted = await supabase.insert('practice_locations', payload);
+    if (inserted && inserted.error) return { error: inserted.error };
+    this.data.practice_locations = (this.data.practice_locations || []).concat(inserted || { id: generateId(), ...payload });
+    this._save();
+    return { success: true, item: inserted || null };
+  }
+
+  async updateLocation(id, updates) {
+    const l = (this.data.practice_locations || []).find(x => x.id === id);
+    const nextName = updates.name !== undefined ? String(updates.name || '').trim() : (l && l.name);
+    if (updates.name !== undefined && !nextName) return { error: 'Nama tempat wajib diisi' };
+    const clash = nextName && this.findLocationByName(nextName);
+    if (clash && clash.id !== id) return { error: 'Tempat dengan nama itu sudah ada' };
+    if (l) { Object.assign(l, updates); this._save(); }
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.update('practice_locations', id, updates).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    return { success: true };
+  }
+
+  async toggleLocationActive(id) {
+    const l = (this.data.practice_locations || []).find(x => x.id === id);
+    if (!l) return { error: 'Tempat tidak ditemukan' };
+    return this.updateLocation(id, { is_active: !(l.is_active !== false) });
+  }
+
+  // Menghapus tempat TIDAK mengubah rekam medis lama: kolom location di sana
+  // menyimpan teks nama, bukan referensi, jadi riwayat tetap utuh.
+  async deleteLocation(id) {
+    this.data.practice_locations = (this.data.practice_locations || []).filter(x => x.id !== id);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.delete('practice_locations', id).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    return { success: true };
+  }
+
+  // Berapa kali sebuah nama tempat dipakai — ditampilkan sebelum menghapus.
+  countLocationUsage(name) {
+    const key = String(name || '').trim().toLowerCase();
+    const hit = (arr) => (arr || []).filter(r => String(r.location || '').trim().toLowerCase() === key).length;
+    return hit(this.data.medical_records) + hit(this.data.vaccinations);
   }
 
   // Health Services
