@@ -1976,8 +1976,10 @@ function doctorSidebar(active) {
     { id: 'chat', label: 'Pesan', icon: 'forum', href: '#/doctor/chat', badge: unreadChat },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/doctor/homecare/history' },
     { id: 'calendar', label: 'Kalender', icon: 'calendar_month', href: '#/doctor/calendar' },
-    // Tugas yang didelegasikan Super Admin/Owner lewat halaman To-Do.
-    { id: 'tugas', label: 'Tugas Saya', icon: 'checklist', href: '#/tugas', badge: openTaskCount(user) },
+    // Pemegang panel (Super Admin & pemilik klinik) mendapat panel penuh di
+    // sini juga, supaya bisa membuat & mendelegasikan tugas tanpa harus pindah
+    // dulu ke tampilan SuperAdmin. Dokter lain hanya melihat tugasnya sendiri.
+    { id: 'tugas', label: store.canManageTasks(user) ? 'To-Do & Tugas' : 'Tugas Saya', icon: 'checklist', href: '#/tugas', badge: openTaskCount(user) },
   ];
   return `
   <div x-show="sideOpen" x-cloak x-transition.opacity @click="sideOpen=false" class="fixed inset-0 bg-black/40 z-[35] lg:hidden"></div>
