@@ -198,6 +198,14 @@ router.beforeEach = (path, meta) => {
     return false;
   }
 
+  // Panel "To-Do & Tugas" lebih ketat daripada /admin lainnya: hanya Super
+  // Admin dan akun pemilik klinik (CONFIG.TASK_MANAGER_EMAILS). Dicek sebelum
+  // guard /admin di bawah supaya Owner lain pun tetap ditolak.
+  if (path.startsWith('/admin/tasks') && !store.canManageTasks(user)) {
+    window.location.hash = '#/admin/dashboard';
+    return false;
+  }
+
   // 'owner' is a combined SuperAdmin+Dokter account (see store.getProfile) — it
   // passes both guards below so it can switch between the two views without
   // ever logging out.

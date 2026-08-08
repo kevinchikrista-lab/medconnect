@@ -204,6 +204,7 @@ function taskCard(mode, source) {
             <span class="inline-flex items-center gap-1 text-gray-400" x-show="t.wa_count"><span x-text="'Sudah di-WA ' + t.wa_count + 'x'"></span></span>
           </div>
           <p class="text-xs text-gray-500 mt-1.5 whitespace-pre-line" x-show="t.notes && expanded === t.id" x-text="t.notes"></p>
+          <p class="text-[11px] text-gray-400 mt-1" x-show="expanded === t.id && t.created_by" x-cloak x-text="'Dibuat oleh ' + staffName(t.created_by)"></p>
 
           <div class="mt-2 space-y-1" x-show="expanded === t.id && (t.subtasks || []).length" x-cloak>
             <template x-for="(s, i) in (t.subtasks || [])" :key="i">

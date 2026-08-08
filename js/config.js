@@ -18,6 +18,12 @@ export const CONFIG = {
   CLINIC_WHATSAPP_DISPLAY: '0895-1882-4216',
   CLINIC_HOURS: 'Setiap hari · 08.00 – 21.00 WIB',
 
+  // Panel "To-Do & Tugas" (#/admin/tasks) sengaja dibatasi: semua akun
+  // Super Admin, ditambah akun pemilik klinik yang disebut di sini. Akun lain
+  // — termasuk Owner lain bila suatu saat ada — tidak melihat menunya sama
+  // sekali. Staf yang menerima delegasi tetap punya halaman "Tugas Saya".
+  TASK_MANAGER_EMAILS: ['kevinchikrista@gmail.com'],
+
   ROLES: {
     SUPERADMIN: 'superadmin',
     OWNER: 'owner',
