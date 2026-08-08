@@ -5,7 +5,7 @@ import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 import { waHref, waKontrolMsg, waButton, waSapaMsg, waMsgB64 } from '../wa.js';
 import { crmSetup, crmXData, crmBody } from './crm.js';
 import { stockXData, stockBody } from './stock.js';
-import { tasksSetup, tasksXData, tasksBody } from './tasks.js';
+import { tasksSetup, tasksXData, tasksBody, calendarTasksSetup, calendarTasksXData, calendarTasksBlock } from './tasks.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -785,6 +785,11 @@ export function adminCalendar(params) {
   });
   window.__adminCalendarVisits = visitsData;
 
+  // Tugas pribadi pemilik akun yang sedang login — tidak ikut tersaring oleh
+  // filter dokter, karena ini kalender pribadi, bukan jadwal klinik.
+  const calUser = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+  calendarTasksSetup(calUser && calUser.id);
+
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
@@ -794,6 +799,7 @@ export function adminCalendar(params) {
     allAppts: window.__adminCalendarAppts || [],
     allFollowUps: window.__adminCalendarFollowUps || [],
     allVisits: window.__adminCalendarVisits || [],
+    ${calendarTasksXData()},
     get filteredAppts() { return this.doctorFilter ? this.allAppts.filter(a => a.doctor_id === this.doctorFilter) : this.allAppts; },
     get filteredFollowUps() { return this.doctorFilter ? this.allFollowUps.filter(f => f.doctor_id === this.doctorFilter) : this.allFollowUps; },
     get filteredVisits() { return this.doctorFilter ? this.allVisits.filter(v => v.doctor_id === this.doctorFilter) : this.allVisits; },
@@ -834,11 +840,12 @@ export function adminCalendar(params) {
                 const isToday = isCurrentMonth && d === today.getDate();
                 return `<button @click="selectedDate='${dateStr}'" :class="selectedDate==='${dateStr}' && !${isToday} ? 'bg-teal-100 text-teal-800 ring-2 ring-teal-400' : ''" class="relative py-2.5 rounded-lg transition hover:bg-teal-50 cursor-pointer ${isToday ? 'bg-teal-600 text-white hover:bg-teal-700 font-bold' : ''}">
                   <span>${d}</span>
-                  <template x-if="filteredAppts.filter(a => a.date === '${dateStr}').length > 0 || filteredFollowUps.filter(f => f.follow_up_date === '${dateStr}').length > 0 || filteredVisits.filter(v => v.visit_date === '${dateStr}').length > 0">
+                  <template x-if="filteredAppts.filter(a => a.date === '${dateStr}').length > 0 || filteredFollowUps.filter(f => f.follow_up_date === '${dateStr}').length > 0 || filteredVisits.filter(v => v.visit_date === '${dateStr}').length > 0 || taskCountOn('${dateStr}') > 0">
                     <span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 flex gap-0.5">
                       <template x-for="i in Math.min(filteredVisits.filter(v => v.visit_date === '${dateStr}').length, 2)"><span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white' : 'bg-green-500'}"></span></template>
                       <template x-for="i in Math.min(filteredAppts.filter(a => a.date === '${dateStr}').length, 2)"><span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white' : 'bg-teal-500'}"></span></template>
                       <template x-for="i in Math.min(filteredFollowUps.filter(f => f.follow_up_date === '${dateStr}').length, 2)"><span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white' : 'bg-orange-500'}"></span></template>
+                      <template x-if="taskCountOn('${dateStr}') > 0"><span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white' : 'bg-indigo-500'}"></span></template>
                     </span>
                   </template>
                 </button>`;
@@ -848,13 +855,14 @@ export function adminCalendar(params) {
               <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-green-500"></span>Riwayat Pelayanan</span>
               <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-teal-500"></span>Janji Temu</span>
               <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-orange-500"></span>Follow Up Pasien</span>
+              <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-indigo-500"></span>Tugas Saya</span>
             </div>
           </div>
           <div class="lg:col-span-2 bg-white border border-slate-100 rounded-3xl p-4">
             <h3 class="font-semibold text-gray-800 mb-1">Jadwal</h3>
             <p class="text-xs text-gray-500 mb-4" x-text="selectedDateFormatted"></p>
             <div class="space-y-2">
-              <template x-if="selectedAppts.length === 0 && selectedFollowUps.length === 0 && selectedVisits.length === 0"><p class="text-gray-400 text-sm text-center py-8">Tidak ada jadwal di tanggal ini</p></template>
+              <template x-if="selectedAppts.length === 0 && selectedFollowUps.length === 0 && selectedVisits.length === 0 && selectedTasks.length === 0"><p class="text-gray-400 text-sm text-center py-8">Tidak ada jadwal atau tugas di tanggal ini</p></template>
               <template x-if="selectedVisits.length > 0"><p class="text-xs font-semibold text-green-600 uppercase">Riwayat Pelayanan</p></template>
               <template x-for="v in selectedVisits" :key="v.id">
                 <div class="p-3 rounded-lg bg-green-50/50 border border-green-100">
@@ -902,6 +910,7 @@ export function adminCalendar(params) {
                   <div class="mt-2 flex items-center gap-2 flex-wrap" x-show="f.wa"><a :href="f.wa" target="_blank" rel="noopener" @click="window.__logWaReminder('medical_records', f.id); f.wa_reminder_count=(f.wa_reminder_count||0)+1" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2zm0 18.1a8.2 8.2 0 01-4.2-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1112 20.1zm4.6-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1-.7-.3-1.4-.6-2-1.4-.5-.6-.8-1.2-.9-1.4-.1-.2 0-.4.1-.5l.4-.4c.1-.1.1-.3.2-.4 0-.1 0-.3 0-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4 0-.7.3-.2.2-.9.9-.9 2.1s.9 2.5 1 2.6c.1.2 1.8 2.7 4.3 3.8.6.3 1.1.4 1.5.5.6.2 1.1.2 1.6.1.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/></svg>Ingatkan via WA</a><button x-show="!f.wa && f.patient_id" @click.stop="window.__waAddPhone(f.patient_id, f.wa_msg, 'medical_records', f.id)" class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold text-white bg-[#25D366]/70 hover:bg-[#25D366] transition"><svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5"><path d="M12 2a9.9 9.9 0 00-8.5 15L2.2 21.7l4.8-1.3A9.9 9.9 0 1012 2z"/></svg>Isi No. HP &amp; WA</button><span x-show="f.wa_reminder_count" x-cloak class="text-[11px] text-gray-400" x-text="'📤 '+f.wa_reminder_count+'x'"></span></div>
                 </div>
               </template>
+              ${calendarTasksBlock('selectedAppts.length > 0 || selectedVisits.length > 0 || selectedFollowUps.length > 0')}
             </div>
           </div>
         </div>
