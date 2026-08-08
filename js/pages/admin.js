@@ -45,8 +45,8 @@ export function adminDashboard() {
         <div class="bg-white border border-slate-100 rounded-3xl">
           <div class="p-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-semibold text-gray-800">User Terbaru</h3><a href="#/admin/users" class="text-xs text-teal-600 hover:text-teal-700">Lihat Semua</a></div>
           <div class="divide-y divide-gray-50">${recentUsers.map(u => {
-            const roleLabels = { doctor: 'Dokter', owner: 'Owner', patient: 'Pasien', pharmacy: 'Apotek' };
-            const roleColors = { doctor: 'bg-teal-100 text-teal-700', owner: 'bg-amber-100 text-amber-700', patient: 'bg-blue-100 text-blue-700', pharmacy: 'bg-purple-100 text-purple-700' };
+            const roleLabels = { superadmin: 'Super Admin', doctor: 'Dokter', owner: 'Owner', patient: 'Pasien', pharmacy: 'Apotek' };
+            const roleColors = { superadmin: 'bg-slate-800 text-white', doctor: 'bg-teal-100 text-teal-700', owner: 'bg-amber-100 text-amber-700', patient: 'bg-blue-100 text-blue-700', pharmacy: 'bg-purple-100 text-purple-700' };
             return `<div class="p-4 flex items-center justify-between hover:bg-gray-50 transition">
               <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${(u.profile?.full_name || u.profile?.name || u.email).charAt(0).toUpperCase()}</div><div><p class="text-sm font-medium text-gray-800">${u.profile?.full_name || u.profile?.name || u.email}</p><p class="text-xs text-gray-500">${u.email}</p></div></div>
               <div class="flex items-center gap-2"><span class="px-2 py-1 rounded-full text-xs font-medium ${roleColors[u.role] || 'bg-gray-100'}">${roleLabels[u.role] || u.role}</span><span class="w-2 h-2 rounded-full ${u.is_active ? 'bg-green-500' : 'bg-red-500'}"></span></div>
@@ -77,6 +77,7 @@ export function adminUsers() {
         </div>
         <div class="flex flex-wrap gap-2 mb-4">
           <button @click="filter=''" :class="!filter ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">Semua</button>
+          <button @click="filter='superadmin'" :class="filter==='superadmin' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">Super Admin</button>
           <button @click="filter='doctor'" :class="filter==='doctor' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">Dokter</button>
           <button @click="filter='owner'" :class="filter==='owner' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">Owner</button>
           <button @click="filter='patient'" :class="filter==='patient' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-sm font-medium transition">Pasien</button>
@@ -89,7 +90,7 @@ export function adminUsers() {
             <h3 class="text-lg font-bold text-gray-800 mb-4">Tambah User Baru</h3>
             <div x-show="createMsg" class="mb-3 p-2 rounded-lg text-sm" :class="createMsg.includes('berhasil') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'" x-text="createMsg"></div>
             <form @submit.prevent="createUser">
-              <div class="mb-3"><label class="block text-xs text-gray-600 mb-1">Role *</label><select x-model="newUser.role" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih Role</option><option value="doctor">Dokter</option>${canCreateOwner ? `<option value="owner">Owner (SuperAdmin + Dokter)</option>` : ''}<option value="patient">Pasien</option><option value="pharmacy">Apotek Mitra</option></select></div>
+              <div class="mb-3"><label class="block text-xs text-gray-600 mb-1">Role *</label><select x-model="newUser.role" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih Role</option><option value="superadmin">Super Admin</option><option value="doctor">Dokter</option>${canCreateOwner ? `<option value="owner">Owner (SuperAdmin + Dokter)</option>` : ''}<option value="patient">Pasien</option><option value="pharmacy">Apotek Mitra</option></select><p x-show="newUser.role==='superadmin'" x-cloak class="text-[11px] text-gray-400 mt-1">Super Admin bisa lebih dari satu. Setiap Super Admin punya akses penuh ke konsol admin, termasuk panel To-Do &amp; Tugas.</p></div>
               <div class="grid grid-cols-2 gap-3 mb-3">
                 <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1" x-text="newUser.role==='pharmacy' ? 'Nama Apotek *' : 'Nama Lengkap *'"></label><input type="text" x-model="newUser.full_name" required class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
                 <div><label class="block text-xs text-gray-600 mb-1">Email <span class="text-gray-400">(opsional)</span></label><input type="email" x-model="newUser.email" placeholder="Kosongkan jika tanpa login" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
@@ -173,7 +174,7 @@ export function adminUsers() {
           <tbody class="divide-y divide-gray-50">
             <template x-for="user in filteredUsers" :key="user.id">
               <tr class="hover:bg-gray-50 transition">
-                <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-medium" :class="{'bg-teal-100 text-teal-700': user.role==='doctor', 'bg-amber-100 text-amber-700': user.role==='owner', 'bg-blue-100 text-blue-700': user.role==='patient', 'bg-purple-100 text-purple-700': user.role==='pharmacy'}" x-text="user.role==='doctor'?'Dokter':user.role==='owner'?'Owner':user.role==='patient'?'Pasien':'Apotek'"></span></td>
+                <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-medium" :class="{'bg-teal-100 text-teal-700': user.role==='doctor', 'bg-amber-100 text-amber-700': user.role==='owner', 'bg-blue-100 text-blue-700': user.role==='patient', 'bg-purple-100 text-purple-700': user.role==='pharmacy', 'bg-slate-800 text-white': user.role==='superadmin'}" x-text="user.role==='superadmin'?'Super Admin':user.role==='doctor'?'Dokter':user.role==='owner'?'Owner':user.role==='patient'?'Pasien':'Apotek'"></span></td>
                 <td class="px-4 py-3 text-sm font-medium text-gray-800" x-text="user.profile?.full_name || user.profile?.name || '-'"></td>
                 <td class="px-4 py-3 text-sm hidden sm:table-cell"><span x-show="!user.no_email" class="text-gray-600" x-text="user.email"></span><span x-show="user.no_email" x-cloak class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">Tanpa email — belum bisa login</span></td>
                 <td class="px-4 py-3 hidden md:table-cell"><span class="w-2 h-2 rounded-full inline-block" :class="user.is_active ? 'bg-green-500' : 'bg-red-500'"></span><span class="text-xs ml-1" x-text="user.is_active ? 'Aktif' : 'Nonaktif'"></span></td>
@@ -266,7 +267,11 @@ export function adminUsersData() {
             if (authRes.error) { this.createMsg = authRes.error.message || authRes.msg || 'Gagal buat auth user'; this.creating = false; return; }
             authId = authRes.user?.id || null;
           }
-          const profileData = { email, role: this.newUser.role, is_active: true };
+          // full_name/phone ikut ditulis ke profiles: Super Admin tidak punya
+          // tabel profil tersendiri, jadi di sinilah namanya tersimpan. Untuk
+          // peran lain kolom ini hanya cadangan (namanya tetap dibaca dari
+          // doctors/patients/pharmacies). Butuh supabase-superadmin-staff.sql.
+          const profileData = { email, role: this.newUser.role, is_active: true, full_name: this.newUser.full_name, phone: this.newUser.phone || '' };
           if (authId) profileData.auth_id = authId;
           const profileRes = await supabase.insert('profiles', profileData);
           if (profileRes.error) { this.createMsg = profileRes.error; this.creating = false; return; }
@@ -366,6 +371,9 @@ export function adminUsersData() {
     async deleteUser(user) {
       const name = user.profile?.full_name || user.profile?.name || user.email;
       if (user.role === 'owner' && store.getUsers('owner').length <= 1) { alert('Tidak bisa menghapus — minimal harus ada 1 akun Owner.'); return; }
+      if (user.role === 'superadmin' && store.getUsers('superadmin').length <= 1) { alert('Tidak bisa menghapus — minimal harus ada 1 akun Super Admin.'); return; }
+      const me = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+      if (me && me.id === user.id) { alert('Tidak bisa menghapus akun Anda sendiri.'); return; }
       if (!confirm('Hapus user "' + name + '" (' + user.email + ')?\n\nSemua data terkait (rekam medis, resep, vaksinasi) juga akan terhapus. Tindakan ini TIDAK bisa dibatalkan.')) return;
       if (!confirm('Anda YAKIN ingin menghapus "' + name + '"? Ketik OK untuk konfirmasi.')) return;
 
@@ -1534,7 +1542,9 @@ function adminSidebar(active) {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: 'insights' },
-    { id: 'tasks', label: 'To-Do & Tugas', icon: 'checklist', href: '#/admin/tasks' },
+    // Panel tugas hanya untuk Super Admin & pemilik klinik — lihat
+    // store.canManageTasks(). Akun lain tidak melihat menunya sama sekali.
+    ...(store.canManageTasks(user) ? [{ id: 'tasks', label: 'To-Do & Tugas', icon: 'checklist', href: '#/admin/tasks' }] : []),
     { id: 'users', label: 'Manajemen User', icon: 'group' },
     { id: 'patients', label: 'Rekam Medis Pasien', icon: 'clinical_notes', href: '#/admin/patients' },
     { id: 'services', label: 'Layanan', icon: 'medical_services' },

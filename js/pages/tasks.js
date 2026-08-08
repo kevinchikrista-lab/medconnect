@@ -204,6 +204,7 @@ function taskCard(mode, source) {
             <span class="inline-flex items-center gap-1 text-gray-400" x-show="t.wa_count"><span x-text="'Sudah di-WA ' + t.wa_count + 'x'"></span></span>
           </div>
           <p class="text-xs text-gray-500 mt-1.5 whitespace-pre-line" x-show="t.notes && expanded === t.id" x-text="t.notes"></p>
+          <p class="text-[11px] text-gray-400 mt-1" x-show="expanded === t.id && t.created_by" x-cloak x-text="'Dibuat oleh ' + staffName(t.created_by)"></p>
 
           <div class="mt-2 space-y-1" x-show="expanded === t.id && (t.subtasks || []).length" x-cloak>
             <template x-for="(s, i) in (t.subtasks || [])" :key="i">
@@ -359,25 +360,36 @@ export function tasksBody(mode) {
   </div>`}`;
 }
 
-// Halaman "Tugas Saya" (#/tugas) — dibuka staf mana pun yang menerima
-// delegasi. Tata letaknya sengaja sederhana (tanpa sidebar) supaya dokter dan
-// apotek bisa membukanya dari peran mereka masing-masing tanpa berpindah menu.
-export function myTasksPage() {
+// Halaman tugas mandiri (#/tugas) — tanpa sidebar, supaya bisa dibuka dari
+// peran mana pun tanpa berpindah konsol.
+//
+// Isinya menyesuaikan hak akses, BUKAN peran halaman: pemegang panel (Super
+// Admin & pemilik klinik — lihat store.canManageTasks) mendapat panel penuh
+// "To-Do & Tugas" lengkap dengan tombol buat/delegasi, sehingga dr. Kevin bisa
+// menugaskan orang lain langsung dari akun Dokter tanpa harus pindah dulu ke
+// tampilan SuperAdmin. Staf lain mendapat daftar "Tugas Saya" yang hanya bisa
+// dicentang.
+export function tasksPage() {
   tasksSetup();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+  const manage = store.canManageTasks(user);
+  const mode = manage ? 'all' : 'mine';
   const backHref = { doctor: '#/doctor/dashboard', owner: '#/doctor/dashboard', pharmacy: '#/pharmacy/dashboard', superadmin: '#/admin/dashboard' }[user?.role] || '#/login';
   const me = store.getStaff(user?.id) || {};
   return `
-  <div x-data="{ ${tasksXData('mine')} }" x-init="load()" class="min-h-screen bg-wash">
+  <div x-data="{ ${tasksXData(mode)} }" x-init="load()" class="min-h-screen bg-wash">
     <header class="sticky top-0 z-30 h-[66px] bg-white border-b border-slate-100 px-4 flex items-center justify-between">
       <a href="${backHref}" class="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-ink transition"><span class="ms text-[20px]">arrow_back</span>Kembali</a>
       <div class="flex items-center gap-2">
         <span class="ms text-[20px] text-brand-dark">checklist</span>
-        <span class="text-sm font-semibold text-ink">${escHtml(me.name || 'Tugas Saya')}</span>
+        <span class="text-sm font-semibold text-ink">${manage ? 'To-Do &amp; Tugas' : escHtml(me.name || 'Tugas Saya')}</span>
       </div>
     </header>
-    <main class="p-4 lg:p-6 max-w-4xl mx-auto">
-      ${tasksBody('mine')}
+    <main class="p-4 lg:p-6 ${manage ? 'max-w-5xl' : 'max-w-4xl'} mx-auto">
+      ${tasksBody(mode)}
     </main>
   </div>`;
 }
+
+// Nama lama — masih dipakai sebagian rute/impor lawas.
+export const myTasksPage = tasksPage;

@@ -868,7 +868,7 @@ class Store {
         supabase.select('articles'),
       ]);
       // Map Supabase data to local format
-      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, auth_id: p.auth_id || null, no_email: isPlaceholderEmail(p.email), has_login: !!p.auth_id, password: '***', created_at: p.created_at }));
+      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, auth_id: p.auth_id || null, no_email: isPlaceholderEmail(p.email), has_login: !!p.auth_id, password: '***', created_at: p.created_at, full_name: p.full_name || '', phone: p.phone || '' }));
       if (doctors.length) this.data.doctors = doctors.map(d => ({ ...d, user_id: d.profile_id }));
       if (patients.length) this.data.patients = patients.map(p => ({ ...p, user_id: p.profile_id }));
       if (pharmacies.length) this.data.pharmacies = pharmacies.map(p => ({ ...p, user_id: p.profile_id }));
@@ -986,19 +986,52 @@ class Store {
       // Owner = combined SuperAdmin + Dokter account — same doctor lookup as
       // 'doctor' (its linked doctors row is what makes /doctor/* pages work),
       // falling back to a generic label if that row hasn't been created yet.
-      case 'owner': return this.data.doctors.find(d => d.user_id === user.id) || { full_name: 'Owner', role: 'owner' };
+      case 'owner': return this.data.doctors.find(d => d.user_id === user.id) || { full_name: user.full_name || 'Owner', phone: user.phone || '', role: 'owner' };
       case 'patient': return this.data.patients.find(p => p.user_id === user.id);
       case 'pharmacy': return this.data.pharmacies.find(ph => ph.user_id === user.id);
-      case 'superadmin': return { full_name: 'Super Admin', role: 'superadmin' };
+      // Super Admin tidak punya tabel profil tersendiri — namanya disimpan
+      // langsung di profiles.full_name (lihat supabase-superadmin-staff.sql),
+      // supaya beberapa Super Admin bisa dibedakan satu sama lain.
+      case 'superadmin': return { full_name: user.full_name || 'Super Admin', phone: user.phone || '', role: 'superadmin' };
       default: return null;
     }
   }
 
   // Users (Admin)
+  // Super Admin dulu disembunyikan dari daftar ini karena hanya ada satu akun
+  // bawaan. Sekarang boleh ada beberapa (Anis, Fitri, dst.), jadi mereka ikut
+  // tampil supaya bisa dikelola — penghapusan Super Admin terakhir dicegah di
+  // toggleUserActive/isLastSuperadmin.
   getUsers(roleFilter) {
-    let users = this.data.users.filter(u => u.role !== 'superadmin');
+    let users = this.data.users;
     if (roleFilter) users = users.filter(u => u.role === roleFilter);
     return users.map(u => ({ ...u, profile: this.getProfile(u) }));
+  }
+
+  // Menonaktifkan atau menghapus Super Admin terakhir akan mengunci semua
+  // orang dari konsol admin, jadi ditolak.
+  isLastSuperadmin(userId) {
+    const u = this.data.users.find(x => x.id === userId);
+    if (!u || u.role !== 'superadmin') return false;
+    return this.data.users.filter(x => x.role === 'superadmin' && x.is_active !== false).length <= 1;
+  }
+
+  // Siapa yang boleh membuka panel "To-Do & Tugas": semua Super Admin, plus
+  // akun pemilik klinik yang terdaftar di CONFIG.TASK_MANAGER_EMAILS.
+  // Cadangan: kalau tidak satu pun e-mail itu terdaftar di sistem (mis. akun
+  // pemiliknya memakai alamat lain), Owner tetap diizinkan supaya panelnya
+  // tidak jadi tidak bisa dibuka siapa pun.
+  canManageTasks(user) {
+    if (!user) return false;
+    if (user.role === 'superadmin') return true;
+    const allowed = (CONFIG.TASK_MANAGER_EMAILS || []).map(e => String(e).toLowerCase());
+    const email = String(user.email || '').toLowerCase();
+    if (allowed.includes(email)) return true;
+    if (user.role === 'owner') {
+      const anyListedAccountExists = (this.data.users || []).some(u => allowed.includes(String(u.email || '').toLowerCase()));
+      if (!anyListedAccountExists) return true;
+    }
+    return false;
   }
 
   createUser(userData) {
@@ -1012,7 +1045,10 @@ class Store {
       if (currentUser?.role !== 'owner' && ownerAlreadyExists) return { error: 'Hanya akun Owner yang bisa membuat akun Owner baru' };
     }
     const userId = generateId();
-    const user = { id: userId, email, password: userData.password || 'default123', role: userData.role, is_active: true, no_email: !hasEmail, created_at: new Date().toISOString().split('T')[0] };
+    // full_name/phone ikut disimpan di baris user: untuk Super Admin inilah
+    // satu-satunya tempat namanya tersimpan (tidak punya tabel profil sendiri);
+    // untuk peran lain hanya jadi cadangan bila baris profilnya belum ada.
+    const user = { id: userId, email, password: userData.password || 'default123', role: userData.role, is_active: true, no_email: !hasEmail, created_at: new Date().toISOString().split('T')[0], full_name: userData.full_name || '', phone: userData.phone || '' };
     this.data.users.push(user);
     if (userData.role === 'doctor' || userData.role === 'owner') {
       this.data.doctors.push({ id: generateId(), user_id: userId, full_name: userData.full_name, sip_number: userData.sip_number || '', specialization: userData.specialization || '', phone: userData.phone || '', is_available: true, schedule: { mon: '08:00-16:00', tue: '08:00-16:00', wed: '08:00-16:00', thu: '08:00-16:00', fri: '08:00-16:00', sat: null, sun: null } });
@@ -1046,6 +1082,9 @@ class Store {
     if (user.role === 'owner' && user.is_active) {
       const activeOwners = this.data.users.filter(u => u.role === 'owner' && u.is_active);
       if (activeOwners.length <= 1) return { error: 'Tidak bisa menonaktifkan — minimal harus ada 1 akun Owner yang aktif' };
+    }
+    if (user.is_active && this.isLastSuperadmin(userId)) {
+      return { error: 'Tidak bisa menonaktifkan — minimal harus ada 1 akun Super Admin yang aktif' };
     }
     user.is_active = !user.is_active;
     this._save();

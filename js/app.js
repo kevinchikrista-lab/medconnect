@@ -2,7 +2,7 @@ import { router } from './router.js';
 import { store } from './store.js';
 import { CONFIG } from './config.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
-import { myTasksPage } from './pages/tasks.js';
+import { tasksPage } from './pages/tasks.js';
 import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks } from './pages/admin.js';
 import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
@@ -198,6 +198,14 @@ router.beforeEach = (path, meta) => {
     return false;
   }
 
+  // Panel "To-Do & Tugas" lebih ketat daripada /admin lainnya: hanya Super
+  // Admin dan akun pemilik klinik (CONFIG.TASK_MANAGER_EMAILS). Dicek sebelum
+  // guard /admin di bawah supaya Owner lain pun tetap ditolak.
+  if (path.startsWith('/admin/tasks') && !store.canManageTasks(user)) {
+    window.location.hash = '#/admin/dashboard';
+    return false;
+  }
+
   // 'owner' is a combined SuperAdmin+Dokter account (see store.getProfile) — it
   // passes both guards below so it can switch between the two views without
   // ever logging out.
@@ -232,7 +240,7 @@ router.add('/admin/crm', () => render(adminCrm));
 router.add('/admin/stock', () => render(adminStock));
 router.add('/admin/locations', () => render(adminLocations));
 router.add('/admin/tasks', () => render(adminTasks));
-router.add('/tugas', () => render(myTasksPage));
+router.add('/tugas', () => render(tasksPage));
 router.add('/admin/patients/:patientId', (p) => render(adminPatientDetail, p));
 router.add('/admin/services', () => render(adminServices));
 router.add('/admin/articles', () => render(adminArticles));
