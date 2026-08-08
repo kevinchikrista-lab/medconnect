@@ -1752,6 +1752,21 @@ class Store {
     return u ? ((u.email || '').split('@')[0] || 'Staf') : 'Staf';
   }
 
+  // Tahapan sebuah tugas: todo → focus → done. Baris lama memakai 'open',
+  // yang artinya sama dengan 'todo' (lihat supabase-task-status.sql), jadi
+  // dibaca lewat satu pintu ini supaya tidak ada baris yang tercecer.
+  taskStatus(t) {
+    const s = (t && t.status) || 'todo';
+    return s === 'open' ? 'todo' : s;
+  }
+
+  // Tugas ini "milik" siapa dari sudut pandang seseorang. Tugas tanpa
+  // penerima dianggap milik pembuatnya (dikerjakan sendiri).
+  isMyTask(t, userId) {
+    if (!t || !userId) return false;
+    return t.assignee_id ? t.assignee_id === userId : t.created_by === userId;
+  }
+
   getAllTasks() {
     const rows = (this.data.tasks || []).slice();
     const P = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -1759,7 +1774,7 @@ class Store {
     // Tugas tanpa tanggal ditaruh paling belakang (bukan paling depan, yang
     // akan terjadi kalau string kosong ikut diurutkan apa adanya).
     return rows.sort((a, b) => {
-      const ad = a.status === 'done' ? 1 : 0, bd = b.status === 'done' ? 1 : 0;
+      const ad = this.taskStatus(a) === 'done' ? 1 : 0, bd = this.taskStatus(b) === 'done' ? 1 : 0;
       if (ad !== bd) return ad - bd;
       const at = a.due_date || '9999-12-31', bt = b.due_date || '9999-12-31';
       if (at !== bt) return at < bt ? -1 : 1;
@@ -1806,7 +1821,7 @@ class Store {
       priority: ['urgent', 'high', 'normal', 'low'].includes(data.priority) ? data.priority : 'normal',
       due_date: data.due_date || null,
       due_time: data.due_time || '',
-      status: 'open',
+      status: 'todo',
       assignee_id: data.assignee_id || null,
       created_by: data.created_by || null,
       recurrence: ['daily', 'weekly', 'monthly', 'yearly'].includes(data.recurrence) ? data.recurrence : 'none',
@@ -1861,16 +1876,22 @@ class Store {
     return { success: true };
   }
 
-  // Centang / batal-centang sebuah tugas. Untuk tugas berulang, mencentangnya
-  // otomatis membuat tugas berikutnya dengan jatuh tempo yang sudah digeser —
-  // jadi riwayat "sudah dikerjakan" tetap tersimpan, tidak ditimpa.
-  async toggleTaskDone(id, userId) {
+  // Pindahkan tugas ke tahap lain: 'todo' | 'focus' | 'done'.
+  // Untuk tugas berulang, memindahkannya ke 'done' otomatis membuat tugas
+  // berikutnya dengan jatuh tempo yang sudah digeser — jadi riwayat "sudah
+  // dikerjakan" tetap tersimpan, tidak ditimpa.
+  async setTaskStatus(id, status, userId) {
     const t = this.getTask(id);
     if (!t) return { error: 'Tugas tidak ditemukan' };
-    const nowDone = t.status !== 'done';
+    const next_ = ['todo', 'focus', 'done'].includes(status) ? status : 'todo';
+    const nowDone = next_ === 'done';
     const updates = nowDone
       ? { status: 'done', completed_at: new Date().toISOString(), completed_by: userId || null }
-      : { status: 'open', completed_at: null, completed_by: null };
+      // Keluar dari 'done' mengembalikan tugas ke tahap yang diminta dan
+      // membersihkan jejak penyelesaiannya, supaya tidak tercatat selesai dua
+      // kali di riwayat.
+      : { status: next_, completed_at: null, completed_by: null,
+          focus_at: next_ === 'focus' ? (t.focus_at || new Date().toISOString()) : null };
     const res = await this.updateTask(id, updates);
     if (res && res.error) return res;
 
@@ -1888,7 +1909,14 @@ class Store {
       });
       if (created && created.success) next = created.task;
     }
-    return { success: true, done: nowDone, next };
+    return { success: true, status: next_, done: nowDone, next };
+  }
+
+  // Centang / batal-centang. Membatalkan centang mengembalikan tugas ke To-Do.
+  async toggleTaskDone(id, userId) {
+    const t = this.getTask(id);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    return this.setTaskStatus(id, this.taskStatus(t) === 'done' ? 'todo' : 'done', userId);
   }
 
   async toggleSubtask(taskId, index) {
@@ -1934,7 +1962,36 @@ class Store {
     this.addNotification(task.assignee_id, title, `${lead}: "${task.title}".${due}`, 'system');
   }
 
-  // Kelompokkan tugas per waktu — inilah tampilan utama halaman To-Do.
+  // Pilah tugas ke empat kolom papan, DARI SUDUT PANDANG satu orang.
+  //
+  // Tiga kolom pertama adalah pekerjaan orang itu sendiri menurut tahapannya;
+  // kolom keempat berisi pekerjaan orang lain yang dia pantau. Karena
+  // "Delegasi" ditentukan dari siapa yang melihat (bukan disimpan di baris
+  // tugasnya), satu tugas yang sama muncul di kolom Delegasi pada papan
+  // pemberi tugas dan di kolom To-Do/Fokus pada papan penerimanya — tanpa
+  // pernah muncul dua kali di papan yang sama.
+  groupTasksByColumn(tasks, userId) {
+    const cols = { todo: [], focus: [], delegated: [], done: [] };
+    (tasks || []).forEach(t => {
+      const s = this.taskStatus(t);
+      if (s === 'done') { cols.done.push(t); return; }
+      if (!this.isMyTask(t, userId)) { cols.delegated.push(t); return; }
+      cols[s === 'focus' ? 'focus' : 'todo'].push(t);
+    });
+    // Yang sudah selesai: paling baru di atas.
+    cols.done.sort((a, b) => String(b.completed_at || '').localeCompare(String(a.completed_at || '')));
+    return cols;
+  }
+
+  // Tugas selesai dalam N hari terakhir. Kolom Selesai memakai ini supaya
+  // papan tetap ringan setelah dipakai berbulan-bulan; riwayat penuhnya tetap
+  // bisa dibuka dari tombol di kolom itu.
+  recentlyDone(tasks, days) {
+    const limit = new Date(Date.now() - (Number(days) || 30) * 86400000).toISOString();
+    return (tasks || []).filter(t => !t.completed_at || t.completed_at >= limit);
+  }
+
+  // Kelompokkan tugas per waktu — dipakai DI DALAM tiap kolom papan.
   // Mengembalikan urutan tetap supaya "Terlambat" selalu di atas.
   groupTasksByTime(tasks) {
     const today = todayLocal();
@@ -1944,7 +2001,7 @@ class Store {
       overdue: [], today: [], tomorrow: [], week: [], later: [], someday: [], done: [],
     };
     (tasks || []).forEach(t => {
-      if (t.status === 'done') { buckets.done.push(t); return; }
+      if (this.taskStatus(t) === 'done') { buckets.done.push(t); return; }
       const d = t.due_date || '';
       if (!d) buckets.someday.push(t);
       else if (d < today) buckets.overdue.push(t);

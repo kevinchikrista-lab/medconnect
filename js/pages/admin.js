@@ -1411,7 +1411,7 @@ export function adminTasks() {
     ${adminSidebar('tasks')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${adminHeader()}
-      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+      <main class="p-4 lg:p-6 max-w-[1500px] mx-auto">
         ${tasksBody('all')}
       </main>
     </div>
