@@ -5,6 +5,7 @@ import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 import { chatListPage, chatThreadPage } from './chat.js';
 import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge, apptResponseBadge, waSapaMsg, waHariIniMsg, waMsgB64 } from '../wa.js';
 import { crmSetup, crmXData, crmBody } from './crm.js';
+import { calendarTasksSetup, calendarTasksXData, calendarTasksBlock } from './tasks.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -1797,12 +1798,17 @@ export function doctorCalendar(params) {
   });
   window.__calendarRecords = recordsData;
 
+  // Tugas pribadi pemilik akun yang sedang login — bukan milik dokter lain.
+  const calUser = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+  const calTasks = calendarTasksSetup(calUser && calUser.id);
+
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024,
     selectedDate: '${isCurrentMonth ? todayStr : `${year}-${String(month + 1).padStart(2, '0')}-01`}',
     allAppts: window.__calendarAppts || [],
     allRecords: window.__calendarRecords || [],
+    ${calendarTasksXData()},
     get selectedAppts() { return this.allAppts.filter(a => a.date === this.selectedDate).sort((a,b) => (a.time_slot||'').localeCompare(b.time_slot||'')); },
     get selectedRecords() { return this.allRecords.filter(r => r.visit_date === this.selectedDate); },
     get selectedDateFormatted() { const d = new Date(this.selectedDate); return d.toLocaleDateString('id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric'}); },
@@ -1833,10 +1839,15 @@ export function doctorCalendar(params) {
                 const recordCount = allRecords.filter(r => r.visit_date === dateStr).length;
                 const apptCount = allAppts.filter(a => a.date === dateStr).length;
                 const isToday = isCurrentMonth && d === today.getDate();
-                const dotColors = [
+                const taskCount = calTasks.filter(t => t.due_date === dateStr && t.status !== 'done').length;
+                const base = [
                   ...Array(Math.min(recordCount, 3)).fill('bg-green-500'),
                   ...Array(Math.max(0, Math.min(apptCount, 3 - Math.min(recordCount, 3)))).fill('bg-teal-500'),
                 ];
+                // Titik ungu = ada tugas pribadi jatuh tempo hari itu. Selalu
+                // diberi tempat (menggeser titik terakhir bila kuota 3 penuh)
+                // supaya tanggal yang ada tugasnya tidak pernah terlihat kosong.
+                const dotColors = taskCount ? base.slice(0, 2).concat('bg-indigo-500') : base;
                 const dotsHtml = dotColors.map(c => `<span class="w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white' : c}"></span>`).join('');
                 return `<button @click="selectedDate='${dateStr}'" :class="selectedDate==='${dateStr}' && !${isToday} ? 'bg-teal-100 text-teal-800 ring-2 ring-teal-400' : ''" class="relative py-2.5 rounded-lg transition hover:bg-teal-50 cursor-pointer ${isToday ? 'bg-teal-600 text-white hover:bg-teal-700 font-bold' : ''}"><span>${d}</span>${dotColors.length > 0 ? `<span class="absolute bottom-0.5 left-1/2 -translate-x-1/2 flex gap-0.5">${dotsHtml}</span>` : ''}</button>`;
               }).join('')}
@@ -1846,7 +1857,7 @@ export function doctorCalendar(params) {
             <h3 class="font-semibold text-gray-800 mb-1">Jadwal</h3>
             <p class="text-xs text-gray-500 mb-4" x-text="selectedDateFormatted"></p>
             <div class="space-y-2">
-              <template x-if="selectedAppts.length === 0 && selectedRecords.length === 0"><p class="text-gray-400 text-sm text-center py-8">Tidak ada jadwal atau rekam medis di tanggal ini</p></template>
+              <template x-if="selectedAppts.length === 0 && selectedRecords.length === 0 && selectedTasks.length === 0"><p class="text-gray-400 text-sm text-center py-8">Tidak ada jadwal, rekam medis, atau tugas di tanggal ini</p></template>
               <template x-for="apt in selectedAppts" :key="apt.id">
                 <div class="p-3 rounded-lg bg-gray-50 border border-gray-100 hover:border-teal-200 transition">
                   <div class="flex items-center gap-3">
@@ -1886,6 +1897,7 @@ export function doctorCalendar(params) {
                   </div>
                 </a>
               </template>
+              ${calendarTasksBlock('selectedAppts.length > 0 || selectedRecords.length > 0')}
             </div>
           </div>
         </div>

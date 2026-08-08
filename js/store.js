@@ -1876,6 +1876,27 @@ class Store {
     return { success: true };
   }
 
+  // Tugas berjatuh-tempo MILIK SATU ORANG, untuk ditampilkan di kalendernya.
+  // Sengaja disaring per pengguna: kalender itu pribadi, jadi tugas orang lain
+  // tidak boleh ikut muncul di sana. Dikembalikan ringkas (bukan baris utuh)
+  // karena halaman kalender hanya perlu menampilkannya, bukan mengubahnya.
+  getCalendarTasks(userId) {
+    return (this.data.tasks || [])
+      .filter(t => t.due_date && (!userId || this.isMyTask(t, userId)))
+      .map(t => ({
+        id: t.id,
+        title: t.title || 'Tugas',
+        due_date: t.due_date,
+        due_time: t.due_time || '',
+        priority: t.priority || 'normal',
+        category: t.category || '',
+        status: this.taskStatus(t),
+        sub_total: (t.subtasks || []).length,
+        sub_done: (t.subtasks || []).filter(s => s && s.done).length,
+      }))
+      .sort((a, b) => String(a.due_time || '99:99').localeCompare(String(b.due_time || '99:99')));
+  }
+
   // ---- Timer fokus -------------------------------------------------------
   // Waktu kerja dihitung dari stempel waktu, bukan dari penghitung di browser,
   // supaya tetap benar meski halaman ditutup, di-refresh, atau berpindah

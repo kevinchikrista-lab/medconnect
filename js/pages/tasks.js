@@ -385,6 +385,59 @@ function taskCard(mode, source) {
   </template>`;
 }
 
+// ---------------------------------------------------------------------------
+// Bagian "To-Do & Tugas" untuk halaman Kalender (dokter maupun Super Admin).
+//
+// Dipakai bersama supaya tampilan & aturannya persis sama di kedua kalender:
+// hanya tugas MILIK pengguna yang login, dan seluruh bagiannya disembunyikan
+// bila tanggal yang dipilih tidak punya tugas — sesuai permintaan, kalender
+// yang kosong tidak perlu menampilkan apa pun.
+//
+// Menyiapkan datanya: panggil calendarTasksSetup(userId) sebelum merender,
+// lalu sisipkan calendarTasksXData() ke dalam x-data dan calendarTasksBlock()
+// di dalam panel Jadwal.
+export function calendarTasksSetup(userId) {
+  window.__calendarTasks = store.getCalendarTasks(userId);
+  return window.__calendarTasks;
+}
+
+export function calendarTasksXData() {
+  return `allTasks: window.__calendarTasks || [],
+    get selectedTasks() { return this.allTasks.filter(t => t.due_date === this.selectedDate); },
+    taskCountOn(dateStr) { return this.allTasks.filter(t => t.due_date === dateStr && t.status !== 'done').length; },
+    taskPrioLabel(p) { return ({ urgent:'Mendesak', high:'Penting', normal:'Biasa', low:'Santai' })[p] || 'Biasa'; },
+    taskPrioChip(p) { return ({ urgent:'bg-red-100 text-red-700', high:'bg-orange-100 text-orange-700', normal:'bg-blue-100 text-blue-700', low:'bg-slate-100 text-slate-600' })[p] || 'bg-blue-100 text-blue-700'; },
+    taskStatusLabel(s) { return s === 'done' ? 'Selesai' : (s === 'focus' ? 'Dikerjakan' : 'Belum'); },
+    taskStatusChip(s) { return s === 'done' ? 'bg-green-100 text-green-700' : (s === 'focus' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'); }`;
+}
+
+// `showDivider` = ekspresi Alpine yang menentukan apakah judul pemisah perlu
+// muncul (yaitu bila di atasnya sudah ada isi lain).
+export function calendarTasksBlock(showDivider) {
+  return `
+  <template x-if="selectedTasks.length > 0">
+    <p class="text-xs font-semibold text-indigo-600 uppercase pt-2" x-show="${showDivider}">To-Do &amp; Tugas</p>
+  </template>
+  <template x-for="tk in selectedTasks" :key="tk.id">
+    <a href="#/tugas" class="block p-3 rounded-lg bg-indigo-50/50 border border-indigo-100 hover:border-indigo-300 transition">
+      <div class="flex items-center gap-3">
+        <span class="text-lg" x-text="tk.status === 'done' ? '\\u2705' : (tk.status === 'focus' ? '\\u26a1' : '\\ud83d\\udcdd')"></span>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium text-gray-800" :class="tk.status === 'done' ? 'line-through text-gray-400' : ''">
+            <span x-show="tk.due_time" x-text="tk.due_time + ' \\u2014 '"></span><span x-text="tk.title"></span>
+          </p>
+          <p class="text-xs text-gray-500">
+            <span class="px-1.5 py-0.5 rounded-full text-[10.5px] font-medium" :class="taskPrioChip(tk.priority)" x-text="taskPrioLabel(tk.priority)"></span>
+            <span x-show="tk.category" x-text="' \\u00b7 ' + tk.category"></span>
+            <span x-show="tk.sub_total" x-text="' \\u00b7 ' + tk.sub_done + '/' + tk.sub_total + ' langkah'"></span>
+          </p>
+        </div>
+        <span class="px-2 py-0.5 rounded-full text-xs font-medium shrink-0" :class="taskStatusChip(tk.status)" x-text="taskStatusLabel(tk.status)"></span>
+      </div>
+    </a>
+  </template>`;
+}
+
 // Layar timer fokus + gelembung mengambang saat layarnya ditutup.
 //
 // Sengaja BUKAN layar penuh yang mengunci: satu ketukan pada "Tutup" langsung
