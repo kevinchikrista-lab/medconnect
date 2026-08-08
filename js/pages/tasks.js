@@ -88,12 +88,23 @@ export function tasksXData(mode) {
     modal: false, editing: null, saving: false, msg: '', newSub: '',
     form: { title:'', notes:'', category:'', priority:'normal', due_date:'', due_time:'', assignee_id:'', recurrence:'none', recurrence_interval:1, subtasks:[] },
 
+    now: Date.now(), timerId: '', timerOpen: false, beeped: {},
+
     async load() {
       this.loading = true;
       try { await window.__store.loadTasks(); } catch (e) {}
       this.staff = window.__store.getStaffList();
       this.tasks = window.__store.getAllTasks();
       this.loading = false;
+      // Detak sekali sedetik: hanya memajukan this.now, dan seluruh tampilan
+      // timer dihitung ulang dari stempel waktu. Memakai slot interval milik
+      // router supaya otomatis berhenti begitu pindah halaman.
+      if (window.__pagePollInterval) clearInterval(window.__pagePollInterval);
+      window.__pagePollInterval = setInterval(() => { this.now = Date.now(); this.checkBreak(); }, 1000);
+      // Timer yang masih menyala dari sesi sebelumnya langsung ditampilkan
+      // lagi sebagai gelembung mengambang, tanpa membuka layar penuh.
+      const run = this.runningTask;
+      if (run) this.timerId = run.id;
     },
     refresh() { this.tasks = window.__store.getAllTasks(); },
 
@@ -137,17 +148,78 @@ export function tasksXData(mode) {
       const r = await window.__store.setTaskStatus(t.id, to, this.me);
       if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
       this.refresh();
+      // Menekan tombol Kerjakan sekarang langsung membuka layar timer.
+      if (to === 'focus') { this.timerId = t.id; this.beeped[t.id] = false; this.timerOpen = true; }
+      if (to !== 'focus' && this.timerId === t.id) this.timerOpen = false;
       if (r && r.next) window.__showToast && window.__showToast('Tugas berulang', 'Dijadwalkan lagi: ' + this.fmtDate(r.next.due_date) + '.');
       else if (to === 'focus' && this.focusOverload) window.__showToast && window.__showToast('Fokus makin penuh', 'Sudah ' + this.colCount('focus') + ' tugas di kolom Fokus. Yakin semuanya dikerjakan sekarang?');
     },
-    // Sejak kapan sebuah tugas duduk di kolom Fokus — supaya yang mandek terlihat.
-    focusSince(t) {
-      if (!t.focus_at) return '';
-      const hrs = Math.floor((Date.now() - new Date(t.focus_at).getTime()) / 3600000);
-      if (isNaN(hrs) || hrs < 1) return 'baru saja';
-      if (hrs < 24) return hrs + ' jam lalu';
-      const d = Math.floor(hrs / 24);
-      return d + ' hari lalu';
+
+    // ---- Timer fokus ----
+    // Semua dihitung dari stempel waktu di baris tugasnya (bukan penghitung
+    // di browser), lalu digambar ulang tiap detik lewat this.now — jadi tetap
+    // benar setelah refresh, ganti perangkat, atau layar sempat tertidur.
+    elapsed(t) { return t ? (this.now, window.__store.focusBanked(t)) : 0; },
+    running(t) { return window.__store.focusRunning(t); },
+    targetMin(t) { return window.__store.focusTargetMin(t); },
+    targetSec(t) { return this.targetMin(t) * 60; },
+    overTarget(t) { return t ? this.elapsed(t) >= this.targetSec(t) : false; },
+    overBy(t) { return this.fmtClock(Math.max(0, this.elapsed(t) - this.targetSec(t))); },
+    pct(t) { return t ? Math.min(100, Math.round(this.elapsed(t) / this.targetSec(t) * 100)) : 0; },
+    fmtClock(sec) {
+      const s = Math.max(0, Math.floor(sec || 0));
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), d = s % 60;
+      const pad = (n) => String(n).padStart(2, '0');
+      return h ? h + ':' + pad(m) + ':' + pad(d) : pad(m) + ':' + pad(d);
+    },
+    fmtLong(sec) {
+      const s = Math.max(0, Math.floor(sec || 0));
+      if (s < 60) return 'kurang dari semenit';
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+      return (h ? h + ' jam ' : '') + (m ? m + ' menit' : (h ? '' : '1 menit'));
+    },
+    get timerTask() { return this.timerId ? (this.tasks.find(x => x.id === this.timerId) || null) : null; },
+    // Tugas yang timernya sedang menyala — dipakai gelembung mengambang.
+    get runningTask() { return this.tasks.find(t => this.status(t) === 'focus' && this.running(t) && this.isMine(t)) || null; },
+    openTimer(t) { this.timerId = t.id; this.timerOpen = true; },
+    closeTimer() { this.timerOpen = false; },
+    async startT(t) { await window.__store.startFocus(t.id); this.refresh(); },
+    async pauseT(t) { await window.__store.pauseFocus(t.id); this.refresh(); },
+    async resetT(t) {
+      if (!confirm('Nolkan hitungan waktu untuk: ' + t.title + '?')) return;
+      await window.__store.resetFocus(t.id); this.beeped[t.id] = false; this.refresh();
+    },
+    async setTarget(t, m) { await window.__store.setFocusTarget(t.id, m); this.beeped[t.id] = false; this.refresh(); },
+    // Pengingat istirahat: berbunyi sekali saat target sesi tercapai.
+    checkBreak() {
+      const t = this.runningTask;
+      if (!t || !this.overTarget(t) || this.beeped[t.id]) return;
+      this.beeped[t.id] = true;
+      this.beep();
+      window.__showToast && window.__showToast('Waktunya istirahat', 'Sudah ' + this.targetMin(t) + ' menit mengerjakan \\u201c' + t.title + '\\u201d. Regangkan badan sebentar.');
+    },
+    beep() {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        const ctx = new AC();
+        [0, 260, 520].forEach(delay => setTimeout(() => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.connect(g); g.connect(ctx.destination);
+          o.frequency.value = 880; g.gain.value = 0.07;
+          o.start(); setTimeout(() => { try { o.stop(); } catch (e) {} }, 180);
+        }, delay));
+        setTimeout(() => { try { ctx.close(); } catch (e) {} }, 1200);
+      } catch (e) { /* peramban tanpa WebAudio — cukup toast-nya saja */ }
+    },
+    // Jam-jam terdekat hari ini supaya tidak kecolongan saat sedang tenggelam.
+    agendaList() { return (this.now, window.__store.getUpcomingAgenda(this.me, 4)); },
+    agendaWhen(a) {
+      if (a.late) return 'terlewat ' + Math.abs(a.minutesAway) + ' mnt';
+      if (a.minutesAway <= 0) return 'sekarang';
+      if (a.minutesAway < 60) return a.minutesAway + ' mnt lagi';
+      const h = Math.floor(a.minutesAway / 60), m = a.minutesAway % 60;
+      return h + ' jam' + (m ? ' ' + m + ' mnt' : '') + ' lagi';
     },
 
     staffName(id) { return window.__store.staffName(id); },
@@ -287,6 +359,9 @@ function taskCard(mode, source) {
                  mengerjakannya, bukan yang menugaskan. -->
             <button @click="move(t, 'focus')" x-show="isMine(t) && status(t) === 'todo'" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Kerjakan sekarang</button>
+            <button @click="openTimer(t)" x-show="isMine(t) && status(t) === 'focus'" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition flex items-center gap-1">
+              <span class="ms text-[13px]" x-text="running(t) ? 'timer' : 'play_arrow'"></span><span x-text="running(t) ? 'Buka timer' : 'Lanjutkan'"></span></button>
             <button @click="move(t, 'todo')" x-show="isMine(t) && status(t) === 'focus'" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Tunda ke To-Do</button>
             <button @click="move(t, 'done')" x-show="status(t) !== 'done'" x-cloak
@@ -308,6 +383,117 @@ function taskCard(mode, source) {
       </div>
     </div>
   </template>`;
+}
+
+// Layar timer fokus + gelembung mengambang saat layarnya ditutup.
+//
+// Sengaja BUKAN layar penuh yang mengunci: satu ketukan pada "Tutup" langsung
+// mengembalikan papan, dan timernya tetap berjalan sebagai gelembung kecil.
+// Di klinik, pasien bisa masuk kapan saja — layar yang tidak bisa ditinggalkan
+// justru akan ditinggalkan sama sekali.
+function focusOverlay() {
+  return `
+  <!-- Gelembung mengambang: muncul saat timer menyala tapi layarnya ditutup -->
+  <div x-show="!timerOpen && runningTask" x-cloak
+    class="fixed bottom-4 right-4 z-[55] flex items-center gap-3 pl-4 pr-2 py-2.5 rounded-2xl shadow-lg bg-slate-900 text-white max-w-[calc(100vw-2rem)]">
+    <span class="ms text-[18px] text-amber-400">bolt</span>
+    <div class="min-w-0">
+      <p class="text-[11px] text-slate-300 truncate max-w-[140px] sm:max-w-[220px]" x-text="runningTask ? runningTask.title : ''"></p>
+      <p class="text-lg font-bold leading-none" style="font-variant-numeric:tabular-nums" x-text="fmtClock(elapsed(runningTask))"></p>
+    </div>
+    <button @click="openTimer(runningTask)" class="px-3 py-1.5 rounded-xl text-[11px] font-semibold bg-white/10 hover:bg-white/20 transition">Buka</button>
+    <button @click="pauseT(runningTask)" title="Jeda" class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 transition flex items-center justify-center"><span class="ms text-[18px]">pause</span></button>
+  </div>
+
+  <!-- Layar timer -->
+  <div x-show="timerOpen && timerTask" x-cloak
+    class="fixed inset-0 z-[60] bg-slate-900 text-white flex flex-col overflow-y-auto">
+    <div class="px-4 sm:px-6 py-4 flex items-start justify-between gap-3 shrink-0">
+      <div class="min-w-0">
+        <p class="text-[11px] uppercase tracking-wide text-amber-400 font-bold">Sedang dikerjakan</p>
+        <h2 class="text-lg sm:text-2xl font-bold break-words" x-text="timerTask ? timerTask.title : ''"></h2>
+        <p class="text-xs text-slate-400 mt-0.5" x-show="timerTask && timerTask.notes" x-cloak x-text="timerTask ? timerTask.notes : ''"></p>
+      </div>
+      <button @click="closeTimer()" class="shrink-0 px-3 py-2 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/20 transition flex items-center gap-1.5">
+        <span class="ms text-[16px]">close_fullscreen</span>Tutup
+      </button>
+    </div>
+
+    <div class="flex-1 flex flex-col items-center justify-center px-4 py-4 gap-5">
+      <!-- Pengingat istirahat -->
+      <div x-show="timerTask && overTarget(timerTask)" x-cloak
+        class="w-full max-w-xl px-4 py-3 rounded-2xl bg-amber-400 text-slate-900 text-center">
+        <p class="font-bold text-sm">Waktunya istirahat</p>
+        <p class="text-xs mt-0.5">Sudah lewat <span x-text="targetMin(timerTask)"></span> menit &mdash; kelebihan <span class="font-semibold" x-text="overBy(timerTask)"></span>. Berdiri, minum, lihat jauh sebentar.</p>
+      </div>
+
+      <p class="text-[10.5rem] leading-none sm:text-[13rem] font-bold tracking-tight"
+        style="font-variant-numeric:tabular-nums;font-size:min(28vw,13rem)"
+        :class="timerTask && !running(timerTask) ? 'text-slate-500' : (timerTask && overTarget(timerTask) ? 'text-amber-400' : 'text-white')"
+        x-text="fmtClock(elapsed(timerTask))"></p>
+
+      <p class="text-xs font-semibold" :class="timerTask && running(timerTask) ? 'text-green-400' : 'text-slate-400'"
+        x-text="timerTask && running(timerTask) ? 'Berjalan' : 'Dijeda \\u2014 tekan Lanjutkan untuk meneruskan'"></p>
+
+      <!-- Kemajuan menuju target sesi -->
+      <div class="w-full max-w-xl">
+        <div class="h-2 rounded-full bg-white/10 overflow-hidden">
+          <div class="h-full rounded-full transition-all duration-500"
+            :class="timerTask && overTarget(timerTask) ? 'bg-amber-400' : 'bg-green-400'"
+            :style="'width:' + pct(timerTask) + '%'"></div>
+        </div>
+        <div class="flex justify-between mt-1.5 text-[11px] text-slate-400">
+          <span x-text="'Target sesi ' + targetMin(timerTask) + ' menit'"></span>
+          <span x-text="pct(timerTask) + '%'"></span>
+        </div>
+      </div>
+
+      <div class="flex gap-2 flex-wrap justify-center">
+        <button x-show="timerTask && !running(timerTask)" x-cloak @click="startT(timerTask)"
+          class="px-6 py-3 rounded-2xl text-sm font-bold bg-green-500 hover:bg-green-400 transition flex items-center gap-2"><span class="ms text-[18px]">play_arrow</span>Lanjutkan</button>
+        <button x-show="timerTask && running(timerTask)" x-cloak @click="pauseT(timerTask)"
+          class="px-6 py-3 rounded-2xl text-sm font-bold bg-white/10 hover:bg-white/20 transition flex items-center gap-2"><span class="ms text-[18px]">pause</span>Jeda</button>
+        <button @click="move(timerTask, 'done')" class="px-6 py-3 rounded-2xl text-sm font-bold bg-green-600 hover:bg-green-500 transition flex items-center gap-2"><span class="ms text-[18px]">check</span>Selesai</button>
+        <button @click="move(timerTask, 'todo')" class="px-4 py-3 rounded-2xl text-sm font-medium bg-white/5 hover:bg-white/10 transition">Tunda</button>
+        <button @click="resetT(timerTask)" class="px-4 py-3 rounded-2xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/10 transition">Nolkan</button>
+      </div>
+
+      <div class="flex items-center gap-2 flex-wrap justify-center">
+        <span class="text-[11px] text-slate-500">Ingatkan istirahat tiap</span>
+        ${[25, 50, 90].map(v => `<button @click="setTarget(timerTask, ${v})"
+          :class="targetMin(timerTask) === ${v} ? 'bg-white text-slate-900' : 'bg-white/10 text-slate-300 hover:bg-white/20'"
+          class="px-3 py-1 rounded-xl text-[11px] font-semibold transition">${v} mnt</button>`).join('')}
+      </div>
+
+      <!-- Sub-tugas: bagian ini yang biasanya jadi pegangan saat mengerjakan -->
+      <div class="w-full max-w-xl space-y-1.5" x-show="timerTask && (timerTask.subtasks || []).length" x-cloak>
+        <p class="text-[11px] uppercase tracking-wide text-slate-500 font-bold">Langkah</p>
+        <template x-for="(s, i) in (timerTask ? (timerTask.subtasks || []) : [])" :key="i">
+          <label class="flex items-center gap-2.5 text-sm cursor-pointer px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 transition">
+            <input type="checkbox" :checked="s.done" @change="toggleSub(timerTask, i)" class="rounded border-white/30 bg-transparent">
+            <span :class="s.done ? 'line-through text-slate-500' : 'text-slate-200'" x-text="s.text"></span>
+          </label>
+        </template>
+      </div>
+    </div>
+
+    <!-- Jam terdekat: yang paling gampang kecolongan saat sedang tenggelam -->
+    <div class="shrink-0 border-t border-white/10 px-4 sm:px-6 py-4">
+      <p class="text-[11px] uppercase tracking-wide text-slate-500 font-bold mb-2">Jangan terlewat hari ini</p>
+      <div x-show="!agendaList().length" x-cloak class="text-xs text-slate-500">Tidak ada jadwal berjam lagi hari ini.</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <template x-for="a in agendaList()" :key="a.kind + a.id">
+          <div class="px-3 py-2 rounded-xl flex items-center gap-2.5" :class="a.late ? 'bg-red-500/20' : 'bg-white/5'">
+            <span class="ms text-[16px] shrink-0" :class="a.late ? 'text-red-300' : 'text-slate-400'" x-text="a.kind === 'appointment' ? 'event' : 'checklist'"></span>
+            <div class="min-w-0">
+              <p class="text-[13px] font-semibold truncate" x-text="a.time + ' \\u00b7 ' + a.label"></p>
+              <p class="text-[10.5px]" :class="a.late ? 'text-red-300' : 'text-slate-400'" x-text="a.sub + ' \\u00b7 ' + agendaWhen(a)"></p>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>`;
 }
 
 export function tasksBody(mode) {
@@ -400,6 +586,8 @@ export function tasksBody(mode) {
       <p class="text-xs text-gray-400 mt-1">${canManage ? 'Tekan <b>+ Tugas Baru</b> untuk menambah rencana atau mendelegasikan pekerjaan ke staf.' : 'Tugas yang didelegasikan kepada Anda akan muncul di sini.'}</p>
     </div>
   </div>
+
+  ${focusOverlay()}
 
   ${canManage ? `
   <!-- Modal tambah / ubah tugas -->

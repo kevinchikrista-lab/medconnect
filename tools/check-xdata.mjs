@@ -62,9 +62,43 @@ function scanFile(path) {
   scanned++;
 }
 
+// Celah yang pernah lolos: sebagian halaman merakit isi x-data dari fungsi
+// terpisah, mis. x-data="{ ${tasksXData('all')} }". Pemindai di atas MELEWATI
+// ${...} (memang harus, karena isinya baru ada saat render), jadi tanda kutip
+// ganda di dalam fungsi itu tidak pernah terlihat — padahal hasilnya sama-sama
+// memotong atribut. Karena itu setiap fungsi bernama *XData diperiksa juga:
+// apa pun yang dikembalikannya pasti mendarat di dalam x-data="...".
+function scanXDataBuilders(path) {
+  const text = readFileSync(path, 'utf8');
+  const re = /function\s+(\w*XData)\s*\(/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const open = text.indexOf('`', m.index);
+    if (open === -1) continue;
+    let j = open + 1;
+    while (j < text.length) {
+      const c = text[j], c2 = text[j + 1];
+      if (c === '\\') { j += 2; continue; }
+      if (c === '`') break;                       // akhir template literal
+      if (c === '$' && c2 === '{') {              // interpolasi: dinilai saat render
+        let d = 1; j += 2;
+        while (j < text.length && d > 0) { if (text[j] === '{') d++; else if (text[j] === '}') d--; j++; }
+        continue;
+      }
+      if (c === '"') {
+        const line = text.slice(0, j).split('\n').length;
+        const ctx = text.slice(Math.max(0, j - 70), j + 20).replace(/\n/g, ' ');
+        console.error(`❌ ${path}:${line} — tanda kutip ganda di dalam ${m[1]}() (isinya masuk ke x-data)\n   ...${ctx}...`);
+        failures++;
+      }
+      j++;
+    }
+  }
+}
+
 for (const root of ROOTS) {
   for (const f of readdirSync(root, { withFileTypes: true })) {
-    if (f.isFile() && f.name.endsWith('.js')) scanFile(join(root, f.name));
+    if (f.isFile() && f.name.endsWith('.js')) { scanFile(join(root, f.name)); scanXDataBuilders(join(root, f.name)); }
   }
 }
 
