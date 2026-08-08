@@ -1876,6 +1876,102 @@ class Store {
     return { success: true };
   }
 
+  // ---- Timer fokus -------------------------------------------------------
+  // Waktu kerja dihitung dari stempel waktu, bukan dari penghitung di browser,
+  // supaya tetap benar meski halaman ditutup, di-refresh, atau berpindah
+  // perangkat. Lihat supabase-task-focus-timer.sql.
+
+  // Total detik kerja bila potongan yang sedang berjalan ikut dibukukan.
+  focusBanked(t) {
+    const base = Number((t && t.focus_seconds) || 0) || 0;
+    if (!t || !t.focus_at) return base;
+    const started = new Date(t.focus_at).getTime();
+    if (isNaN(started)) return base;
+    // Jam perangkat bisa mundur (mis. sinkronisasi NTP) — jangan sampai
+    // hitungannya jadi negatif dan waktu kerja malah berkurang.
+    return base + Math.max(0, Math.round((Date.now() - started) / 1000));
+  }
+
+  focusRunning(t) { return !!(t && t.focus_at); }
+  focusTargetMin(t) { return Number((t && t.focus_target_min) || 0) || 50; }
+
+  // Nyalakan timer. Tidak mengubah tahap — dipakai untuk melanjutkan setelah
+  // dijeda (tugasnya memang sudah ada di kolom Fokus).
+  async startFocus(id) {
+    const t = this.getTask(id);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    if (t.focus_at) return { success: true };            // sudah berjalan
+    return this.updateTask(id, { focus_at: new Date().toISOString() });
+  }
+
+  // Jeda: bukukan potongan berjalan, lalu kosongkan penanda mulainya.
+  async pauseFocus(id) {
+    const t = this.getTask(id);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    if (!t.focus_at) return { success: true };           // sudah dijeda
+    return this.updateTask(id, { focus_seconds: this.focusBanked(t), focus_at: null });
+  }
+
+  async resetFocus(id) {
+    const t = this.getTask(id);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    return this.updateTask(id, { focus_seconds: 0, focus_at: t.focus_at ? new Date().toISOString() : null });
+  }
+
+  async setFocusTarget(id, minutes) {
+    const m = Math.max(1, Number(minutes) || 50);
+    return this.updateTask(id, { focus_target_min: m });
+  }
+
+  // Agenda berjam terdekat hari ini, supaya tidak ada yang terlewat saat
+  // sedang tenggelam mengerjakan sesuatu. Menggabungkan dua sumber:
+  //   - tugas hari ini yang punya jam (due_time)
+  //   - janji temu hari ini (appointments) milik dokter yang bersangkutan;
+  //     untuk admin tanpa baris dokter, dipakai janji temu seluruh klinik
+  // Yang baru lewat tetap ditampilkan (ditandai terlewat) selama belum lebih
+  // dari `graceMin` menit — yang paling sering bikin kecolongan justru itu.
+  getUpcomingAgenda(userId, limit = 4, graceMin = 20) {
+    const today = todayLocal();
+    const d = new Date();
+    const nowMin = d.getHours() * 60 + d.getMinutes();
+    const toMin = (hhmm) => {
+      const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm || ''));
+      return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+    };
+    const items = [];
+
+    (this.data.tasks || []).forEach(t => {
+      if (this.taskStatus(t) === 'done') return;
+      if (t.due_date !== today || !t.due_time) return;
+      if (userId && !this.isMyTask(t, userId)) return;
+      const at = toMin(t.due_time);
+      if (at === null) return;
+      items.push({ kind: 'task', id: t.id, at, time: t.due_time, label: t.title || 'Tugas', sub: 'Tugas' });
+    });
+
+    const doc = (this.data.doctors || []).find(x => x.user_id === userId);
+    const apts = doc ? this.getAppointmentsByDoctor(doc.id, today)
+                     : (this.data.appointments || []).filter(a => a.date === today);
+    const TYPE = { visit: 'Kunjungan', follow_up: 'Kontrol', vaccination: 'Vaksinasi', consultation: 'Konsultasi' };
+    apts.forEach(a => {
+      if (['completed', 'cancelled', 'canceled'].includes(a.status)) return;
+      const at = toMin(a.time_slot);
+      if (at === null) return;
+      const p = this.getPatient(a.patient_id);
+      items.push({
+        kind: 'appointment', id: a.id, at, time: a.time_slot,
+        label: (p && p.full_name) || a.patient_name || 'Pasien',
+        sub: TYPE[a.type] || 'Janji temu',
+      });
+    });
+
+    return items
+      .filter(i => i.at >= nowMin - graceMin)
+      .sort((a, b) => a.at - b.at)
+      .slice(0, limit)
+      .map(i => ({ ...i, minutesAway: i.at - nowMin, late: i.at < nowMin }));
+  }
+
   // Pindahkan tugas ke tahap lain: 'todo' | 'focus' | 'done'.
   // Untuk tugas berulang, memindahkannya ke 'done' otomatis membuat tugas
   // berikutnya dengan jatuh tempo yang sudah digeser — jadi riwayat "sudah
@@ -1885,13 +1981,19 @@ class Store {
     if (!t) return { error: 'Tugas tidak ditemukan' };
     const next_ = ['todo', 'focus', 'done'].includes(status) ? status : 'todo';
     const nowDone = next_ === 'done';
+    const nowIso = new Date().toISOString();
+    // Bukukan dulu potongan waktu yang sedang berjalan, apa pun tahap
+    // tujuannya — supaya waktu kerja tidak hilang saat tugas ditunda atau
+    // diselesaikan di tengah timer yang menyala.
+    const banked = this.focusBanked(t);
     const updates = nowDone
-      ? { status: 'done', completed_at: new Date().toISOString(), completed_by: userId || null }
+      ? { status: 'done', completed_at: nowIso, completed_by: userId || null,
+          focus_seconds: banked, focus_at: null }
       // Keluar dari 'done' mengembalikan tugas ke tahap yang diminta dan
       // membersihkan jejak penyelesaiannya, supaya tidak tercatat selesai dua
-      // kali di riwayat.
+      // kali di riwayat. Masuk ke 'focus' langsung menyalakan timernya.
       : { status: next_, completed_at: null, completed_by: null,
-          focus_at: next_ === 'focus' ? (t.focus_at || new Date().toISOString()) : null };
+          focus_seconds: banked, focus_at: next_ === 'focus' ? nowIso : null };
     const res = await this.updateTask(id, updates);
     if (res && res.error) return res;
 
