@@ -32,6 +32,42 @@ function todayLocal() {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+// Geser sebuah tanggal 'YYYY-MM-DD' sekian hari, tetap dalam zona waktu lokal.
+// Dibangun dari komponen (bukan Date.parse) karena `new Date('2026-08-08')`
+// dibaca sebagai UTC — di WIB itu mundur jadi tanggal 7.
+function shiftDate(dateStr, days) {
+  const [y, m, d] = String(dateStr || todayLocal()).split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  dt.setDate(dt.getDate() + (days || 0));
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+// Jatuh tempo berikutnya untuk tugas berulang. Kalau tugasnya sudah lama
+// terlambat, tanggalnya digeser terus sampai melewati hari ini — supaya
+// mencentang tugas yang telat tidak langsung memunculkan tugas telat lagi.
+function nextRecurringDate(dueDate, recurrence, interval) {
+  const step = Math.max(1, Number(interval) || 1);
+  const today = todayLocal();
+  let cur = dueDate || today;
+  for (let i = 0; i < 400; i++) {
+    if (recurrence === 'daily') cur = shiftDate(cur, step);
+    else if (recurrence === 'weekly') cur = shiftDate(cur, 7 * step);
+    else if (recurrence === 'monthly' || recurrence === 'yearly') {
+      const [y, m, d] = cur.split('-').map(Number);
+      const addMonths = recurrence === 'yearly' ? 12 * step : step;
+      // Hari ke-31 pada bulan yang cuma 30 hari akan "meluber" ke bulan
+      // berikutnya kalau langsung di-setMonth, jadi tanggalnya dijepit dulu
+      // ke hari terakhir bulan tujuan (31 Jan + 1 bulan → 28/29 Feb).
+      const target = new Date(y, m - 1 + addMonths, 1);
+      const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+      target.setDate(Math.min(d, lastDay));
+      cur = target.getFullYear() + '-' + String(target.getMonth() + 1).padStart(2, '0') + '-' + String(target.getDate()).padStart(2, '0');
+    } else return null;
+    if (cur > today) return cur;
+  }
+  return cur;
+}
+
 // A blank "Jumlah" number input (common for compound/racikan items, where
 // the composition is described in compound_details instead) binds as the
 // empty string '', not null — and prescription_items.quantity is an INTEGER
@@ -205,6 +241,11 @@ const DEMO_DATA = {
     { id: 'loc_2', name: 'Home Care', address: '', phone: '', notes: 'Kunjungan ke rumah pasien', is_active: true, sort_order: 20 },
     { id: 'loc_3', name: 'Telemedicine', address: '', phone: '', notes: 'Konsultasi jarak jauh', is_active: true, sort_order: 30 },
   ],
+
+  // To-do / daftar tugas klinik. Dikelola Super Admin & Owner dari halaman
+  // "To-Do & Tugas", bisa didelegasikan ke staf mana pun (assignee_id =
+  // users.id / profiles.id). Disinkronkan ke tabel tasks.
+  tasks: [],
 
   health_services: [
     { id: 'hs_1', name: 'Vaksinasi Dewasa', description: 'Layanan vaksinasi lengkap untuk dewasa. Tersedia berbagai pilihan vaksin sesuai kebutuhan Anda.', category: 'Vaksinasi', price: 0, image_url: 'https://placehold.co/400x250/0d9488/white?text=Vaksinasi', is_active: true, items: [
@@ -846,8 +887,9 @@ class Store {
       if (consultationMessages.length) this.data.consultation_messages = consultationMessages;
       this.data.articles = articles;
       // Dimuat terpisah (bukan di Promise.all di atas) supaya bila tabel
-      // practice_locations belum dibuat, sinkronisasi data lain tetap jalan.
+      // practice_locations / tasks belum dibuat, sinkronisasi data lain tetap jalan.
       this.loadLocations().catch(() => {});
+      this.loadTasks().catch(() => {});
       this._save(this.data);
       console.log('Data loaded from Supabase:', { profiles: profiles.length, doctors: doctors.length, patients: patients.length });
     } catch (e) { console.warn('Failed to load from Supabase, using local data:', e); }
@@ -1634,6 +1676,247 @@ class Store {
     const key = String(name || '').trim().toLowerCase();
     const hit = (arr) => (arr || []).filter(r => String(r.location || '').trim().toLowerCase() === key).length;
     return hit(this.data.medical_records) + hit(this.data.vaccinations);
+  }
+
+  // ==========================================================================
+  // TO-DO / DAFTAR TUGAS  (tabel `tasks`, lihat supabase-tasks.sql)
+  //
+  // Dikelola Super Admin & Owner dari #/admin/tasks, dan bisa didelegasikan ke
+  // staf mana pun — penerimanya melihatnya di #/tugas.
+  // ==========================================================================
+
+  // Daftar orang yang boleh menerima delegasi tugas: semua akun staf aktif
+  // (pasien tidak diikutkan). Nama diambil dari profil masing-masing peran;
+  // kalau profilnya belum ada, e-mail dipakai sebagai label supaya tetap bisa
+  // dipilih dan tidak muncul sebagai baris kosong.
+  getStaffList() {
+    const ROLE_LABEL = { superadmin: 'Super Admin', owner: 'Owner', doctor: 'Dokter', pharmacy: 'Apotek' };
+    return (this.data.users || [])
+      .filter(u => u.is_active !== false && ROLE_LABEL[u.role])
+      .map(u => {
+        const p = this.getProfile(u) || {};
+        const name = p.full_name || p.name || (u.email || '').split('@')[0] || 'Tanpa Nama';
+        return { id: u.id, name, role: u.role, role_label: ROLE_LABEL[u.role], email: u.email || '', phone: p.phone || '' };
+      })
+      .sort((a, b) => a.role_label.localeCompare(b.role_label) || a.name.localeCompare(b.name));
+  }
+
+  getStaff(userId) { return this.getStaffList().find(s => s.id === userId) || null; }
+
+  // Label penerima tugas. Tugas tanpa assignee_id = untuk pembuatnya sendiri.
+  staffName(userId) {
+    if (!userId) return 'Saya sendiri';
+    const s = this.getStaff(userId);
+    if (s) return s.name;
+    // Akunnya mungkin sudah dinonaktifkan/dihapus — tugas lamanya tetap ada.
+    const u = (this.data.users || []).find(x => x.id === userId);
+    return u ? ((u.email || '').split('@')[0] || 'Staf') : 'Staf';
+  }
+
+  getAllTasks() {
+    const rows = (this.data.tasks || []).slice();
+    const P = { urgent: 0, high: 1, normal: 2, low: 3 };
+    // Belum selesai dulu, lalu jatuh tempo paling dekat, lalu prioritas.
+    // Tugas tanpa tanggal ditaruh paling belakang (bukan paling depan, yang
+    // akan terjadi kalau string kosong ikut diurutkan apa adanya).
+    return rows.sort((a, b) => {
+      const ad = a.status === 'done' ? 1 : 0, bd = b.status === 'done' ? 1 : 0;
+      if (ad !== bd) return ad - bd;
+      const at = a.due_date || '9999-12-31', bt = b.due_date || '9999-12-31';
+      if (at !== bt) return at < bt ? -1 : 1;
+      const ap = P[a.priority] ?? 2, bp = P[b.priority] ?? 2;
+      if (ap !== bp) return ap - bp;
+      return String(a.due_time || '99:99').localeCompare(String(b.due_time || '99:99'));
+    });
+  }
+
+  getTasksForUser(userId) {
+    return this.getAllTasks().filter(t => t.assignee_id === userId || (!t.assignee_id && t.created_by === userId));
+  }
+
+  getTask(id) { return (this.data.tasks || []).find(t => t.id === id) || null; }
+
+  async loadTasks() {
+    if (CONFIG.DEMO_MODE) return this.getAllTasks();
+    try {
+      const rows = await supabase.select('tasks', { order: 'due_date.asc' });
+      if (Array.isArray(rows) && rows.length) {
+        this.data.tasks = rows;
+        this._save();
+      } else if (Array.isArray(rows)) {
+        // select() mengembalikan [] baik saat tabel `tasks` belum dibuat
+        // maupun saat memang kosong — keduanya tidak bisa dibedakan. Yang
+        // pasti pernah tersimpan di server adalah baris ber-UUID (bukan
+        // 'id_...'), jadi hanya baris itu yang boleh dibuang di sini. Baris
+        // lokal yang belum pernah sampai server tetap dipertahankan supaya
+        // tidak hilang hanya karena SQL-nya belum dijalankan.
+        const kept = (this.data.tasks || []).filter(t => String(t.id || '').startsWith('id_'));
+        if (kept.length !== (this.data.tasks || []).length) { this.data.tasks = kept; this._save(); }
+      }
+    } catch (e) { /* tabel belum dibuat — pakai data lokal */ }
+    return this.getAllTasks();
+  }
+
+  async createTask(data) {
+    const title = String(data.title || '').trim();
+    if (!title) return { error: 'Judul tugas wajib diisi' };
+    const payload = {
+      title,
+      notes: data.notes || '',
+      category: data.category || '',
+      priority: ['urgent', 'high', 'normal', 'low'].includes(data.priority) ? data.priority : 'normal',
+      due_date: data.due_date || null,
+      due_time: data.due_time || '',
+      status: 'open',
+      assignee_id: data.assignee_id || null,
+      created_by: data.created_by || null,
+      recurrence: ['daily', 'weekly', 'monthly', 'yearly'].includes(data.recurrence) ? data.recurrence : 'none',
+      recurrence_interval: Math.max(1, Number(data.recurrence_interval) || 1),
+      subtasks: Array.isArray(data.subtasks)
+        ? data.subtasks.filter(s => s && String(s.text || '').trim()).map(s => ({ text: String(s.text).trim(), done: !!s.done }))
+        : [],
+      sort_order: Number(data.sort_order) || 100,
+    };
+
+    let rec;
+    if (CONFIG.DEMO_MODE) {
+      rec = { id: generateId(), created_at: new Date().toISOString(), wa_count: 0, wa_last_at: null, ...payload };
+    } else {
+      const inserted = await supabase.insert('tasks', payload);
+      if (inserted && inserted.error) {
+        return { error: inserted.error + ' — pastikan supabase-tasks.sql sudah dijalankan di Supabase.' };
+      }
+      rec = inserted || { id: generateId(), created_at: new Date().toISOString(), ...payload };
+    }
+    this.data.tasks = (this.data.tasks || []).concat(rec);
+    this._save();
+
+    this._notifyTaskAssignee(rec, 'Tugas Baru', 'Anda mendapat tugas baru');
+    return { success: true, task: rec };
+  }
+
+  async updateTask(id, updates) {
+    const t = this.getTask(id);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    const prevAssignee = t.assignee_id || null;
+    Object.assign(t, updates);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.update('tasks', id, updates).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    // Baru diberitahu kalau tugasnya memang berpindah tangan.
+    if (updates.assignee_id !== undefined && (updates.assignee_id || null) !== prevAssignee) {
+      this._notifyTaskAssignee(t, 'Tugas Dialihkan', 'Sebuah tugas dialihkan kepada Anda');
+    }
+    return { success: true, task: t };
+  }
+
+  async deleteTask(id) {
+    this.data.tasks = (this.data.tasks || []).filter(t => t.id !== id);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.delete('tasks', id).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    return { success: true };
+  }
+
+  // Centang / batal-centang sebuah tugas. Untuk tugas berulang, mencentangnya
+  // otomatis membuat tugas berikutnya dengan jatuh tempo yang sudah digeser —
+  // jadi riwayat "sudah dikerjakan" tetap tersimpan, tidak ditimpa.
+  async toggleTaskDone(id, userId) {
+    const t = this.getTask(id);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    const nowDone = t.status !== 'done';
+    const updates = nowDone
+      ? { status: 'done', completed_at: new Date().toISOString(), completed_by: userId || null }
+      : { status: 'open', completed_at: null, completed_by: null };
+    const res = await this.updateTask(id, updates);
+    if (res && res.error) return res;
+
+    let next = null;
+    if (nowDone && t.recurrence && t.recurrence !== 'none') {
+      const nextDue = nextRecurringDate(t.due_date, t.recurrence, t.recurrence_interval);
+      const created = await this.createTask({
+        title: t.title, notes: t.notes, category: t.category, priority: t.priority,
+        due_date: nextDue, due_time: t.due_time,
+        assignee_id: t.assignee_id, created_by: t.created_by,
+        recurrence: t.recurrence, recurrence_interval: t.recurrence_interval,
+        // Checklist dipakai ulang dalam keadaan kosong lagi.
+        subtasks: (t.subtasks || []).map(s => ({ text: s.text, done: false })),
+        sort_order: t.sort_order,
+      });
+      if (created && created.success) next = created.task;
+    }
+    return { success: true, done: nowDone, next };
+  }
+
+  async toggleSubtask(taskId, index) {
+    const t = this.getTask(taskId);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    const subs = (t.subtasks || []).map((s, i) => (i === index ? { ...s, done: !s.done } : s));
+    return this.updateTask(taskId, { subtasks: subs });
+  }
+
+  async addSubtask(taskId, text) {
+    const t = this.getTask(taskId);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    const clean = String(text || '').trim();
+    if (!clean) return { error: 'Sub-tugas kosong' };
+    return this.updateTask(taskId, { subtasks: (t.subtasks || []).concat({ text: clean, done: false }) });
+  }
+
+  async removeSubtask(taskId, index) {
+    const t = this.getTask(taskId);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    return this.updateTask(taskId, { subtasks: (t.subtasks || []).filter((s, i) => i !== index) });
+  }
+
+  // Tombol WA hanya membuka wa.me dengan pesan siap kirim — ini mencatat
+  // bahwa pengingatnya sudah ditekan, supaya tidak diingatkan berulang kali.
+  logTaskWa(id) {
+    const t = this.getTask(id);
+    if (!t) return 0;
+    t.wa_count = (t.wa_count || 0) + 1;
+    t.wa_last_at = new Date().toISOString();
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      supabase.update('tasks', id, { wa_count: t.wa_count, wa_last_at: t.wa_last_at }).catch(() => {});
+    }
+    return t.wa_count;
+  }
+
+  _notifyTaskAssignee(task, title, lead) {
+    if (!task || !task.assignee_id || task.assignee_id === task.created_by) return;
+    const due = task.due_date
+      ? ` Jatuh tempo ${task.due_date}${task.due_time ? ' pukul ' + task.due_time : ''}.`
+      : '';
+    this.addNotification(task.assignee_id, title, `${lead}: "${task.title}".${due}`, 'system');
+  }
+
+  // Kelompokkan tugas per waktu — inilah tampilan utama halaman To-Do.
+  // Mengembalikan urutan tetap supaya "Terlambat" selalu di atas.
+  groupTasksByTime(tasks) {
+    const today = todayLocal();
+    const tomorrow = shiftDate(today, 1);
+    const weekEnd = shiftDate(today, 7);
+    const buckets = {
+      overdue: [], today: [], tomorrow: [], week: [], later: [], someday: [], done: [],
+    };
+    (tasks || []).forEach(t => {
+      if (t.status === 'done') { buckets.done.push(t); return; }
+      const d = t.due_date || '';
+      if (!d) buckets.someday.push(t);
+      else if (d < today) buckets.overdue.push(t);
+      else if (d === today) buckets.today.push(t);
+      else if (d === tomorrow) buckets.tomorrow.push(t);
+      else if (d <= weekEnd) buckets.week.push(t);
+      else buckets.later.push(t);
+    });
+    // Yang sudah selesai: paling baru di atas.
+    buckets.done.sort((a, b) => String(b.completed_at || '').localeCompare(String(a.completed_at || '')));
+    return buckets;
   }
 
   // Health Services

@@ -5,6 +5,7 @@ import { homeCareNewPage, homeCareHistoryPage } from './homecare.js';
 import { waHref, waKontrolMsg, waButton, waSapaMsg, waMsgB64 } from '../wa.js';
 import { crmSetup, crmXData, crmBody } from './crm.js';
 import { stockXData, stockBody } from './stock.js';
+import { tasksSetup, tasksXData, tasksBody } from './tasks.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -1392,6 +1393,23 @@ export function adminStock() {
   </div>`;
 }
 
+// To-Do / Daftar Tugas — rencana & jadwal kegiatan Super Admin/Owner, dengan
+// delegasi ke staf. Isi halamannya ada di js/pages/tasks.js (dipakai juga oleh
+// halaman "Tugas Saya" #/tugas milik staf penerima).
+export function adminTasks() {
+  tasksSetup();
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, ${tasksXData('all')} }" x-init="load()" class="min-h-screen bg-wash">
+    ${adminSidebar('tasks')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+        ${tasksBody('all')}
+      </main>
+    </div>
+  </div>`;
+}
+
 // Bungkus sebuah nilai jadi literal string JS bertanda kutip TUNGGAL yang aman
 // dipakai di dalam atribut HTML bertanda kutip ganda (mis. onclick="..."):
 // kutip ganda pada datanya diubah jadi entity, jadi atributnya tidak terpotong.
@@ -1516,6 +1534,7 @@ function adminSidebar(active) {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: 'insights' },
+    { id: 'tasks', label: 'To-Do & Tugas', icon: 'checklist', href: '#/admin/tasks' },
     { id: 'users', label: 'Manajemen User', icon: 'group' },
     { id: 'patients', label: 'Rekam Medis Pasien', icon: 'clinical_notes', href: '#/admin/patients' },
     { id: 'services', label: 'Layanan', icon: 'medical_services' },
