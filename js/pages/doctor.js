@@ -1953,6 +1953,15 @@ export function doctorCrm() {
   </div>`;
 }
 
+// Jumlah tugas terbuka yang didelegasikan ke akun ini — jadi lencana di menu
+// "Tugas Saya". Dibungkus try/catch supaya sidebar tetap tampil kalau tabel
+// tasks belum ada (SQL-nya belum dijalankan).
+function openTaskCount(user) {
+  if (!user) return 0;
+  try { return store.getTasksForUser(user.id).filter(t => t.status !== 'done').length; }
+  catch (e) { return 0; }
+}
+
 function doctorSidebar(active) {
   const doc = getDoctor();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
@@ -1967,6 +1976,8 @@ function doctorSidebar(active) {
     { id: 'chat', label: 'Pesan', icon: 'forum', href: '#/doctor/chat', badge: unreadChat },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/doctor/homecare/history' },
     { id: 'calendar', label: 'Kalender', icon: 'calendar_month', href: '#/doctor/calendar' },
+    // Tugas yang didelegasikan Super Admin/Owner lewat halaman To-Do.
+    { id: 'tugas', label: 'Tugas Saya', icon: 'checklist', href: '#/tugas', badge: openTaskCount(user) },
   ];
   return `
   <div x-show="sideOpen" x-cloak x-transition.opacity @click="sideOpen=false" class="fixed inset-0 bg-black/40 z-[35] lg:hidden"></div>

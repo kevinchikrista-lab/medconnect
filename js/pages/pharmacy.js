@@ -309,15 +309,20 @@ export function pharmacyInventory() {
 }
 
 function pharmacySidebar(active) {
+  const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+  // Tugas yang didelegasikan Super Admin/Owner lewat halaman To-Do.
+  let openTasks = 0;
+  try { openTasks = user ? store.getTasksForUser(user.id).filter(t => t.status !== 'done').length : 0; } catch (e) { openTasks = 0; }
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view', href: '#/pharmacy/dashboard' },
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/pharmacy/prescriptions' },
     { id: 'inventory', label: 'Inventaris', icon: 'inventory_2', href: '#/pharmacy/inventory' },
+    { id: 'tugas', label: 'Tugas Saya', icon: 'checklist', href: '#/tugas', badge: openTasks },
   ];
   return `
   <aside class="fixed top-0 left-0 h-full w-[236px] bg-white border-r border-slate-100 z-40 transform transition-transform duration-300 flex flex-col" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
     <div class="p-4 border-b border-slate-100 flex items-center justify-between"><div class="flex items-center gap-2"><img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto"><div><span class="font-extrabold text-[13.5px] leading-none block">Klinik Prima</span><span class="block text-[10.5px] text-faint font-semibold mt-0.5">Apotek Mitra</span></div></div><button @click="sideOpen=false" class="lg:hidden text-faint hover:text-ink"><span class="ms text-[20px]">close</span></button></div>
-    <nav class="p-3 space-y-1 flex-1">${items.map(i=>`<a href="${i.href}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] transition ${active===i.id ? 'bg-[#e9f7f1] text-green font-bold' : 'text-muted font-semibold hover:bg-slate-50'}"><span class="ms ${active===i.id ? 'ms-fill' : ''} text-[20px] ${active===i.id ? 'text-green' : 'text-faint'}">${i.icon}</span>${i.label}</a>`).join('')}</nav>
+    <nav class="p-3 space-y-1 flex-1">${items.map(i=>`<a href="${i.href}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] transition ${active===i.id ? 'bg-[#e9f7f1] text-green font-bold' : 'text-muted font-semibold hover:bg-slate-50'}"><span class="ms ${active===i.id ? 'ms-fill' : ''} text-[20px] ${active===i.id ? 'text-green' : 'text-faint'}">${i.icon}</span><span class="flex-1">${i.label}</span>${i.badge ? `<span class="w-5 h-5 rounded-full bg-[#ff5436] text-white text-[10.5px] font-bold flex items-center justify-center">${i.badge}</span>` : ''}</a>`).join('')}</nav>
     <div class="p-3 border-t border-slate-100"><button onclick="sessionStorage.clear();window.location.hash='/login';window.dispatchEvent(new CustomEvent('auth-changed'))" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-semibold text-muted hover:bg-slate-50 hover:text-ink transition w-full"><span class="ms text-[20px] text-faint">logout</span>Keluar</button></div>
   </aside>`;
 }
