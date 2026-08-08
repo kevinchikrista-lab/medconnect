@@ -46,7 +46,29 @@ const RECURRENCES = [
   { key: 'yearly', label: 'Tahunan' },
 ];
 
-// Urutan kelompok waktu — inilah tampilan utamanya.
+// Empat kolom papan. Tiga yang pertama adalah tahapan pekerjaan sendiri
+// (todo → focus → done); "delegasi" bukan tahapan melainkan sudut pandang —
+// isinya tugas yang dikerjakan orang lain. Lihat store.groupTasksByColumn.
+const COLUMNS = [
+  { key: 'todo', label: 'To-Do', icon: 'radio_button_unchecked', tone: 'text-slate-600', bar: 'bg-slate-300',
+    empty: 'Belum ada tugas di daftar.' },
+  { key: 'focus', label: 'Fokus Sekarang', icon: 'bolt', tone: 'text-amber-600', bar: 'bg-amber-400',
+    empty: 'Belum ada yang sedang dikerjakan.' },
+  { key: 'delegated', label: 'Delegasi', icon: 'group', tone: 'text-blue-600', bar: 'bg-blue-400',
+    empty: 'Belum ada tugas yang diberikan ke orang lain.' },
+  { key: 'done', label: 'Selesai', icon: 'task_alt', tone: 'text-green-600', bar: 'bg-green-400',
+    empty: 'Belum ada yang selesai.' },
+];
+
+// Di atas berapa tugas kolom Fokus dianggap kebanyakan. Bukan larangan —
+// hanya pengingat, karena kolom Fokus kehilangan gunanya kalau isinya sama
+// panjang dengan To-Do.
+const FOCUS_SOFT_LIMIT = 3;
+
+// Kolom Selesai hanya memuat sekian hari terakhir secara bawaan.
+const DONE_WINDOW_DAYS = 30;
+
+// Urutan kelompok waktu di DALAM tiap kolom.
 const GROUPS = [
   { key: 'overdue', label: 'Terlambat', icon: 'error', tone: 'text-red-600' },
   { key: 'today', label: 'Hari Ini', icon: 'today', tone: 'text-brand-dark' },
@@ -61,7 +83,8 @@ export function tasksXData(mode) {
   const m = mode === 'mine' ? 'mine' : 'all';
   return `mode: '${m}',
     loading: true, tasks: [], me: window.__taskMe || '', staff: window.__taskStaff || [],
-    q: '', filterAssignee: '', filterPriority: '', showDone: false, expanded: '',
+    q: '', filterAssignee: '', filterPriority: '', expanded: '',
+    tab: 'todo', allHistory: false,
     modal: false, editing: null, saving: false, msg: '', newSub: '',
     form: { title:'', notes:'', category:'', priority:'normal', due_date:'', due_time:'', assignee_id:'', recurrence:'none', recurrence_interval:1, subtasks:[] },
 
@@ -84,11 +107,48 @@ export function tasksXData(mode) {
         return true;
       });
     },
-    get grouped() { return window.__store.groupTasksByTime(this.shown); },
-    get doneList() { return this.grouped.done; },
-    countIn(key) { return (this.grouped[key] || []).length; },
-    get openCount() { return this.shown.filter(t => t.status !== 'done').length; },
-    get overdueCount() { return this.countIn('overdue'); },
+
+    // Empat kolom papan. Kolom Selesai dipangkas ke ${DONE_WINDOW_DAYS} hari
+    // terakhir kecuali tombol riwayat penuh ditekan.
+    get board() {
+      const c = window.__store.groupTasksByColumn(this.shown, this.me);
+      if (!this.allHistory) c.done = window.__store.recentlyDone(c.done, ${DONE_WINDOW_DAYS});
+      return c;
+    },
+    colList(key) { return this.board[key] || []; },
+    colCount(key) { return this.colList(key).length; },
+    // Di dalam sebuah kolom, tugas masih dipilah per waktu (Terlambat dst.).
+    colTime(key) { return window.__store.groupTasksByTime(this.colList(key)); },
+    colTimeCount(key, g) { return (this.colTime(key)[g] || []).length; },
+    get hiddenDoneCount() {
+      if (this.allHistory) return 0;
+      const all = window.__store.groupTasksByColumn(this.shown, this.me).done;
+      return all.length - window.__store.recentlyDone(all, ${DONE_WINDOW_DAYS}).length;
+    },
+    get focusOverload() { return this.colCount('focus') > ${FOCUS_SOFT_LIMIT}; },
+    get openCount() { return this.colCount('todo') + this.colCount('focus') + this.colCount('delegated'); },
+    get overdueCount() {
+      return ['todo', 'focus', 'delegated'].reduce((s, k) => s + this.colTimeCount(k, 'overdue'), 0);
+    },
+
+    status(t) { return window.__store.taskStatus(t); },
+    isMine(t) { return window.__store.isMyTask(t, this.me); },
+    async move(t, to) {
+      const r = await window.__store.setTaskStatus(t.id, to, this.me);
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      this.refresh();
+      if (r && r.next) window.__showToast && window.__showToast('Tugas berulang', 'Dijadwalkan lagi: ' + this.fmtDate(r.next.due_date) + '.');
+      else if (to === 'focus' && this.focusOverload) window.__showToast && window.__showToast('Fokus makin penuh', 'Sudah ' + this.colCount('focus') + ' tugas di kolom Fokus. Yakin semuanya dikerjakan sekarang?');
+    },
+    // Sejak kapan sebuah tugas duduk di kolom Fokus — supaya yang mandek terlihat.
+    focusSince(t) {
+      if (!t.focus_at) return '';
+      const hrs = Math.floor((Date.now() - new Date(t.focus_at).getTime()) / 3600000);
+      if (isNaN(hrs) || hrs < 1) return 'baru saja';
+      if (hrs < 24) return hrs + ' jam lalu';
+      const d = Math.floor(hrs / 24);
+      return d + ' hari lalu';
+    },
 
     staffName(id) { return window.__store.staffName(id); },
     prioLabel(p) { const f = this.priorities.find(x => x.key === (p || 'normal')); return f ? f.label : 'Biasa'; },
@@ -135,12 +195,7 @@ export function tasksXData(mode) {
       window.__showToast && window.__showToast('Tersimpan', this.editing ? 'Tugas diperbarui.' : 'Tugas baru ditambahkan.');
     },
 
-    async toggle(t) {
-      const r = await window.__store.toggleTaskDone(t.id, this.me);
-      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
-      this.refresh();
-      if (r && r.next) window.__showToast && window.__showToast('Tugas berulang', 'Dijadwalkan lagi: ' + this.fmtDate(r.next.due_date) + '.');
-    },
+    async toggle(t) { await this.move(t, this.status(t) === 'done' ? 'todo' : 'done'); },
     async toggleSub(t, i) { await window.__store.toggleSubtask(t.id, i); this.refresh(); },
     async addSubTo(t) {
       const v = window.prompt('Sub-tugas baru untuk: ' + t.title);
@@ -183,15 +238,26 @@ function taskCard(mode, source) {
   <template x-for="t in ${source}" :key="t.id">
     <div class="bg-white border border-slate-100 rounded-2xl p-3.5 hover:border-slate-200 transition">
       <div class="flex items-start gap-3">
-        <button @click="toggle(t)" :title="t.status === 'done' ? 'Batalkan centang' : 'Tandai selesai'"
+        <button @click="toggle(t)" :title="status(t) === 'done' ? 'Batalkan centang' : 'Tandai selesai'"
           class="mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition"
-          :class="t.status === 'done' ? 'bg-green-500 border-green-500' : 'border-slate-300 hover:border-green-500'">
-          <span class="ms text-[13px] text-white" x-show="t.status === 'done'">check</span>
+          :class="status(t) === 'done' ? 'bg-green-500 border-green-500' : 'border-slate-300 hover:border-green-500'">
+          <span class="ms text-[13px] text-white" x-show="status(t) === 'done'">check</span>
         </button>
         <div class="flex-1 min-w-0">
           <div class="flex items-start gap-2 flex-wrap">
             <span class="w-2 h-2 rounded-full mt-1.5 shrink-0" :class="prioDot(t.priority)" :title="prioLabel(t.priority)"></span>
-            <p class="font-semibold text-sm text-gray-800 break-words" :class="t.status === 'done' ? 'line-through text-gray-400' : ''" x-text="t.title"></p>
+            <p class="font-semibold text-sm text-gray-800 break-words" :class="status(t) === 'done' ? 'line-through text-gray-400' : ''" x-text="t.title"></p>
+          </div>
+
+          <!-- Kolom Delegasi: yang paling ingin diketahui pemberi tugas adalah
+               apakah penerimanya sudah menyentuhnya atau belum. -->
+          <div class="mt-1.5" x-show="!isMine(t) && status(t) !== 'done'" x-cloak>
+            <span x-show="status(t) === 'focus'" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700">
+              <span class="ms text-[13px]">bolt</span><span x-text="'Sedang dikerjakan ' + staffName(t.assignee_id) + (focusSince(t) ? ' \\u00b7 mulai ' + focusSince(t) : '')"></span>
+            </span>
+            <span x-show="status(t) !== 'focus'" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500">
+              <span class="ms text-[13px]">schedule</span>Belum disentuh
+            </span>
           </div>
           <div class="flex items-center gap-2 flex-wrap mt-1.5 text-[11px]">
             <span class="px-2 py-0.5 rounded-full font-semibold" :class="prioChip(t.priority)" x-text="prioLabel(t.priority)"></span>
@@ -216,6 +282,17 @@ function taskCard(mode, source) {
           </div>
 
           <div class="flex items-center gap-1.5 mt-2 flex-wrap">
+            <!-- Perpindahan tahap. Hanya untuk tugas sendiri: yang memutuskan
+                 sebuah tugas "sedang dikerjakan" adalah orang yang benar-benar
+                 mengerjakannya, bukan yang menugaskan. -->
+            <button @click="move(t, 'focus')" x-show="isMine(t) && status(t) === 'todo'" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Kerjakan sekarang</button>
+            <button @click="move(t, 'todo')" x-show="isMine(t) && status(t) === 'focus'" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Tunda ke To-Do</button>
+            <button @click="move(t, 'done')" x-show="status(t) !== 'done'" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-green-700 bg-green-50 hover:bg-green-100 transition">Selesai</button>
+            <button @click="move(t, 'todo')" x-show="status(t) === 'done'" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Buka lagi</button>
             <button @click="toggleExpand(t.id)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition" x-text="expanded === t.id ? 'Tutup' : 'Rincian'"></button>
             ${canManage ? `<button @click="openEdit(t)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Ubah</button>
             <button @click="addSubTo(t)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">+ Sub-tugas</button>` : ''}
@@ -237,15 +314,47 @@ export function tasksBody(mode) {
   const m = mode === 'mine' ? 'mine' : 'all';
   const canManage = m !== 'mine';
 
-  const groupBlocks = GROUPS.map(g => `
-    <div x-show="countIn('${g.key}')" x-cloak class="mb-5">
-      <div class="flex items-center gap-2 mb-2">
-        <span class="ms text-[18px] ${g.tone}">${g.icon}</span>
-        <h3 class="font-bold text-sm ${g.tone}">${g.label}</h3>
-        <span class="text-xs text-gray-400" x-text="'(' + countIn('${g.key}') + ')'"></span>
+  // Isi satu kolom. Kolom "done" tampil sebagai daftar rata (diurutkan dari
+  // yang terbaru); tiga kolom lainnya masih dipilah per waktu di dalamnya.
+  const columnInner = (col) => col.key === 'done'
+    ? `<div class="space-y-2">${taskCard(m, `colList('done')`)}</div>
+       <button x-show="hiddenDoneCount || allHistory" x-cloak @click="allHistory = !allHistory"
+         class="w-full mt-2 px-3 py-2 rounded-xl text-[11px] font-medium text-slate-500 bg-slate-50 hover:bg-slate-100 transition"
+         x-text="allHistory ? 'Tampilkan ${DONE_WINDOW_DAYS} hari terakhir saja' : 'Lihat semua riwayat (' + hiddenDoneCount + ' lagi)'"></button>`
+    : GROUPS.map(g => `
+      <div x-show="colTimeCount('${col.key}', '${g.key}')" x-cloak class="mb-3">
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <span class="ms text-[15px] ${g.tone}">${g.icon}</span>
+          <h4 class="font-bold text-[11px] uppercase tracking-wide ${g.tone}">${g.label}</h4>
+          <span class="text-[11px] text-gray-400" x-text="'(' + colTimeCount('${col.key}', '${g.key}') + ')'"></span>
+        </div>
+        <div class="space-y-2">${taskCard(m, `colTime('${col.key}')['${g.key}']`)}</div>
+      </div>`).join('');
+
+  // Staf penerima tidak bisa mendelegasikan, jadi kolom Delegasi tidak
+  // ditampilkan untuk mereka — sisa tiga kolom saja.
+  const cols = COLUMNS.filter(c => canManage || c.key !== 'delegated');
+
+  // Satu markup untuk dua tampilan: di layar lebar semua kolom tampil
+  // bersebelahan (papan Kanban), di layar sempit hanya kolom yang tabnya aktif
+  // yang tampil. Dipilih lewat kelas `hidden lg:block` — bukan x-show — karena
+  // x-show memasang display:none inline yang justru menimpa aturan lg:.
+  const columns = cols.map(col => `
+    <section class="min-w-0" :class="tab === '${col.key}' ? '' : 'hidden lg:block'">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="w-1.5 h-5 rounded-full ${col.bar}"></span>
+        <span class="ms text-[18px] ${col.tone}">${col.icon}</span>
+        <h3 class="font-bold text-sm ${col.tone}">${col.label}</h3>
+        <span class="text-xs font-semibold text-gray-400" x-text="colCount('${col.key}')"></span>
       </div>
-      <div class="space-y-2">${taskCard(m, `grouped['${g.key}']`)}</div>
-    </div>`).join('');
+      ${col.key === 'focus' ? `<div x-show="focusOverload" x-cloak class="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+        <p class="text-[11px] text-amber-800 leading-relaxed">Kolom Fokus sudah berisi <b><span x-text="colCount('focus')"></span> tugas</b>. Kalau semuanya "sedang dikerjakan", kolom ini berubah jadi To-Do kedua &mdash; pertimbangkan menunda sebagian.</p>
+      </div>` : ''}
+      ${columnInner(col)}
+      <div x-show="!colCount('${col.key}')" x-cloak class="rounded-2xl border border-dashed border-slate-200 p-5 text-center">
+        <p class="text-[11px] text-gray-400">${col.empty}</p>
+      </div>
+    </section>`).join('');
 
   return `
   <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
@@ -268,27 +377,27 @@ export function tasksBody(mode) {
       <option value="">Semua penerima</option>
       <template x-for="s in staff" :key="s.id"><option :value="s.id" x-text="s.name + ' (' + s.role_label + ')'"></option></template>
     </select>` : ''}
-    <label class="inline-flex items-center gap-1.5 text-sm text-gray-600 px-2"><input type="checkbox" x-model="showDone" class="rounded border-gray-300">Tampilkan yang selesai</label>
+  </div>
+
+  <!-- Pemilih kolom untuk layar sempit; di layar lebar keempatnya tampil sekaligus. -->
+  <div class="flex gap-1.5 mb-4 overflow-x-auto lg:hidden">
+    ${cols.map(col => `<button @click="tab='${col.key}'" :class="tab==='${col.key}' ? 'bg-white border-slate-200 shadow-sm ${col.tone}' : 'bg-transparent border-transparent text-gray-500'"
+      class="px-3 py-1.5 rounded-xl border text-[12.5px] font-semibold whitespace-nowrap transition flex items-center gap-1.5">
+      ${col.label}<span class="px-1.5 rounded-full bg-slate-100 text-slate-600 text-[10.5px]" x-text="colCount('${col.key}')"></span>
+    </button>`).join('')}
   </div>
 
   <div x-show="loading" class="bg-white rounded-2xl border border-slate-100 p-8 text-center text-sm text-gray-400">Memuat tugas...</div>
 
   <div x-show="!loading" x-cloak>
-    ${groupBlocks}
-
-    <div x-show="openCount === 0" x-cloak class="bg-white rounded-2xl border border-slate-100 p-8 text-center">
-      <span class="ms text-[36px] text-green-500">task_alt</span>
-      <p class="text-sm text-gray-600 font-medium mt-2">${canManage ? 'Tidak ada tugas yang menunggu.' : 'Tidak ada tugas untuk Anda saat ini.'}</p>
-      <p class="text-xs text-gray-400 mt-1">${canManage ? 'Tekan <b>+ Tugas Baru</b> untuk menambah rencana atau mendelegasikan pekerjaan ke staf.' : 'Tugas yang didelegasikan kepada Anda akan muncul di sini.'}</p>
+    <div class="grid grid-cols-1 ${canManage ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4 items-start">
+      ${columns}
     </div>
 
-    <div x-show="showDone && doneList.length" x-cloak class="mt-6">
-      <div class="flex items-center gap-2 mb-2">
-        <span class="ms text-[18px] text-green-600">task_alt</span>
-        <h3 class="font-bold text-sm text-green-700">Selesai</h3>
-        <span class="text-xs text-gray-400" x-text="'(' + doneList.length + ')'"></span>
-      </div>
-      <div class="space-y-2">${taskCard(m, 'doneList')}</div>
+    <div x-show="!tasks.length" x-cloak class="mt-4 bg-white rounded-2xl border border-slate-100 p-8 text-center">
+      <span class="ms text-[36px] text-green-500">task_alt</span>
+      <p class="text-sm text-gray-600 font-medium mt-2">${canManage ? 'Belum ada tugas sama sekali.' : 'Belum ada tugas untuk Anda.'}</p>
+      <p class="text-xs text-gray-400 mt-1">${canManage ? 'Tekan <b>+ Tugas Baru</b> untuk menambah rencana atau mendelegasikan pekerjaan ke staf.' : 'Tugas yang didelegasikan kepada Anda akan muncul di sini.'}</p>
     </div>
   </div>
 
@@ -353,10 +462,12 @@ export function tasksBody(mode) {
   </div>
 
   <div class="mt-6 bg-blue-50 border border-blue-100 rounded-2xl p-4">
-    <p class="text-xs text-blue-800 leading-relaxed"><b>Cara pakai:</b> tugas dikelompokkan otomatis menurut jatuh temponya &mdash; Terlambat, Hari Ini, Besok, Minggu Ini, Nanti. Tugas <b>berulang</b> otomatis dijadwalkan lagi begitu dicentang selesai (yang lama tetap tersimpan sebagai riwayat). Tombol <b>Ingatkan via WA</b> membuka WhatsApp dengan pesan siap kirim ke staf penerima &mdash; pesannya tidak terkirim sendiri, Anda tetap menekan tombol kirim di WhatsApp.</p>
+    <p class="text-xs text-blue-800 leading-relaxed"><b>Cara pakai papan ini:</b> <b>To-Do</b> berisi tugas Anda sendiri yang belum dimulai, <b>Fokus Sekarang</b> yang sedang dikerjakan, <b>Delegasi</b> yang Anda berikan ke orang lain, dan <b>Selesai</b> yang sudah beres (${DONE_WINDOW_DAYS} hari terakhir). Di dalam tiap kolom, tugas tetap diurutkan menurut jatuh temponya &mdash; Terlambat, Hari Ini, Besok, dan seterusnya.</p>
+    <p class="text-xs text-blue-800 leading-relaxed mt-2">Tugas di kolom <b>Delegasi</b> ikut menunjukkan apakah penerimanya sudah mulai mengerjakan: begitu dia menekan <b>Kerjakan sekarang</b> di halaman tugasnya, kartunya di sini bertanda <b>Sedang dikerjakan</b> lengkap dengan sejak kapan. Jadi yang mandek langsung kelihatan tanpa perlu bertanya.</p>
+    <p class="text-xs text-blue-800 leading-relaxed mt-2">Tugas <b>berulang</b> otomatis dijadwalkan lagi begitu ditandai selesai (yang lama tetap tersimpan sebagai riwayat). Tombol <b>Ingatkan via WA</b> membuka WhatsApp dengan pesan siap kirim ke staf penerima &mdash; pesannya tidak terkirim sendiri, Anda tetap menekan tombol kirim di WhatsApp.</p>
   </div>` : `
   <div class="mt-6 bg-blue-50 border border-blue-100 rounded-2xl p-4">
-    <p class="text-xs text-blue-800 leading-relaxed">Ini daftar tugas yang didelegasikan kepada Anda. Centang lingkaran di kiri bila sudah selesai, dan centang sub-tugas satu per satu untuk pekerjaan bertahap. Yang membuat tugas hanya Super Admin / Owner.</p>
+    <p class="text-xs text-blue-800 leading-relaxed">Ini tugas yang didelegasikan kepada Anda. Tekan <b>Kerjakan sekarang</b> saat mulai mengerjakannya &mdash; tugasnya pindah ke kolom <b>Fokus Sekarang</b>, dan pemberi tugas ikut melihat bahwa Anda sudah memulainya. Tekan <b>Selesai</b> bila sudah beres, dan centang sub-tugas satu per satu untuk pekerjaan bertahap. Yang membuat tugas hanya Super Admin / Owner.</p>
   </div>`}`;
 }
 
@@ -385,7 +496,7 @@ export function tasksPage() {
         <span class="text-sm font-semibold text-ink">${manage ? 'To-Do &amp; Tugas' : escHtml(me.name || 'Tugas Saya')}</span>
       </div>
     </header>
-    <main class="p-4 lg:p-6 ${manage ? 'max-w-5xl' : 'max-w-4xl'} mx-auto">
+    <main class="p-4 lg:p-6 ${manage ? 'max-w-[1500px]' : 'max-w-[1400px]'} mx-auto">
       ${tasksBody(mode)}
     </main>
   </div>`;
