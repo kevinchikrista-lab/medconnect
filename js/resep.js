@@ -77,30 +77,17 @@ function doctorInitials(name) {
   return parts.slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'DR';
 }
 
-// Reuse an existing certificate for this prescription so re-printing keeps the
-// same number & QR (no duplicate records piling up).
-async function ensureResepCert(rx, patient, doctor, items) {
-  const existing = await store.getCertificateForPrescription(rx.id);
-  if (existing) return existing;
-
+// Susun ISI kertas resep dari data resep yang BERLAKU SAAT INI.
+// Dipisah dari pembuatan nomor supaya bisa dipanggil ulang setiap kali dicetak
+// — lihat ensureResepCert di bawah.
+function buildResepDetails(rx, patient, doctor, items) {
   const issueDate = (rx.created_at || new Date().toISOString()).split('T')[0];
-  const year = new Date(issueDate).getFullYear();
-  const monthRoman = ROMAN[new Date(issueDate).getMonth()] || 'I';
-  const initials = doctorInitials(doctor && doctor.full_name);
-
-  let certNum;
-  try {
-    const seq = await store.getNextDocNumber('RSP', year);
-    certNum = `${pad4(seq)}/${monthRoman}/RSP/${initials}/${String(year).slice(2)}`;
-  } catch (e) {
-    certNum = rx.rx_number || `0001/${monthRoman}/RSP/${initials}/${String(year).slice(2)}`;
-  }
 
   // Berat badan diambil dari TTV kunjungan terkait — wajib pada resep anak.
   const linkedRecord = (store.data.medical_records || []).find(r => r.id === rx.record_id);
   const vs = (linkedRecord && linkedRecord.vital_signs) || {};
 
-  const details = {
+  return {
     rx_id: rx.id,
     rx_number: rx.rx_number || '',
     rx_target: rx.rx_target || 'apotek',
@@ -126,16 +113,56 @@ async function ensureResepCert(rx, patient, doctor, items) {
       is_compound: !!i.is_compound, compound_details: i.compound_details || '',
     })),
   };
+}
+
+// Satu resep = satu nomor surat seumur hidupnya. Mencetak ulang HARUS memakai
+// nomor & QR yang sama supaya lembar yang sudah beredar tetap terverifikasi,
+// dan supaya tidak ada nomor kembar untuk resep yang sama.
+//
+// TAPI isinya tidak boleh ikut membeku: dulu sertifikat yang sudah ada
+// langsung dikembalikan apa adanya, sehingga resep yang diedit dokter tetap
+// tercetak dengan obat yang lama. Sekarang isinya selalu disusun ulang dari
+// data terkini, lalu disimpan balik ke sertifikat itu — nomornya tetap, isinya
+// ikut. Halaman verifikasi QR pun jadi menampilkan isi yang sama dengan kertas.
+async function ensureResepCert(rx, patient, doctor, items) {
+  const details = buildResepDetails(rx, patient, doctor, items);
+  const patientName = (patient && patient.full_name) || '';
+  const doctorName = (doctor && doctor.full_name) || '';
+
+  const existing = await store.getCertificateForPrescription(rx.id);
+  if (existing) {
+    const changed = JSON.stringify(existing.details || {}) !== JSON.stringify(details)
+      || (existing.patient_name || '') !== patientName
+      || (existing.doctor_name || '') !== doctorName;
+    if (changed && !String(existing.id || '').startsWith('local-')) {
+      try { await store.updateCertificate(existing.id, { details, patient_name: patientName, doctor_name: doctorName }); }
+      catch (e) { /* gagal menyimpan pembaruan — kertasnya tetap dicetak dari data terkini */ }
+    }
+    return { ...existing, details, patient_name: patientName, doctor_name: doctorName };
+  }
+
+  const issueDate = details.letter_date;
+  const year = new Date(issueDate).getFullYear();
+  const monthRoman = ROMAN[new Date(issueDate).getMonth()] || 'I';
+  const initials = doctorInitials(doctorName);
+
+  let certNum;
+  try {
+    const seq = await store.getNextDocNumber('RSP', year);
+    certNum = `${pad4(seq)}/${monthRoman}/RSP/${initials}/${String(year).slice(2)}`;
+  } catch (e) {
+    certNum = rx.rx_number || `0001/${monthRoman}/RSP/${initials}/${String(year).slice(2)}`;
+  }
 
   const safePatientId = String(rx.patient_id || '').startsWith('id_') ? null : rx.patient_id;
   try {
     return await store.logCertificate({
       cert_number: certNum, cert_type: 'resep', perihal: 'RESEP',
-      patient_id: safePatientId, patient_name: (patient && patient.full_name) || '',
-      doctor_name: (doctor && doctor.full_name) || '', details,
+      patient_id: safePatientId, patient_name: patientName,
+      doctor_name: doctorName, details,
     });
   } catch (e) {
-    return { id: 'local-' + Date.now(), cert_number: certNum, cert_type: 'resep', patient_name: (patient && patient.full_name) || '', doctor_name: (doctor && doctor.full_name) || '', details, issued_at: new Date().toISOString() };
+    return { id: 'local-' + Date.now(), cert_number: certNum, cert_type: 'resep', patient_name: patientName, doctor_name: doctorName, details, issued_at: new Date().toISOString() };
   }
 }
 
