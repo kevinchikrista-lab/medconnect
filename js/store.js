@@ -242,6 +242,16 @@ const DEMO_DATA = {
     { id: 'loc_3', name: 'Telemedicine', address: '', phone: '', notes: 'Konsultasi jarak jauh', is_active: true, sort_order: 30 },
   ],
 
+  // Catatan Bisnis — buku perkembangan usaha, isinya teks Markdown.
+  // Disinkronkan ke tabel business_units & business_notes.
+  business_units: [
+    { id: 'bu_1', name: 'Klinik Prima', description: 'Layanan klinik utama', color: 'blue', is_active: true, sort_order: 10 },
+    { id: 'bu_2', name: 'Apotek', description: 'Farmasi & penjualan obat', color: 'green', is_active: true, sort_order: 20 },
+    { id: 'bu_3', name: 'Home Care', description: 'Kunjungan ke rumah pasien', color: 'amber', is_active: true, sort_order: 30 },
+    { id: 'bu_4', name: 'Umroh & Haji', description: 'Vaksinasi meningitis & layanan jemaah', color: 'purple', is_active: true, sort_order: 40 },
+  ],
+  business_notes: [],
+
   // To-do / daftar tugas klinik. Dikelola Super Admin & Owner dari halaman
   // "To-Do & Tugas", bisa didelegasikan ke staf mana pun (assignee_id =
   // users.id / profiles.id). Disinkronkan ke tabel tasks.
@@ -890,6 +900,10 @@ class Store {
       // practice_locations / tasks belum dibuat, sinkronisasi data lain tetap jalan.
       this.loadLocations().catch(() => {});
       this.loadTasks().catch(() => {});
+      try {
+        const me = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+        if (me && this.canManageNotes(me)) this.loadBusinessNotes(me.id).catch(() => {});
+      } catch (e) {}
       this._save(this.data);
       console.log('Data loaded from Supabase:', { profiles: profiles.length, doctors: doctors.length, patients: patients.length });
     } catch (e) { console.warn('Failed to load from Supabase, using local data:', e); }
@@ -1871,6 +1885,177 @@ class Store {
     this._save();
     if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
       const res = await supabase.delete('tasks', id).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    return { success: true };
+  }
+
+  // ==========================================================================
+  // CATATAN BISNIS  (tabel business_units & business_notes)
+  //
+  // Buku catatan perkembangan usaha, isinya teks Markdown. PRIBADI: catatan
+  // hanya bisa dibaca pembuatnya, ditegakkan di server lewat RLS — lihat
+  // supabase-business-notes.sql. Yang di sini hanya lapisan tampilannya.
+  // ==========================================================================
+
+  // Siapa yang boleh membuka Catatan Bisnis. Berbeda dari canManageTasks:
+  // Super Admin TIDAK termasuk, karena isinya omzet & strategi.
+  canManageNotes(user) {
+    if (!user) return false;
+    const allowed = (CONFIG.NOTES_MANAGER_EMAILS || []).map(e => String(e).toLowerCase());
+    if (allowed.includes(String(user.email || '').toLowerCase())) return true;
+    // Cadangan yang sama seperti panel tugas: kalau tidak satu pun e-mail pada
+    // daftar itu terdaftar di sistem (mis. akun pemiliknya memakai alamat
+    // lain), Owner tetap diizinkan supaya halamannya tidak jadi yatim.
+    if (user.role === 'owner') {
+      return !(this.data.users || []).some(u => allowed.includes(String(u.email || '').toLowerCase()));
+    }
+    return false;
+  }
+
+  // ---- Unit usaha ----
+  getBusinessUnits() {
+    return (this.data.business_units || []).slice()
+      .sort((a, b) => (a.sort_order || 100) - (b.sort_order || 100) || String(a.name || '').localeCompare(String(b.name || '')));
+  }
+  getActiveBusinessUnits() { return this.getBusinessUnits().filter(u => u.is_active !== false); }
+  getBusinessUnit(id) { return (this.data.business_units || []).find(u => u.id === id) || null; }
+  businessUnitName(id) { const u = this.getBusinessUnit(id); return u ? u.name : 'Tanpa unit'; }
+
+  async loadBusinessNotes(userId) {
+    if (CONFIG.DEMO_MODE) return;
+    try {
+      const units = await supabase.select('business_units', { order: 'sort_order.asc' });
+      if (Array.isArray(units) && units.length) { this.data.business_units = units; this._save(); }
+    } catch (e) { /* tabel belum dibuat */ }
+    try {
+      // RLS sudah menyaring ke milik sendiri; eq created_by hanya penegasan.
+      const rows = await supabase.select('business_notes', userId ? { eq: { created_by: userId } } : {});
+      if (Array.isArray(rows)) {
+        if (rows.length) { this.data.business_notes = rows; this._save(); }
+        else {
+          // select() mengembalikan [] baik saat tabel belum ada maupun saat
+          // memang kosong. Hanya baris ber-UUID (yang pasti pernah sampai
+          // server) yang boleh dibuang; catatan lokal dipertahankan.
+          const kept = (this.data.business_notes || []).filter(n => String(n.id || '').startsWith('id_'));
+          if (kept.length !== (this.data.business_notes || []).length) { this.data.business_notes = kept; this._save(); }
+        }
+      }
+    } catch (e) { /* tabel belum dibuat */ }
+  }
+
+  async createBusinessUnit(data) {
+    const name = String((data && data.name) || '').trim();
+    if (!name) return { error: 'Nama unit wajib diisi' };
+    if (this.getBusinessUnits().some(u => String(u.name || '').trim().toLowerCase() === name.toLowerCase())) {
+      return { error: 'Unit dengan nama itu sudah ada' };
+    }
+    const payload = { name, description: (data && data.description) || '', color: (data && data.color) || 'slate', is_active: true, sort_order: Number(data && data.sort_order) || 100 };
+    let rec;
+    if (CONFIG.DEMO_MODE) rec = { id: generateId(), created_at: new Date().toISOString(), ...payload };
+    else {
+      const ins = await supabase.insert('business_units', payload);
+      if (ins && ins.error) return { error: ins.error + ' — pastikan supabase-business-notes.sql sudah dijalankan.' };
+      rec = ins || { id: generateId(), ...payload };
+    }
+    this.data.business_units = (this.data.business_units || []).concat(rec);
+    this._save();
+    return { success: true, unit: rec };
+  }
+
+  async updateBusinessUnit(id, updates) {
+    const u = this.getBusinessUnit(id);
+    if (!u) return { error: 'Unit tidak ditemukan' };
+    if (updates.name !== undefined) {
+      const name = String(updates.name || '').trim();
+      if (!name) return { error: 'Nama unit wajib diisi' };
+      const clash = this.getBusinessUnits().find(x => x.id !== id && String(x.name || '').trim().toLowerCase() === name.toLowerCase());
+      if (clash) return { error: 'Unit dengan nama itu sudah ada' };
+    }
+    Object.assign(u, updates);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.update('business_units', id, updates).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    return { success: true };
+  }
+
+  // Menghapus unit TIDAK menghapus catatannya — catatannya hanya kehilangan
+  // label unit, supaya tulisan yang sudah dibuat tidak ikut lenyap.
+  async deleteBusinessUnit(id) {
+    this.data.business_units = (this.data.business_units || []).filter(u => u.id !== id);
+    (this.data.business_notes || []).forEach(n => { if (n.unit_id === id) n.unit_id = null; });
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.delete('business_units', id).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    return { success: true };
+  }
+
+  countNotesInUnit(unitId) { return (this.data.business_notes || []).filter(n => n.unit_id === unitId).length; }
+
+  // ---- Catatan ----
+  // Disematkan dulu, lalu tanggal catatan terbaru, lalu waktu pembuatan.
+  getBusinessNotes(userId) {
+    return (this.data.business_notes || [])
+      .filter(n => !userId || !n.created_by || n.created_by === userId)
+      .slice()
+      .sort((a, b) => {
+        const ap = a.pinned ? 0 : 1, bp = b.pinned ? 0 : 1;
+        if (ap !== bp) return ap - bp;
+        const ad = a.note_date || '0000-00-00', bd = b.note_date || '0000-00-00';
+        if (ad !== bd) return ad < bd ? 1 : -1;
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+      });
+  }
+
+  getBusinessNote(id) { return (this.data.business_notes || []).find(n => n.id === id) || null; }
+
+  async createBusinessNote(data) {
+    const title = String((data && data.title) || '').trim();
+    if (!title) return { error: 'Judul catatan wajib diisi' };
+    const payload = {
+      unit_id: (data && data.unit_id) || null,
+      title,
+      body: (data && data.body) || '',
+      note_date: (data && data.note_date) || todayLocal(),
+      tags: (data && data.tags) || '',
+      pinned: !!(data && data.pinned),
+      created_by: (data && data.created_by) || null,
+    };
+    let rec;
+    if (CONFIG.DEMO_MODE) rec = { id: generateId(), created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...payload };
+    else {
+      const ins = await supabase.insert('business_notes', payload);
+      if (ins && ins.error) return { error: ins.error + ' — pastikan supabase-business-notes.sql sudah dijalankan.' };
+      rec = ins || { id: generateId(), ...payload };
+    }
+    this.data.business_notes = (this.data.business_notes || []).concat(rec);
+    this._save();
+    return { success: true, note: rec };
+  }
+
+  async updateBusinessNote(id, updates) {
+    const n = this.getBusinessNote(id);
+    if (!n) return { error: 'Catatan tidak ditemukan' };
+    if (updates.title !== undefined && !String(updates.title || '').trim()) return { error: 'Judul catatan wajib diisi' };
+    const patch = { ...updates, updated_at: new Date().toISOString() };
+    Object.assign(n, patch);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.update('business_notes', id, patch).catch(() => null);
+      if (res && res.error) return { error: res.error };
+    }
+    return { success: true, note: n };
+  }
+
+  async deleteBusinessNote(id) {
+    this.data.business_notes = (this.data.business_notes || []).filter(n => n.id !== id);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      const res = await supabase.delete('business_notes', id).catch(() => null);
       if (res && res.error) return { error: res.error };
     }
     return { success: true };

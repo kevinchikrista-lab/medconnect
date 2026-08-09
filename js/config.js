@@ -24,6 +24,11 @@ export const CONFIG = {
   // sekali. Staf yang menerima delegasi tetap punya halaman "Tugas Saya".
   TASK_MANAGER_EMAILS: ['kevinchikrista@gmail.com'],
 
+  // Catatan Bisnis (#/catatan) lebih tertutup daripada panel tugas: isinya
+  // omzet & strategi, jadi Super Admin pun tidak diikutkan. Aturannya juga
+  // ditegakkan di server — lihat supabase-business-notes.sql.
+  NOTES_MANAGER_EMAILS: ['kevinchikrista@gmail.com'],
+
   ROLES: {
     SUPERADMIN: 'superadmin',
     OWNER: 'owner',

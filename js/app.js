@@ -3,6 +3,7 @@ import { store } from './store.js';
 import { CONFIG } from './config.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
 import { tasksPage } from './pages/tasks.js';
+import { notesPage } from './pages/notes.js';
 import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks } from './pages/admin.js';
 import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
@@ -198,6 +199,15 @@ router.beforeEach = (path, meta) => {
     return false;
   }
 
+  // Catatan Bisnis lebih tertutup lagi: hanya akun pemilik klinik
+  // (CONFIG.NOTES_MANAGER_EMAILS). Super Admin pun tidak. Pembatasan yang
+  // sesungguhnya ada di RLS server; ini supaya halamannya tidak ikut terbuka.
+  if (path.startsWith('/catatan')) {
+    if (store.canManageNotes(user)) return true;
+    window.location.hash = '#/login';
+    return false;
+  }
+
   // Panel "To-Do & Tugas" lebih ketat daripada /admin lainnya: hanya Super
   // Admin dan akun pemilik klinik (CONFIG.TASK_MANAGER_EMAILS). Dicek sebelum
   // guard /admin di bawah supaya Owner lain pun tetap ditolak.
@@ -241,6 +251,7 @@ router.add('/admin/stock', () => render(adminStock));
 router.add('/admin/locations', () => render(adminLocations));
 router.add('/admin/tasks', () => render(adminTasks));
 router.add('/tugas', () => render(tasksPage));
+router.add('/catatan', () => render(notesPage));
 router.add('/admin/patients/:patientId', (p) => render(adminPatientDetail, p));
 router.add('/admin/services', () => render(adminServices));
 router.add('/admin/articles', () => render(adminArticles));
