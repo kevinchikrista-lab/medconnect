@@ -189,21 +189,25 @@ function writeResep(w, cert) {
   /* --s = faktor skala; semua ukuran ikut mengecil saat kertas lebih kecil. */
   body{font-family:'Inter',sans-serif;background:#e5e7eb;padding:84px 16px 28px;display:flex;flex-direction:column;align-items:center;color:var(--ink);--s:1;--pw:210mm;--ph:297mm;--pad:16mm 18mm}
   body[data-size="a5"]{--s:.78;--pw:148mm;--ph:210mm;--pad:9mm 11mm}
-  /* 1/3 A4 PORTRAIT (99x210mm) — blanko resep klasik: sempit & tinggi.
-     Lebarnya cuma ~87mm setelah padding, jadi kop & blok tanda tangan
-     ditumpuk vertikal agar tidak berdesakan. */
+  /* Blanko resep klasik: sempit & tinggi, dipotong dari sisi panjang kertas.
+       1/3 A4 = 297/3 = 99mm  x 210mm
+       1/3 F4 = 330/3 = 110mm x 215mm   (F4/Folio Indonesia = 215 x 330mm)
+     F4 lebih lebar ~11mm, jadi skalanya boleh sedikit lebih besar.
+     Keduanya memakai penataan sempit yang sama lewat atribut data-narrow:
+     kop & blok tanda tangan ditumpuk vertikal agar tidak berdesakan. */
   body[data-size="a4-3"]{--s:.55;--pw:99mm;--ph:210mm;--pad:6mm 6mm}
+  body[data-size="f4-3"]{--s:.60;--pw:110mm;--ph:215mm;--pad:6mm 7mm}
   /* Logo tetap di kiri (tidak ditumpuk) supaya nama klinik dapat ruang lebar
      dan bisa dicetak lebih besar. */
-  body[data-size="a4-3"] .kop{gap:calc(10px*var(--s))}
-  body[data-size="a4-3"] .kop img{height:calc(15mm*var(--s))}
-  body[data-size="a4-3"] .kop-name{font-size:calc(30px*var(--s));line-height:1.1}
-  body[data-size="a4-3"] .kop-sub{font-size:calc(13px*var(--s))}
-  body[data-size="a4-3"] .doc-line{flex-direction:column;align-items:flex-start;gap:1px}
-  body[data-size="a4-3"] .ident td.k{width:auto;padding-right:calc(4px*var(--s))}
-  body[data-size="a4-3"] .sign-row{flex-direction:column;align-items:stretch;gap:calc(12px*var(--s))}
-  body[data-size="a4-3"] .verify{max-width:none;justify-content:center}
-  body[data-size="a4-3"] .sign{min-width:0}
+  body[data-narrow] .kop{gap:calc(10px*var(--s))}
+  body[data-narrow] .kop img{height:calc(15mm*var(--s))}
+  body[data-narrow] .kop-name{font-size:calc(30px*var(--s));line-height:1.1}
+  body[data-narrow] .kop-sub{font-size:calc(13px*var(--s))}
+  body[data-narrow] .doc-line{flex-direction:column;align-items:flex-start;gap:1px}
+  body[data-narrow] .ident td.k{width:auto;padding-right:calc(4px*var(--s))}
+  body[data-narrow] .sign-row{flex-direction:column;align-items:stretch;gap:calc(12px*var(--s))}
+  body[data-narrow] .verify{max-width:none;justify-content:center}
+  body[data-narrow] .sign{min-width:0}
   .page{width:var(--pw);min-height:var(--ph);background:white;padding:var(--pad);box-shadow:0 8px 28px rgba(0,0,0,.14);display:flex;flex-direction:column;position:relative}
   .kop{display:flex;align-items:center;gap:calc(16px*var(--s));border-bottom:3px double var(--accent);padding-bottom:calc(12px*var(--s))}
   .kop img{height:calc(20mm*var(--s));width:auto;object-fit:contain}
@@ -220,7 +224,19 @@ function writeResep(w, cert) {
   .ident td.k{width:calc(30mm*var(--s));color:#374151}
   .ident td.s{width:calc(5mm*var(--s))}
   .ident td.v{font-weight:600}
-  .rx-list{flex:1}
+  .rx-list{flex:1;display:flex;flex-direction:column}
+  /* Sisa ruang kosong di bawah obat terakhir dicoret menyilang — praktik baku
+     pada kertas resep supaya tidak ada yang bisa menambahkan obat setelah
+     dokter menandatangani. Ikut mengempis sendiri saat obatnya banyak. */
+  .rx-end{flex:1;min-height:0;margin:calc(2px*var(--s)) 0 0 calc(6mm*var(--s));
+    background:linear-gradient(to bottom right,transparent calc(50% - .6px),var(--rule) 50%,transparent calc(50% + .6px)),
+               linear-gradient(to top right,transparent calc(50% - .6px),var(--rule) 50%,transparent calc(50% + .6px))}
+  .rx-end-label{display:flex;align-items:center;gap:calc(8px*var(--s));margin-top:calc(5px*var(--s));
+    font-size:calc(9px*var(--s));font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .rx-end-label::before,.rx-end-label::after{content:'';flex:1;height:1px;background:var(--rule)}
+  .tips{margin-top:calc(10px*var(--s));padding:calc(6px*var(--s)) calc(9px*var(--s));border-radius:5px;
+    background:#f8fafc;border:1px solid var(--rule);font-size:calc(9.5px*var(--s));color:#4b5563;line-height:1.5}
+  .tips b{color:var(--ink)}
   .rx-item{margin:0 0 calc(11px*var(--s)) calc(6mm*var(--s));padding-bottom:calc(7px*var(--s));border-bottom:1px dashed #e5e7eb}
   .rx-line{display:flex;align-items:baseline;gap:calc(8px*var(--s))}
   .rx-mark{font-weight:800;color:var(--accent);font-size:calc(15px*var(--s));min-width:calc(22px*var(--s))}
@@ -255,6 +271,7 @@ function writeResep(w, cert) {
     <button type="button" data-sz="a4">A4</button>
     <button type="button" data-sz="a5">A5</button>
     <button type="button" data-sz="a4-3">&#8531; A4 (99&times;210mm)</button>
+    <button type="button" data-sz="f4-3">&#8531; F4 (110&times;215mm)</button>
     <button type="button" class="print" onclick="window.print()">Cetak / PDF</button>
   </div>
   <div class="page">
@@ -286,7 +303,11 @@ function writeResep(w, cert) {
     <div class="rx-list">
       ${items.length ? items.map(itemHtml).join('') : '<p style="margin-left:6mm;color:#6b7280;font-size:13px">(tidak ada item obat)</p>'}
       ${d.notes ? `<div class="notes"><b>Catatan:</b> ${escMultiline(d.notes)}</div>` : ''}
+      <div class="rx-end"></div>
+      <div class="rx-end-label">Akhir resep</div>
     </div>
+
+    <div class="tips"><b>Untuk pasien:</b> minum obat sesuai aturan pakai di atas. Antibiotik harus dihabiskan meski keluhan sudah membaik. Simpan di tempat sejuk &amp; kering, jauh dari jangkauan anak. Hubungi klinik bila timbul keluhan setelah minum obat.</div>
 
     <div class="sign-row">
       <div class="verify">
@@ -305,10 +326,14 @@ function writeResep(w, cert) {
   </div>
   <script>
     (function(){
-      var SIZES = { 'a4':'210mm 297mm', 'a5':'148mm 210mm', 'a4-3':'99mm 210mm' };
+      var SIZES = { 'a4':'210mm 297mm', 'a5':'148mm 210mm', 'a4-3':'99mm 210mm', 'f4-3':'110mm 215mm' };
+      var NARROW = { 'a4-3':1, 'f4-3':1 };
       function apply(sz){
-        if (!SIZES[sz]) sz = 'a4';
+        if (!SIZES[sz]) sz = 'f4-3';
         document.body.setAttribute('data-size', sz);
+        // Penataan sempit dipakai bersama oleh kedua blanko 1/3.
+        if (NARROW[sz]) document.body.setAttribute('data-narrow', '1');
+        else document.body.removeAttribute('data-narrow');
         document.getElementById('pagesize').textContent = '@page{size:' + SIZES[sz] + ';margin:0}';
         var btns = document.querySelectorAll('.bar button[data-sz]');
         for (var i=0;i<btns.length;i++) btns[i].className = (btns[i].getAttribute('data-sz')===sz ? 'active' : '');
@@ -316,8 +341,9 @@ function writeResep(w, cert) {
       }
       var btns = document.querySelectorAll('.bar button[data-sz]');
       for (var i=0;i<btns.length;i++) (function(b){ b.onclick = function(){ apply(b.getAttribute('data-sz')); }; })(btns[i]);
-      var saved = 'a4';
-      try { saved = localStorage.getItem('medconnect_resep_size') || 'a4'; } catch(e){}
+      // Blanko F4 1/3 dipakai sehari-hari di klinik, jadi itu bawaannya.
+      var saved = 'f4-3';
+      try { saved = localStorage.getItem('medconnect_resep_size') || 'f4-3'; } catch(e){}
       apply(saved);
     })();
   </script>
