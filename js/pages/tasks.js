@@ -86,7 +86,7 @@ export function tasksXData(mode) {
     q: '', filterAssignee: '', filterPriority: '', expanded: '',
     tab: 'todo', allHistory: false,
     modal: false, editing: null, saving: false, msg: '', newSub: '',
-    form: { title:'', notes:'', category:'', priority:'normal', due_date:'', due_time:'', assignee_id:'', recurrence:'none', recurrence_interval:1, subtasks:[] },
+    form: { kind:'task', title:'', notes:'', category:'', priority:'normal', due_date:'', due_time:'', end_time:'', location:'', assignee_id:'', attendee_ids:[], recurrence:'none', recurrence_interval:1, subtasks:[] },
 
     now: Date.now(), timerId: '', timerOpen: false, beeped: {},
 
@@ -111,8 +111,15 @@ export function tasksXData(mode) {
     get shown() {
       const q = (this.q || '').toLowerCase();
       return this.tasks.filter(t => {
-        if (this.mode === 'mine' && t.assignee_id !== this.me) return false;
-        if (this.filterAssignee && (t.assignee_id || '') !== this.filterAssignee) return false;
+        // Acara tidak punya assignee_id — kepemilikannya ditentukan daftar
+        // pesertanya, jadi harus lewat isMyTask, bukan membandingkan langsung.
+        if (this.mode === 'mine' && !window.__store.isMyTask(t, this.me)) return false;
+        if (this.filterAssignee) {
+          const milik = window.__store.isEvent(t)
+            ? window.__store.attendeeIds(t).indexOf(this.filterAssignee) !== -1
+            : (t.assignee_id || '') === this.filterAssignee;
+          if (!milik) return false;
+        }
         if (this.filterPriority && (t.priority || 'normal') !== this.filterPriority) return false;
         if (q && !((t.title || '') + ' ' + (t.notes || '') + ' ' + (t.category || '')).toLowerCase().includes(q)) return false;
         return true;
@@ -144,6 +151,28 @@ export function tasksXData(mode) {
 
     status(t) { return window.__store.taskStatus(t); },
     isMine(t) { return window.__store.isMyTask(t, this.me); },
+
+    // ---- Acara ----
+    isEvent(t) { return window.__store.isEvent(t); },
+    attendees(t) { return window.__store.attendeeIds(t); },
+    attendeeNames(t) { return window.__store.attendeeNames(t); },
+    // Jam acara: 09:00-11:00, atau 09:00 saja bila tidak diisi jam selesainya.
+    eventTime(t) { return (t.due_time || '') + (t.due_time && t.end_time ? '\\u2013' + t.end_time : ''); },
+    toggleAttendee(id) {
+      const i = this.form.attendee_ids.indexOf(id);
+      if (i === -1) this.form.attendee_ids.push(id); else this.form.attendee_ids.splice(i, 1);
+    },
+    isPicked(id) { return this.form.attendee_ids.indexOf(id) !== -1; },
+    // Setiap peserta punya tautan WA sendiri — satu tautan tidak bisa
+    // menyapa banyak orang sekaligus.
+    waFor(t, id) {
+      const s = this.staff.find(x => x.id === id);
+      if (!s || !s.phone) return '';
+      const kapan = t.due_date ? (' ' + this.fmtDate(t.due_date) + (t.due_time ? ' pukul ' + this.eventTime(t) : '')) : '';
+      const dimana = t.location ? (' di ' + t.location) : '';
+      return window.__waHref(s.phone, 'Halo ' + s.name + ', mengingatkan acara: ' + t.title + kapan + dimana + '. Terima kasih. (Klinik Prima)');
+    },
+    waPhoneOf(id) { const s = this.staff.find(x => x.id === id); return s ? s.phone : ''; },
     async move(t, to) {
       const r = await window.__store.setTaskStatus(t.id, to, this.me);
       if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
@@ -231,15 +260,19 @@ export function tasksXData(mode) {
     fmtDate(d) { if (!d) return 'Tanpa tanggal'; const dt = new Date(d + 'T00:00:00'); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' }); },
     dueLabel(t) { return this.fmtDate(t.due_date) + (t.due_time ? ' \\u00b7 ' + t.due_time : ''); },
 
-    openNew() {
+    openNew(kind) {
       this.editing = null; this.msg = ''; this.newSub = '';
-      this.form = { title:'', notes:'', category:'', priority:'normal', due_date: window.__taskToday, due_time:'', assignee_id:'', recurrence:'none', recurrence_interval:1, subtasks:[] };
+      this.form = { kind: kind === 'event' ? 'event' : 'task', title:'', notes:'', category:'', priority:'normal',
+        due_date: window.__taskToday, due_time:'', end_time:'', location:'', assignee_id:'', attendee_ids:[],
+        recurrence:'none', recurrence_interval:1, subtasks:[] };
       this.modal = true;
     },
     openEdit(t) {
       this.editing = t; this.msg = ''; this.newSub = '';
-      this.form = { title: t.title || '', notes: t.notes || '', category: t.category || '', priority: t.priority || 'normal',
-        due_date: t.due_date || '', due_time: t.due_time || '', assignee_id: t.assignee_id || '',
+      this.form = { kind: this.isEvent(t) ? 'event' : 'task',
+        title: t.title || '', notes: t.notes || '', category: t.category || '', priority: t.priority || 'normal',
+        due_date: t.due_date || '', due_time: t.due_time || '', end_time: t.end_time || '', location: t.location || '',
+        assignee_id: t.assignee_id || '', attendee_ids: this.attendees(t).slice(),
         recurrence: t.recurrence || 'none', recurrence_interval: t.recurrence_interval || 1,
         subtasks: (t.subtasks || []).map(s => ({ text: s.text, done: !!s.done })) };
       this.modal = true;
@@ -251,10 +284,14 @@ export function tasksXData(mode) {
       if (this.saving) return;
       if (!(this.form.title || '').trim()) { this.msg = 'Judul tugas wajib diisi.'; return; }
       this.saving = true; this.msg = '';
+      const isEv = this.form.kind === 'event';
       const payload = {
+        kind: this.form.kind,
         title: this.form.title, notes: this.form.notes, category: this.form.category,
         priority: this.form.priority, due_date: this.form.due_date || null, due_time: this.form.due_time || '',
-        assignee_id: this.form.assignee_id || null, recurrence: this.form.recurrence,
+        end_time: isEv ? (this.form.end_time || '') : '', location: isEv ? (this.form.location || '') : '',
+        attendee_ids: isEv ? this.form.attendee_ids : [],
+        assignee_id: isEv ? null : (this.form.assignee_id || null), recurrence: this.form.recurrence,
         recurrence_interval: Number(this.form.recurrence_interval) || 1,
         subtasks: this.form.subtasks, created_by: this.me,
       };
@@ -332,10 +369,14 @@ function taskCard(mode, source) {
             </span>
           </div>
           <div class="flex items-center gap-2 flex-wrap mt-1.5 text-[11px]">
+            <span class="px-2 py-0.5 rounded-full font-bold bg-violet-100 text-violet-700 inline-flex items-center gap-1" x-show="isEvent(t)" x-cloak><span class="ms text-[12px]">groups</span>Acara</span>
             <span class="px-2 py-0.5 rounded-full font-semibold" :class="prioChip(t.priority)" x-text="prioLabel(t.priority)"></span>
             <span class="inline-flex items-center gap-1 text-gray-500"><span class="ms text-[13px]">event</span><span x-text="dueLabel(t)"></span></span>
-            <span class="inline-flex items-center gap-1 text-gray-500" x-show="t.assignee_id"><span class="ms text-[13px]">person</span><span x-text="staffName(t.assignee_id)"></span></span>
-            <span class="inline-flex items-center gap-1 text-gray-400" x-show="!t.assignee_id"><span class="ms text-[13px]">person</span>Saya sendiri</span>
+            <span class="inline-flex items-center gap-1 text-violet-700 font-semibold" x-show="isEvent(t) && t.end_time" x-cloak><span class="ms text-[13px]">schedule</span><span x-text="eventTime(t)"></span></span>
+            <span class="inline-flex items-center gap-1 text-gray-500" x-show="isEvent(t) && t.location" x-cloak><span class="ms text-[13px]">place</span><span x-text="t.location"></span></span>
+            <span class="inline-flex items-center gap-1 text-gray-500" x-show="!isEvent(t) && t.assignee_id"><span class="ms text-[13px]">person</span><span x-text="staffName(t.assignee_id)"></span></span>
+            <span class="inline-flex items-center gap-1 text-gray-400" x-show="!isEvent(t) && !t.assignee_id"><span class="ms text-[13px]">person</span>Saya sendiri</span>
+            <span class="inline-flex items-center gap-1 text-gray-500" x-show="isEvent(t) && attendees(t).length" x-cloak><span class="ms text-[13px]">groups</span><span x-text="attendees(t).length + ' peserta'"></span></span>
             <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium" x-show="t.category" x-text="t.category"></span>
             <span class="inline-flex items-center gap-1 text-purple-600 font-medium" x-show="t.recurrence && t.recurrence !== 'none'"><span class="ms text-[13px]">repeat</span><span x-text="recurLabel(t.recurrence) + (Number(t.recurrence_interval) > 1 ? ' (tiap ' + t.recurrence_interval + 'x)' : '')"></span></span>
             <span class="inline-flex items-center gap-1 text-gray-500" x-show="(t.subtasks || []).length"><span class="ms text-[13px]">checklist</span><span x-text="subDone(t) + '/' + (t.subtasks || []).length"></span></span>
@@ -343,6 +384,22 @@ function taskCard(mode, source) {
           </div>
           <p class="text-xs text-gray-500 mt-1.5 whitespace-pre-line" x-show="t.notes && expanded === t.id" x-text="t.notes"></p>
           <p class="text-[11px] text-gray-400 mt-1" x-show="expanded === t.id && t.created_by" x-cloak x-text="'Dibuat oleh ' + staffName(t.created_by)"></p>
+
+          <!-- Peserta acara: masing-masing punya tombol WA sendiri, karena
+               satu tautan WhatsApp tidak bisa menyapa banyak orang sekaligus. -->
+          <div class="mt-2" x-show="expanded === t.id && isEvent(t) && attendees(t).length" x-cloak>
+            <p class="text-[10.5px] uppercase tracking-wide font-bold text-slate-400 mb-1">Peserta</p>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="pid in attendees(t)" :key="pid">
+                <span class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-violet-50 text-violet-800 text-[11px] font-medium">
+                  <span x-text="staffName(pid)"></span>
+                  <a :href="waFor(t, pid)" x-show="waFor(t, pid)" @click="onWa(t)" target="_blank" rel="noopener"
+                    title="Ingatkan lewat WhatsApp" class="w-4 h-4 rounded-full bg-[#25D366] text-white flex items-center justify-center text-[9px] font-bold">W</a>
+                  <span x-show="!waPhoneOf(pid)" class="text-[10px] text-violet-300 pr-1" title="Nomor HP staf ini belum terisi">-</span>
+                </span>
+              </template>
+            </div>
+          </div>
 
           <div class="mt-2 space-y-1" x-show="expanded === t.id && (t.subtasks || []).length" x-cloak>
             <template x-for="(s, i) in (t.subtasks || [])" :key="i">
@@ -357,23 +414,23 @@ function taskCard(mode, source) {
             <!-- Perpindahan tahap. Hanya untuk tugas sendiri: yang memutuskan
                  sebuah tugas "sedang dikerjakan" adalah orang yang benar-benar
                  mengerjakannya, bukan yang menugaskan. -->
-            <button @click="move(t, 'focus')" x-show="isMine(t) && status(t) === 'todo'" x-cloak
+            <button @click="move(t, 'focus')" x-show="!isEvent(t) && isMine(t) && status(t) === 'todo'" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Kerjakan sekarang</button>
-            <button @click="openTimer(t)" x-show="isMine(t) && status(t) === 'focus'" x-cloak
+            <button @click="openTimer(t)" x-show="!isEvent(t) && isMine(t) && status(t) === 'focus'" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition flex items-center gap-1">
               <span class="ms text-[13px]" x-text="running(t) ? 'timer' : 'play_arrow'"></span><span x-text="running(t) ? 'Buka timer' : 'Lanjutkan'"></span></button>
-            <button @click="move(t, 'todo')" x-show="isMine(t) && status(t) === 'focus'" x-cloak
+            <button @click="move(t, 'todo')" x-show="!isEvent(t) && isMine(t) && status(t) === 'focus'" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Tunda ke To-Do</button>
             <button @click="move(t, 'done')" x-show="status(t) !== 'done'" x-cloak
-              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-green-700 bg-green-50 hover:bg-green-100 transition">Selesai</button>
+              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-green-700 bg-green-50 hover:bg-green-100 transition" x-text="isEvent(t) ? 'Sudah dihadiri' : 'Selesai'"></button>
             <button @click="move(t, 'todo')" x-show="status(t) === 'done'" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Buka lagi</button>
             <button @click="toggleExpand(t.id)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition" x-text="expanded === t.id ? 'Tutup' : 'Rincian'"></button>
             ${canManage ? `<button @click="openEdit(t)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Ubah</button>
             <button @click="addSubTo(t)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">+ Sub-tugas</button>` : ''}
-            <a :href="waLink(t)" x-show="waLink(t)" @click="onWa(t)" target="_blank" rel="noopener" class="px-2 py-1 rounded-lg text-[11px] font-semibold text-white bg-[#25D366] hover:brightness-95 transition">Ingatkan via WA</a>
-            <span x-show="t.assignee_id && !waPhone(t)" class="text-[11px] text-gray-300" title="Nomor HP staf ini belum terisi di profilnya">WA: no. HP kosong</span>
-            ${canManage ? `<select @change="reassign(t, $event.target.value); $event.target.value = ''" class="px-2 py-1 rounded-lg text-[11px] text-slate-600 bg-slate-50 border border-slate-100">
+            <a :href="waLink(t)" x-show="!isEvent(t) && waLink(t)" @click="onWa(t)" target="_blank" rel="noopener" class="px-2 py-1 rounded-lg text-[11px] font-semibold text-white bg-[#25D366] hover:brightness-95 transition">Ingatkan via WA</a>
+            <span x-show="!isEvent(t) && t.assignee_id && !waPhone(t)" class="text-[11px] text-gray-300" title="Nomor HP staf ini belum terisi di profilnya">WA: no. HP kosong</span>
+            ${canManage ? `<select x-show="!isEvent(t)" @change="reassign(t, $event.target.value); $event.target.value = ''" class="px-2 py-1 rounded-lg text-[11px] text-slate-600 bg-slate-50 border border-slate-100">
               <option value="">Delegasikan ke...</option>
               <template x-for="s in staff" :key="s.id"><option :value="s.id" x-text="s.name + ' (' + s.role_label + ')'"></option></template>
             </select>
@@ -603,7 +660,10 @@ export function tasksBody(mode) {
         <span x-text="openCount"></span> tugas belum selesai<span x-show="overdueCount" x-cloak>, <b class="text-red-600"><span x-text="overdueCount"></span> terlambat</b></span>.
       </p>
     </div>
-    ${canManage ? `<button @click="openNew()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Tugas Baru</button>` : ''}
+    ${canManage ? `<div class="flex gap-2">
+      <button @click="openNew('event')" class="px-3 py-2 rounded-lg text-sm font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 transition flex items-center gap-1.5"><span class="ms text-[16px]">groups</span>+ Acara</button>
+      <button @click="openNew('task')" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Tugas Baru</button>
+    </div>` : ''}
   </div>
 
   <div class="flex gap-2 flex-wrap items-center mb-5">
@@ -646,10 +706,16 @@ export function tasksBody(mode) {
   <!-- Modal tambah / ubah tugas -->
   <div x-show="modal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="modal=false">
     <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto">
-      <h3 class="text-lg font-bold text-gray-800 mb-4" x-text="editing ? 'Ubah Tugas' : 'Tugas Baru'"></h3>
+      <h3 class="text-lg font-bold text-gray-800 mb-3" x-text="(editing ? 'Ubah ' : '') + (form.kind === 'event' ? 'Acara' : 'Tugas') + (editing ? '' : ' Baru')"></h3>
+      <!-- Jenis menentukan medan mana yang muncul: tugas dipegang SATU orang,
+           acara dihadiri BANYAK orang pada jam & tempat tertentu. -->
+      <div class="flex gap-1 p-1 rounded-xl bg-slate-100 mb-4 w-fit">
+        <button @click="form.kind='task'" :class="form.kind==='task' ? 'bg-white shadow-sm text-ink' : 'text-slate-500'" class="px-4 py-1.5 rounded-lg text-xs font-semibold transition">Tugas</button>
+        <button @click="form.kind='event'" :class="form.kind==='event' ? 'bg-white shadow-sm text-violet-700' : 'text-slate-500'" class="px-4 py-1.5 rounded-lg text-xs font-semibold transition">Acara / Pertemuan</button>
+      </div>
       <div x-show="msg" x-cloak class="mb-3 p-2 rounded-lg text-sm bg-red-50 text-red-700" x-text="msg"></div>
       <div class="space-y-3">
-        <div><label class="block text-xs text-gray-600 mb-1">Judul Tugas *</label><input type="text" x-model="form.title" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Contoh: Perpanjang izin klinik"></div>
+        <div><label class="block text-xs text-gray-600 mb-1" x-text="form.kind === 'event' ? 'Nama Acara *' : 'Judul Tugas *'"></label><input type="text" x-model="form.title" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" :placeholder="form.kind === 'event' ? 'Contoh: Rapat IDI Cabang Pontianak' : 'Contoh: Perpanjang izin klinik'"></div>
         <div><label class="block text-xs text-gray-600 mb-1">Catatan</label><textarea x-model="form.notes" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Rincian, tautan, atau instruksi"></textarea></div>
         <div class="grid grid-cols-2 gap-3">
           <div><label class="block text-xs text-gray-600 mb-1">Prioritas</label>
@@ -659,16 +725,38 @@ export function tasksBody(mode) {
           </div>
           <div><label class="block text-xs text-gray-600 mb-1">Kategori</label><input type="text" x-model="form.category" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Opsional, mis. Perizinan"></div>
         </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div><label class="block text-xs text-gray-600 mb-1">Jatuh Tempo</label><input type="date" x-model="form.due_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
-          <div><label class="block text-xs text-gray-600 mb-1">Jam</label><input type="time" x-model="form.due_time" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
+        <div class="grid grid-cols-3 gap-3">
+          <div><label class="block text-xs text-gray-600 mb-1" x-text="form.kind === 'event' ? 'Tanggal' : 'Jatuh Tempo'"></label><input type="date" x-model="form.due_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
+          <div><label class="block text-xs text-gray-600 mb-1" x-text="form.kind === 'event' ? 'Jam mulai' : 'Jam'"></label><input type="time" x-model="form.due_time" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
+          <div x-show="form.kind === 'event'" x-cloak><label class="block text-xs text-gray-600 mb-1">Jam selesai</label><input type="time" x-model="form.end_time" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
         </div>
-        <div><label class="block text-xs text-gray-600 mb-1">Delegasikan ke</label>
+        <div x-show="form.kind === 'event'" x-cloak><label class="block text-xs text-gray-600 mb-1">Tempat</label><input type="text" x-model="form.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Contoh: Aula IDI, atau tautan Zoom"></div>
+        <div x-show="form.kind === 'task'"><label class="block text-xs text-gray-600 mb-1">Delegasikan ke</label>
           <select x-model="form.assignee_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
             <option value="">Saya sendiri</option>
             <template x-for="s in staff" :key="s.id"><option :value="s.id" x-text="s.name + ' (' + s.role_label + ')'"></option></template>
           </select>
           <p class="text-[11px] text-gray-400 mt-1">Staf yang dipilih akan mendapat notifikasi, dan tugasnya muncul di halaman <b>Tugas Saya</b> miliknya.</p>
+        </div>
+
+        <!-- Acara bisa dihadiri lebih dari satu orang, jadi dicentang, bukan dipilih satu. -->
+        <div x-show="form.kind === 'event'" x-cloak>
+          <label class="block text-xs text-gray-600 mb-1">Siapa yang hadir <span class="text-gray-400">(boleh lebih dari satu)</span></label>
+          <div class="border border-gray-200 rounded-lg p-2 max-h-44 overflow-y-auto space-y-0.5">
+            <template x-for="s in staff" :key="s.id">
+              <label class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition">
+                <input type="checkbox" :checked="isPicked(s.id)" @change="toggleAttendee(s.id)" class="rounded border-gray-300">
+                <span class="text-sm text-gray-700" x-text="s.name"></span>
+                <span class="text-[11px] text-gray-400" x-text="'(' + s.role_label + ')'"></span>
+                <span class="ml-auto text-[10.5px] text-gray-300" x-show="!s.phone" title="Nomor HP belum terisi — tidak bisa diingatkan lewat WA">tanpa HP</span>
+              </label>
+            </template>
+            <p x-show="!staff.length" x-cloak class="text-xs text-gray-400 text-center py-3">Belum ada staf.</p>
+          </div>
+          <p class="text-[11px] text-gray-400 mt-1">
+            <span x-show="form.attendee_ids.length" x-text="form.attendee_ids.length + ' orang dipilih. '"></span>Semuanya akan mendapat notifikasi, dan acaranya muncul di halaman <b>Tugas Saya</b> masing-masing.
+            <span x-show="!form.attendee_ids.length" x-cloak>Bila tidak ada yang dipilih, acaranya jadi milik Anda sendiri.</span>
+          </p>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div><label class="block text-xs text-gray-600 mb-1">Berulang</label>

@@ -1776,8 +1776,28 @@ class Store {
 
   // Tugas ini "milik" siapa dari sudut pandang seseorang. Tugas tanpa
   // penerima dianggap milik pembuatnya (dikerjakan sendiri).
+  // Sebuah baris tasks bisa berupa pekerjaan ('task') atau acara ('event').
+  // Lihat supabase-task-events.sql. Baris lama tanpa kolom kind = 'task'.
+  taskKind(t) { return (t && t.kind) === 'event' ? 'event' : 'task'; }
+  isEvent(t) { return this.taskKind(t) === 'event'; }
+
+  // Peserta acara. Disimpan sebagai daftar id; ditoleransi juga bila datang
+  // sebagai teks JSON (beberapa jalur PostgREST mengembalikannya begitu).
+  attendeeIds(t) {
+    let v = t && t.attendee_ids;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = []; } }
+    return Array.isArray(v) ? v.filter(Boolean) : [];
+  }
+  attendeeNames(t) { return this.attendeeIds(t).map(id => this.staffName(id)); }
+
+  // "Milik saya" berbeda artinya untuk acara: bukan siapa yang ditugasi,
+  // melainkan siapa yang HADIR. Acara tanpa peserta dianggap milik pembuatnya.
   isMyTask(t, userId) {
     if (!t || !userId) return false;
+    if (this.isEvent(t)) {
+      const list = this.attendeeIds(t);
+      return list.length ? list.indexOf(userId) !== -1 : t.created_by === userId;
+    }
     return t.assignee_id ? t.assignee_id === userId : t.created_by === userId;
   }
 
@@ -1828,15 +1848,25 @@ class Store {
   async createTask(data) {
     const title = String(data.title || '').trim();
     if (!title) return { error: 'Judul tugas wajib diisi' };
+    const kind = data.kind === 'event' ? 'event' : 'task';
+    const attendees = kind === 'event'
+      ? (Array.isArray(data.attendee_ids) ? data.attendee_ids.filter(Boolean) : [])
+      : [];
     const payload = {
       title,
+      kind,
+      // Acara dihadiri banyak orang; pekerjaan dipegang satu orang. Keduanya
+      // tidak pernah diisi bersamaan supaya tidak ada dua sumber kebenaran.
+      attendee_ids: attendees,
+      end_time: kind === 'event' ? (data.end_time || '') : '',
+      location: kind === 'event' ? (data.location || '') : '',
       notes: data.notes || '',
       category: data.category || '',
       priority: ['urgent', 'high', 'normal', 'low'].includes(data.priority) ? data.priority : 'normal',
       due_date: data.due_date || null,
       due_time: data.due_time || '',
       status: 'todo',
-      assignee_id: data.assignee_id || null,
+      assignee_id: kind === 'event' ? null : (data.assignee_id || null),
       created_by: data.created_by || null,
       recurrence: ['daily', 'weekly', 'monthly', 'yearly'].includes(data.recurrence) ? data.recurrence : 'none',
       recurrence_interval: Math.max(1, Number(data.recurrence_interval) || 1),
@@ -1859,7 +1889,10 @@ class Store {
     this.data.tasks = (this.data.tasks || []).concat(rec);
     this._save();
 
-    this._notifyTaskAssignee(rec, 'Tugas Baru', 'Anda mendapat tugas baru');
+    // Kata-katanya mengikuti jenisnya — sebuah rapat yang diberitahukan
+    // sebagai "Tugas Baru" membingungkan penerimanya.
+    if (this.isEvent(rec)) this._notifyTaskAssignee(rec, 'Undangan Acara', 'Anda diundang ke acara');
+    else this._notifyTaskAssignee(rec, 'Tugas Baru', 'Anda mendapat tugas baru');
     return { success: true, task: rec };
   }
 
@@ -1867,6 +1900,7 @@ class Store {
     const t = this.getTask(id);
     if (!t) return { error: 'Tugas tidak ditemukan' };
     const prevAssignee = t.assignee_id || null;
+    const prevAttendees = this.attendeeIds(t);
     Object.assign(t, updates);
     this._save();
     if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
@@ -1876,6 +1910,14 @@ class Store {
     // Baru diberitahu kalau tugasnya memang berpindah tangan.
     if (updates.assignee_id !== undefined && (updates.assignee_id || null) !== prevAssignee) {
       this._notifyTaskAssignee(t, 'Tugas Dialihkan', 'Sebuah tugas dialihkan kepada Anda');
+    }
+    // Untuk acara, yang dikabari hanya peserta yang BARU ditambahkan —
+    // peserta lama tidak perlu diberi tahu ulang setiap kali daftarnya disunting.
+    if (updates.attendee_ids !== undefined && this.isEvent(t)) {
+      const added = this.attendeeIds(t).filter(id => prevAttendees.indexOf(id) === -1);
+      if (added.length) {
+        this._notifyTaskAssignee({ ...t, attendee_ids: added }, 'Undangan Acara', 'Anda diundang ke acara');
+      }
     }
     return { success: true, task: t };
   }
@@ -2076,6 +2118,10 @@ class Store {
         priority: t.priority || 'normal',
         category: t.category || '',
         status: this.taskStatus(t),
+        kind: this.taskKind(t),
+        end_time: t.end_time || '',
+        location: t.location || '',
+        attendees: this.attendeeNames(t),
         sub_total: (t.subtasks || []).length,
         sub_done: (t.subtasks || []).filter(s => s && s.done).length,
       }))
@@ -2152,7 +2198,12 @@ class Store {
       if (userId && !this.isMyTask(t, userId)) return;
       const at = toMin(t.due_time);
       if (at === null) return;
-      items.push({ kind: 'task', id: t.id, at, time: t.due_time, label: t.title || 'Tugas', sub: 'Tugas' });
+      const ev = this.isEvent(t);
+      items.push({
+        kind: ev ? 'event' : 'task', id: t.id, at, time: t.due_time,
+        label: t.title || (ev ? 'Acara' : 'Tugas'),
+        sub: ev ? ('Acara' + (t.location ? ' \u00b7 ' + t.location : '')) : 'Tugas',
+      });
     });
 
     const doc = (this.data.doctors || []).find(x => x.user_id === userId);
@@ -2214,6 +2265,10 @@ class Store {
         // Checklist dipakai ulang dalam keadaan kosong lagi.
         subtasks: (t.subtasks || []).map(s => ({ text: s.text, done: false })),
         sort_order: t.sort_order,
+        // Acara berulang (mis. rapat mingguan) membawa peserta, jam selesai,
+        // dan tempatnya ke jadwal berikutnya.
+        kind: this.taskKind(t), attendee_ids: this.attendeeIds(t),
+        end_time: t.end_time || '', location: t.location || '',
       });
       if (created && created.success) next = created.task;
     }
@@ -2262,12 +2317,19 @@ class Store {
     return t.wa_count;
   }
 
+  // Untuk acara, SEMUA pesertanya diberi tahu — bukan hanya satu orang.
+  // Pembuatnya sendiri dilewati supaya tidak mengabari dirinya sendiri.
   _notifyTaskAssignee(task, title, lead) {
-    if (!task || !task.assignee_id || task.assignee_id === task.created_by) return;
-    const due = task.due_date
-      ? ` Jatuh tempo ${task.due_date}${task.due_time ? ' pukul ' + task.due_time : ''}.`
+    if (!task) return;
+    const targets = this.isEvent(task) ? this.attendeeIds(task) : [task.assignee_id];
+    const when = task.due_date
+      ? (this.isEvent(task)
+          ? ` ${task.due_date}${task.due_time ? ' pukul ' + task.due_time : ''}${task.end_time ? '-' + task.end_time : ''}.`
+          : ` Jatuh tempo ${task.due_date}${task.due_time ? ' pukul ' + task.due_time : ''}.`)
       : '';
-    this.addNotification(task.assignee_id, title, `${lead}: "${task.title}".${due}`, 'system');
+    const where = this.isEvent(task) && task.location ? ` Tempat: ${task.location}.` : '';
+    targets.filter(id => id && id !== task.created_by).forEach(id =>
+      this.addNotification(id, title, `${lead}: "${task.title}".${when}${where}`, 'system'));
   }
 
   // Pilah tugas ke empat kolom papan, DARI SUDUT PANDANG satu orang.
