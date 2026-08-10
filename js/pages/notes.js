@@ -66,7 +66,7 @@ function notesXData() {
   return `loading: true, me: window.__notesMe || '',
     units: window.__notesUnits || [], notes: window.__notesList || [],
     colors: window.__notesColors || {}, colorKeys: window.__notesColorKeys || [],
-    q: '', unitFilter: '', view: 'grid', openId: '', tab: 'tulis',
+    q: '', unitFilter: '', openId: '',
     editing: false, saving: false, msg: '',
     form: { id:'', unit_id:'', title:'', body:'', note_date:'', tags:'', pinned:false },
     unitModal: false, unitForm: { id:'', name:'', description:'', color:'slate' }, unitMsg: '',
@@ -101,7 +101,7 @@ function notesXData() {
     get openNote() { return this.openId ? (this.notes.find(n => n.id === this.openId) || null) : null; },
 
     openNew(unitId) {
-      this.editing = true; this.openId = ''; this.msg = ''; this.tab = 'tulis';
+      this.editing = true; this.openId = ''; this.msg = '';
       this.form = { id:'', unit_id: unitId || this.unitFilter || (this.units[0] ? this.units[0].id : ''), title:'', body:'', note_date: window.__notesToday, tags:'', pinned:false };
     },
     openMonthly() {
@@ -113,9 +113,9 @@ function notesXData() {
       this.form.body = window.__notesTemplate;
       this.form.tags = 'evaluasi bulanan';
     },
-    openRead(n) { this.openId = n.id; this.editing = false; this.tab = 'baca'; },
+    openRead(n) { this.openId = n.id; this.editing = false; },
     openEdit(n) {
-      this.editing = true; this.openId = n.id; this.msg = ''; this.tab = 'tulis';
+      this.editing = true; this.openId = n.id; this.msg = '';
       this.form = { id: n.id, unit_id: n.unit_id || '', title: n.title || '', body: n.body || '', note_date: n.note_date || window.__notesToday, tags: n.tags || '', pinned: !!n.pinned };
     },
     closePanel() { this.editing = false; this.openId = ''; this.msg = ''; },
@@ -135,7 +135,7 @@ function notesXData() {
       if (r && r.error) { this.msg = r.error; return; }
       this.refresh();
       const id = this.form.id || (r.note && r.note.id) || '';
-      this.editing = false; this.openId = id; this.tab = 'baca';
+      this.editing = false; this.openId = id;
       window.__showToast && window.__showToast('Tersimpan', 'Catatan disimpan.');
     },
     async togglePin(n) { await window.__store.updateBusinessNote(n.id, { pinned: !n.pinned }); this.refresh(); },
@@ -158,6 +158,37 @@ function notesXData() {
       const text = snippet.indexOf('%s') !== -1 ? snippet.replace('%s', sel || 'teks') : snippet;
       this.form.body = before + needsNl + text + after;
       this.$nextTick(() => { ta.focus(); const p = (before + needsNl + text).length; ta.setSelectionRange(p, p); });
+    },
+
+    // Menekan Enter di dalam daftar meneruskan penandanya sendiri — supaya
+    // tidak perlu mengetik ulang \u201c- \u201d atau \u201c- [ ] \u201d tiap baris.
+    // Menekan Enter pada butir yang masih kosong justru KELUAR dari daftar,
+    // seperti kebiasaan di aplikasi catatan pada umumnya.
+    onEnter(ev) {
+      const ta = ev.target;
+      const v = ta.value, pos = ta.selectionStart;
+      if (pos !== ta.selectionEnd) return;                 // ada teks terpilih: biarkan biasa
+      const lineStart = v.lastIndexOf('\\n', pos - 1) + 1;
+      const line = v.slice(lineStart, pos);
+      const m = /^(\\s*)([-*+] \\[[ xX]\\] |[-*+] |\\d+[.)] )(.*)$/.exec(line);
+      if (!m) return;
+      ev.preventDefault();
+      const indent = m[1], marker = m[2], rest = m[3];
+      if (!rest.trim()) {                                  // butir kosong: sudahi daftarnya
+        this.form.body = v.slice(0, lineStart) + '\\n' + v.slice(pos);
+        const p = lineStart + 1;
+        this.$nextTick(() => { ta.focus(); ta.setSelectionRange(p, p); });
+        return;
+      }
+      let next = marker;
+      const num = /^(\\d+)([.)]) $/.exec(marker);
+      if (num) next = (Number(num[1]) + 1) + num[2] + ' ';
+      const cb = /^([-*+]) \\[[ xX]\\] $/.exec(marker);
+      if (cb) next = cb[1] + ' [ ] ';                      // centang baru selalu kosong
+      const ins = '\\n' + indent + next;
+      this.form.body = v.slice(0, pos) + ins + v.slice(pos);
+      const p = pos + ins.length;
+      this.$nextTick(() => { ta.focus(); ta.setSelectionRange(p, p); });
     },
 
     openUnits() { this.unitModal = true; this.unitMsg = ''; this.unitForm = { id:'', name:'', description:'', color:'slate' }; },
@@ -339,21 +370,30 @@ export function notesPage() {
           <div><label class="block text-xs text-gray-600 mb-1">Label <span class="text-gray-400">(pisah koma)</span></label><input type="text" x-model="form.tags" placeholder="evaluasi, keuangan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
         </div>
 
-        <div class="flex items-center gap-2 flex-wrap mb-2">
-          <div class="flex gap-1 p-1 rounded-xl bg-slate-100">
-            <button @click="tab='tulis'" :class="tab==='tulis' ? 'bg-white shadow-sm text-ink' : 'text-slate-500'" class="px-3 py-1 rounded-lg text-xs font-semibold transition">Tulis</button>
-            <button @click="tab='baca'" :class="tab==='baca' ? 'bg-white shadow-sm text-ink' : 'text-slate-500'" class="px-3 py-1 rounded-lg text-xs font-semibold transition">Pratinjau</button>
+        <!-- Menulis dan hasilnya bersebelahan. Di layar sempit tersusun ke
+             bawah: kotak tulis dulu, hasilnya tepat di bawahnya. Tidak ada
+             tombol Tulis/Pratinjau lagi \u2014 hasilnya selalu ikut berubah
+             sambil mengetik. -->
+        <div class="grid lg:grid-cols-2 gap-4">
+          <div class="min-w-0">
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <span class="text-[11px] uppercase tracking-wide font-bold text-slate-400">Tulis</span>
+              <label class="inline-flex items-center gap-1.5 text-xs text-gray-600"><input type="checkbox" x-model="form.pinned" class="rounded border-gray-300">Sematkan</label>
+            </div>
+            <div class="flex gap-1.5 flex-wrap mb-2">${toolbar}</div>
+            <textarea x-ref="body" x-model="form.body" @keydown.enter="onEnter($event)" rows="20"
+              placeholder="Tulis di sini. Hasilnya langsung tampil di sebelah."
+              class="w-full px-3 py-3 border border-gray-200 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-y"></textarea>
+            <p class="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
+              <b>## </b>judul &middot; <b>**tebal**</b> &middot; <b>- </b>daftar &middot; <b>- [ ] </b>centang &middot; <b>| a | b |</b> tabel.
+              Menekan Enter di dalam daftar otomatis meneruskan penandanya.
+            </p>
           </div>
-          <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 ml-auto"><input type="checkbox" x-model="form.pinned" class="rounded border-gray-300">Sematkan</label>
+          <div class="min-w-0">
+            <p class="text-[11px] uppercase tracking-wide font-bold text-slate-400 mb-2">Hasilnya</p>
+            <div class="md border border-slate-100 rounded-lg p-4 bg-slate-50/40 min-h-[240px] lg:sticky lg:top-[84px] lg:max-h-[calc(100vh-160px)] overflow-y-auto" x-html="render(form.body)"></div>
+          </div>
         </div>
-
-        <div x-show="tab==='tulis'" class="flex gap-1.5 flex-wrap mb-2">${toolbar}</div>
-
-        <textarea x-show="tab==='tulis'" x-ref="body" x-model="form.body" rows="18"
-          placeholder="Tulis di sini. Markdown: ## judul, **tebal**, - daftar, - [ ] checklist, dan tabel dengan | pemisah |."
-          class="w-full px-3 py-3 border border-gray-200 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-y"></textarea>
-
-        <div x-show="tab==='baca'" x-cloak class="md border border-slate-100 rounded-lg p-4 min-h-[200px]" x-html="render(form.body)"></div>
 
         <div class="flex gap-2 justify-end mt-4">
           <button @click="editing=false; msg=''" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
