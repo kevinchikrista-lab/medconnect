@@ -49,6 +49,7 @@ export function umrohXData() {
     from: window.__umrohMonthStart, to: window.__umrohToday,
     q: '', fDoctor: '', fService: '', fCashback: '', fTravel: '',
     editKey: '', draftCash: 0, saving: false,
+    travelKey: '', draftTravel: '',
     impOpen: false, impBusy: false, impName: '', impErr: '', impPreview: null, impStats: null,
     rateOpen: false, rateTravel: '', rateAmount: 0, rateBusy: false,
     waOpen: false, waTravel: '', waPhone: '', waUnpaidOnly: true, waText: '', waMarking: false,
@@ -145,6 +146,33 @@ export function umrohXData() {
       this.refresh();
       window.__showToast && window.__showToast('Berkas terbaca',
         res.baru + ' jemaah baru, ' + res.diperbarui + ' diperbarui, ' + res.sama + ' sudah sama.');
+    },
+
+    // ---- Isi travel secara manual ----
+    // Kolom Sales di kasir kadang terlewat diisi. Isian di sini bertahan saat
+    // berkas yang sama diunggah lagi — lihat store.setUmrohTravel.
+    startTravel(r) { this.travelKey = r.key; this.draftTravel = r.travel || ''; },
+    cancelTravel() { this.travelKey = ''; },
+    saveTravel(r) {
+      const res = window.__store.setUmrohTravel(r.id, this.draftTravel);
+      if (res && res.error) { window.__showToast && window.__showToast('Gagal', res.error); return; }
+      this.travelKey = ''; this.refresh();
+      window.__showToast && window.__showToast(
+        res.travel ? 'Travel diisi' : 'Kembali ke data kasir',
+        res.travel ? (r.patient_name + ' \u2192 ' + res.travel) : (r.patient_name + ' mengikuti berkas kasir lagi.'));
+    },
+    // Satu travel biasanya mengirim serombongan jemaah sekaligus, jadi yang
+    // kosong pada tampilan sekarang bisa diisi sekali jalan.
+    get blankRows() { return this.shown.filter(r => !r.travel); },
+    fillBlanks() {
+      const rows = this.blankRows;
+      if (!rows.length) return;
+      const nama = window.prompt('Isi travel untuk ' + rows.length + ' jemaah yang travelnya masih kosong pada tampilan ini:', '');
+      if (nama === null) return;
+      const res = window.__store.setUmrohTravelBulk(rows.map(r => r.id), nama);
+      if (res && res.error) { window.__showToast && window.__showToast('Gagal', res.error); return; }
+      this.refresh();
+      window.__showToast && window.__showToast('Terisi', res.count + ' jemaah disetel ke ' + nama.trim() + '.');
     },
 
     // ---- Nominal cashback ----
@@ -303,8 +331,9 @@ export function umrohBody() {
     <button x-show="anyFilter" x-cloak @click="clearFilters()" class="px-3 py-2 rounded-lg text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Bersihkan</button>
   </div>
 
-  <div x-show="!loading && summary.noTravel" x-cloak class="mb-4 px-4 py-3 rounded-2xl bg-amber-50 border border-amber-100">
-    <p class="text-xs text-amber-800 leading-relaxed"><b><span x-text="summary.noTravel"></span> jemaah</b> kolom Sales-nya kosong di berkas kasir, jadi belum bisa masuk rincian cashback travel mana pun. Isi kolom Sales-nya di sistem kasir lalu unggah ulang berkasnya.</p>
+  <div x-show="!loading && summary.noTravel" x-cloak class="mb-4 px-4 py-3 rounded-2xl bg-amber-50 border border-amber-100 flex items-start justify-between gap-3 flex-wrap">
+    <p class="text-xs text-amber-800 leading-relaxed flex-1 min-w-[240px]"><b><span x-text="summary.noTravel"></span> jemaah</b> kolom Sales-nya kosong di berkas kasir, jadi belum bisa masuk rincian cashback travel mana pun. Klik <b>Isi travel</b> pada barisnya untuk mengisi sendiri &mdash; isian itu <b>tidak akan hilang</b> walau berkasnya diunggah ulang.</p>
+    <button @click="fillBlanks()" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 transition whitespace-nowrap">Isi semua yang kosong</button>
   </div>
 
   <div x-show="loading" class="bg-white rounded-2xl border border-slate-100 p-8 text-center text-sm text-gray-400">Memuat data jemaah...</div>
@@ -342,8 +371,25 @@ export function umrohBody() {
               </td>
               <td class="px-3 py-2.5 text-gray-600" x-text="r.doctor_name"></td>
               <td class="px-3 py-2.5">
-                <span x-show="r.travel" x-text="r.travel" class="text-gray-700 font-medium"></span>
-                <span x-show="!r.travel" class="text-[11px] text-amber-600 font-medium">Kosong di kasir</span>
+                <template x-if="travelKey === r.key">
+                  <span class="inline-flex items-center gap-1.5">
+                    <input type="text" x-model="draftTravel" list="umroh-travel-list" placeholder="Nama travel"
+                      @keydown.enter="saveTravel(r)" @keydown.escape="cancelTravel()"
+                      class="w-36 px-2 py-1 border border-gray-200 rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                    <button @click="saveTravel(r)" class="px-2 py-1 rounded-lg text-[11px] font-semibold text-white bg-green-600 hover:bg-green-500 transition">OK</button>
+                    <button @click="cancelTravel()" class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition">Batal</button>
+                  </span>
+                </template>
+                <template x-if="travelKey !== r.key">
+                  <button @click="startTravel(r)" class="text-left group"
+                    :title="r.travel ? 'Klik untuk mengubah travel' : 'Klik untuk mengisi travel'">
+                    <span x-show="r.travel" x-text="r.travel" class="text-gray-700 font-medium group-hover:text-brand-dark group-hover:underline"></span>
+                    <span x-show="!r.travel" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 group-hover:bg-amber-100">
+                      <span class="ms text-[12px]">edit</span>Isi travel
+                    </span>
+                    <span x-show="r.travel_manual" x-cloak class="block text-[10px] text-purple-500" title="Diisi manual, bertahan walau berkasnya diunggah ulang">diisi manual</span>
+                  </button>
+                </template>
               </td>
               <td class="px-3 py-2.5">
                 <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap" :class="serviceChip(r.service)" x-text="r.service_label"></span>
@@ -391,7 +437,8 @@ export function umrohBody() {
 
   <div class="mt-4 bg-blue-50 border border-blue-100 rounded-2xl p-4">
     <p class="text-xs text-blue-800 leading-relaxed"><b>Dari mana datanya:</b> seluruh isi tabel ini dibaca dari berkas <b>Laporan Detail Data Penjualan Obat</b> yang diunggah &mdash; tanggal, nama jemaah, dokter, kolom <b>Sales</b> (travel), jenis vaksin, dan total yang dibayar. Tidak ada yang perlu diketik ulang, dan angkanya selalu sama dengan yang tercatat di kasir.</p>
-    <p class="text-xs text-blue-800 leading-relaxed mt-1.5">Yang diisi di sini hanya <b>nominal cashback</b> (kasir tidak mencatat itu) dan tandanya sudah / belum dibayar. Mengunggah ulang periode yang sama <b>tidak</b> menggandakan data &mdash; barisnya dikenali dari nomor faktur, dan tanda cashback yang sudah Anda beri <b>tidak</b> ikut tertimpa.</p>
+    <p class="text-xs text-blue-800 leading-relaxed mt-1.5">Kolom <b>Sales (Travel)</b> bisa diklik dan diisi sendiri bila di kasir terlewat. Isian manual ditandai <i>diisi manual</i> dan <b>bertahan</b> saat berkasnya diunggah ulang &mdash; nilai asli dari kasir tetap disimpan, jadi mengosongkan isian manual akan mengembalikannya mengikuti kasir lagi.</p>
+    <p class="text-xs text-blue-800 leading-relaxed mt-1.5">Selain itu yang diisi di sini hanya <b>nominal cashback</b> (kasir tidak mencatat itu) dan tandanya sudah / belum dibayar. Mengunggah ulang periode yang sama <b>tidak</b> menggandakan data &mdash; barisnya dikenali dari nomor faktur, dan tanda cashback yang sudah Anda beri <b>tidak</b> ikut tertimpa.</p>
     <p class="text-xs text-blue-800 leading-relaxed mt-1.5">Tanda <b>Sudah / Belum</b> hanya bisa diubah oleh dr. Kevin Chikrista. Super Admin lain tetap bisa melihat laporannya dan mengisi nominalnya.</p>
   </div>
 

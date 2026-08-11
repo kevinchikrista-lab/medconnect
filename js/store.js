@@ -2789,7 +2789,10 @@ class Store {
         sold_time: e.sold_time || '',
         patient_name: e.patient_name || '',
         doctor_name: e.doctor_name || '',
-        travel_name: e.travel_name || '',
+        // Nilai apa adanya dari kolom Sales di berkas kasir. Disimpan terpisah
+        // dari travel_name supaya isian manual tidak menghapusnya, dan
+        // sebaliknya — keduanya bisa hidup berdampingan.
+        travel_source: e.travel_name || '',
         service: e.service || '',
         service_label: e.service_label || '',
         price: Math.max(0, Math.round(Number(e.price) || 0)),
@@ -2798,6 +2801,11 @@ class Store {
       };
       const ada = byInvoice.get(fakta.invoice_no);
       if (ada) {
+        // ISIAN MANUAL TIDAK PERNAH TERTIMPA UNGGAHAN ULANG.
+        // Kalau tidak begini, travel yang sudah susah payah diisi tangan akan
+        // hilang lagi setiap kali laporan bulan berjalan diunggah — sebab di
+        // berkas kasirnya kolom Sales itu memang masih kosong.
+        if (!ada.travel_manual) fakta.travel_name = fakta.travel_source;
         const berubah = Object.keys(fakta).some(k => {
           const a = fakta[k], b = ada[k];
           return Array.isArray(a) ? JSON.stringify(a) !== JSON.stringify(b || []) : String(a == null ? '' : a) !== String(b == null ? '' : b);
@@ -2811,6 +2819,7 @@ class Store {
       } else {
         const rec = {
           id: generateId(), ...fakta,
+          travel_name: fakta.travel_source, travel_manual: false,
           cashback_amount: 0, cashback_paid: false, cashback_at: null, cashback_by: null,
           imported_at: nowIso, imported_by: m.imported_by || null, source_file: m.source_file || '',
         };
@@ -2859,6 +2868,9 @@ class Store {
         patient_name: r.patient_name || '-',
         doctor_name: r.doctor_name || '-',
         travel: String(r.travel_name || '').trim(),
+        // Dari mana nama travelnya: diisi tangan, atau ikut berkas kasir.
+        travel_manual: !!r.travel_manual,
+        travel_source: String(r.travel_source || '').trim(),
         service: r.service || '',
         service_label: r.service_label || '-',
         price: Number(r.price) || 0,
@@ -2888,6 +2900,44 @@ class Store {
     const names = new Set();
     (entries || []).forEach(e => { if (e.travel) names.add(e.travel); });
     return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }
+
+  // Isi / ubah travel sebuah baris secara manual.
+  //
+  // Kolom Sales di kasir kadang terlewat diisi, dan mengejar kasir untuk
+  // memperbaiki lalu mengekspor ulang tidak selalu memungkinkan. Isian di sini
+  // ditandai travel_manual, dan tanda itulah yang membuatnya bertahan saat
+  // berkas yang sama diunggah lagi.
+  //
+  // Nilai asli dari kasir tetap disimpan di travel_source, jadi isian manual
+  // tidak menghapus apa pun — dan sewaktu-waktu bisa dikembalikan.
+  setUmrohTravel(id, name) {
+    const r = (this.data.umroh_sales || []).find(x => x.id === id);
+    if (!r) return { error: 'Data penjualan tidak ditemukan' };
+    const clean = String(name || '').trim();
+    const updates = clean
+      ? { travel_name: clean, travel_manual: true }
+      // Dikosongkan = batalkan isian manual, kembali mengikuti berkas kasir.
+      : { travel_name: String(r.travel_source || '').trim(), travel_manual: false };
+    Object.assign(r, updates);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      supabase.update('umroh_sales', id, updates).catch(() => {});
+    }
+    return { success: true, travel: r.travel_name, manual: r.travel_manual };
+  }
+
+  // Isi travel sekaligus untuk beberapa baris — biasanya satu travel memang
+  // mengirim serombongan jemaah pada hari yang sama.
+  setUmrohTravelBulk(ids, name) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return { error: 'Tidak ada baris yang dipilih' };
+    const clean = String(name || '').trim();
+    if (!clean) return { error: 'Nama travel belum diisi.' };
+    let n = 0;
+    list.forEach(id => { const res = this.setUmrohTravel(id, clean); if (res && res.success) n++; });
+    if (!n) return { error: 'Data penjualan tidak ditemukan' };
+    return { success: true, count: n };
   }
 
   // Nominal cashback satu baris.
