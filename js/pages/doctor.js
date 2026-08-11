@@ -443,7 +443,29 @@ export function doctorEMR(params) {
       if (res.error) { alert('Gagal menyimpan: ' + res.error); return; }
       this.labOpen = false; this.resetLab(); this.loadLab();
     },
-    async viewLabFile(fp) { const url = await window.__store.getLabFileUrl(fp); if (url) window.open(url, '_blank'); else alert('Berkas tidak tersedia atau penyimpanan belum diaktifkan.'); },
+    // Berkas dibuka DI DALAM halaman, bukan di tab baru.
+    //
+    // Sebelumnya window.open dipanggil SESUDAH await — dan peramban memblokir
+    // jendela yang dibuka bukan langsung dari klik, jadi berkasnya tidak
+    // pernah terbuka sama sekali. Penampil di halaman sekaligus menghapus
+    // masalah itu: tidak ada jendela baru yang perlu diizinkan.
+    labViewOpen: false, labViewUrl: '', labViewName: '', labViewErr: '', labViewLoading: false,
+    labIsImage(nama) { return /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(String(nama || '')); },
+    async viewLabFile(item) {
+      this.labViewOpen = true;
+      this.labViewLoading = true;
+      this.labViewErr = '';
+      this.labViewUrl = '';
+      this.labViewName = (item && (item.file_name || item.test_name)) || 'Berkas';
+      try {
+        const url = await window.__store.getLabFileUrl(item && item.file_path);
+        if (url) this.labViewUrl = url;
+        else this.labViewErr = 'Berkas tidak bisa dibuka. Pastikan supabase-lab-results.sql sudah dijalankan (tabel & bucket lab-files), lalu unggah ulang berkasnya.';
+      } catch (e) {
+        this.labViewErr = (e && e.message) || 'Berkas tidak bisa dibuka.';
+      }
+      this.labViewLoading = false;
+    },
     async delLab(item) { if (!confirm('Hapus hasil penunjang ini?')) return; await window.__store.deleteLabResult(item.id, item.file_path); this.loadLab(); },
     skdList: [], skdLoading: true,
     // Surat sakit bertanggal sesuai hari pertama sakitnya, bukan hari
@@ -692,9 +714,10 @@ export function doctorEMR(params) {
                       <span class="font-semibold text-gray-800" x-text="item.test_name"></span>
                     </div>
                     <p class="text-xs text-gray-500 mt-0.5" x-text="item.result_date || ''"></p>
+                    <p x-show="item.file_name" x-cloak class="text-[11px] text-blue-600 mt-0.5 flex items-center gap-1"><span class="ms text-[13px]">attach_file</span><span x-text="item.file_name"></span></p>
                   </div>
                   <div class="flex gap-2">
-                    <button x-show="item.file_path" @click="viewLabFile(item.file_path)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">📎 Lihat Berkas</button>
+                    <button x-show="item.file_path" @click="viewLabFile(item)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition flex items-center gap-1"><span class="ms text-[14px]">description</span>Baca Berkas</button>
                     <button @click="delLab(item)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition">Hapus</button>
                   </div>
                 </div>
@@ -739,6 +762,33 @@ export function doctorEMR(params) {
                 </div>
               </div>
             </template>
+          </div>
+        </div>
+
+        <!-- Penampil berkas penunjang. Dibuka di dalam halaman supaya hasil lab
+             bisa langsung dibaca tanpa berpindah tab — dan tanpa berurusan
+             dengan pemblokir popup. -->
+        <div x-show="labViewOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/70" @click.self="labViewOpen=false" @keydown.escape.window="labViewOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-5xl h-[92vh] flex flex-col overflow-hidden">
+            <div class="px-4 py-3 border-b border-slate-100 flex items-center gap-3">
+              <span class="ms text-[20px] text-blue-600">description</span>
+              <p class="font-semibold text-gray-800 text-sm truncate flex-1" x-text="labViewName"></p>
+              <a :href="labViewUrl" x-show="labViewUrl" x-cloak target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Buka di tab baru</a>
+              <a :href="labViewUrl" :download="labViewName" x-show="labViewUrl" x-cloak class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition">Unduh</a>
+              <button @click="labViewOpen=false" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-gray-400 hover:text-gray-700 flex items-center justify-center"><span class="ms text-[20px]">close</span></button>
+            </div>
+            <div class="flex-1 min-h-0 bg-slate-100">
+              <div x-show="labViewLoading" class="h-full flex items-center justify-center text-sm text-gray-500">Membuka berkas...</div>
+              <div x-show="labViewErr" x-cloak class="h-full flex items-center justify-center p-8">
+                <p class="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl p-4 max-w-lg leading-relaxed" x-text="labViewErr"></p>
+              </div>
+              <template x-if="labViewUrl && labIsImage(labViewName)">
+                <div class="h-full overflow-auto p-3 flex items-start justify-center"><img :src="labViewUrl" :alt="labViewName" class="max-w-full rounded-lg shadow"></div>
+              </template>
+              <template x-if="labViewUrl && !labIsImage(labViewName)">
+                <iframe :src="labViewUrl" class="w-full h-full border-0" title="Hasil penunjang"></iframe>
+              </template>
+            </div>
           </div>
         </div>
 
