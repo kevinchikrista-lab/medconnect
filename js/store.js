@@ -902,7 +902,9 @@ class Store {
       this.loadTasks().catch(() => {});
       try {
         const me = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
-        if (me && this.canManageNotes(me)) this.loadBusinessNotes(me.id).catch(() => {});
+        // Penerima berbagi juga perlu memuatnya — RLS di server yang menyaring
+        // baris mana yang benar-benar boleh dia baca.
+        if (me && (this.canManageNotes(me) || this.canViewSharedNotes(me))) this.loadBusinessNotes(null).catch(() => {});
       } catch (e) {}
       this._save(this.data);
       console.log('Data loaded from Supabase:', { profiles: profiles.length, doctors: doctors.length, patients: patients.length });
@@ -1955,6 +1957,46 @@ class Store {
     return false;
   }
 
+  // Daftar orang yang dibagikan sebuah unit usaha (profiles.id).
+  unitSharedWith(u) {
+    let v = u && u.shared_with;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = []; } }
+    return Array.isArray(v) ? v.filter(Boolean) : [];
+  }
+
+  // Unit apa saja yang dibagikan kepada seseorang.
+  sharedUnitIdsFor(userId) {
+    if (!userId) return [];
+    return this.getBusinessUnits()
+      .filter(u => this.unitSharedWith(u).indexOf(userId) !== -1)
+      .map(u => u.id);
+  }
+
+  // Boleh membuka halaman Catatan sebagai PENERIMA (baca saja), karena ada
+  // setidaknya satu unit yang dibagikan kepadanya. Terpisah dari
+  // canManageNotes yang memberi kuasa penuh kepada pemiliknya.
+  canViewSharedNotes(user) {
+    if (!user || this.canManageNotes(user)) return false;
+    return this.sharedUnitIdsFor(user.id).length > 0;
+  }
+
+  // Sebuah catatan boleh dilihat seseorang bila dia pemiliknya, ATAU catatan
+  // itu tidak ditandai pribadi dan berada di unit yang dibagikan kepadanya.
+  canSeeNote(note, userId) {
+    if (!note || !userId) return false;
+    if (note.created_by === userId) return true;
+    if (note.is_private) return false;
+    return note.unit_id ? this.sharedUnitIdsFor(userId).indexOf(note.unit_id) !== -1 : false;
+  }
+
+  // Siapa saja yang bisa membaca sebuah catatan selain pemiliknya —
+  // ditampilkan pada kartunya supaya tidak ada yang terbagi tanpa disadari.
+  noteSharedNames(note) {
+    if (!note || note.is_private || !note.unit_id) return [];
+    const u = this.getBusinessUnit(note.unit_id);
+    return this.unitSharedWith(u).map(id => this.staffName(id));
+  }
+
   // ---- Unit usaha ----
   getBusinessUnits() {
     return (this.data.business_units || []).slice()
@@ -1971,7 +2013,8 @@ class Store {
       if (Array.isArray(units) && units.length) { this.data.business_units = units; this._save(); }
     } catch (e) { /* tabel belum dibuat */ }
     try {
-      // RLS sudah menyaring ke milik sendiri; eq created_by hanya penegasan.
+      // Tidak disaring created_by di sini: penerima berbagi justru perlu baris
+      // milik orang lain. Yang menentukan boleh-tidaknya adalah RLS di server.
       const rows = await supabase.select('business_notes', userId ? { eq: { created_by: userId } } : {});
       if (Array.isArray(rows)) {
         if (rows.length) { this.data.business_notes = rows; this._save(); }
@@ -1992,7 +2035,9 @@ class Store {
     if (this.getBusinessUnits().some(u => String(u.name || '').trim().toLowerCase() === name.toLowerCase())) {
       return { error: 'Unit dengan nama itu sudah ada' };
     }
-    const payload = { name, description: (data && data.description) || '', color: (data && data.color) || 'slate', is_active: true, sort_order: Number(data && data.sort_order) || 100 };
+    const payload = { name, description: (data && data.description) || '', color: (data && data.color) || 'slate',
+      shared_with: Array.isArray(data && data.shared_with) ? data.shared_with.filter(Boolean) : [],
+      is_active: true, sort_order: Number(data && data.sort_order) || 100 };
     let rec;
     if (CONFIG.DEMO_MODE) rec = { id: generateId(), created_at: new Date().toISOString(), ...payload };
     else {
@@ -2055,6 +2100,25 @@ class Store {
 
   getBusinessNote(id) { return (this.data.business_notes || []).find(n => n.id === id) || null; }
 
+  // Catatan yang BOLEH DILIHAT seseorang: miliknya sendiri, ditambah catatan
+  // tidak-pribadi di unit yang dibagikan kepadanya. Dipakai halaman Catatan
+  // untuk pemilik maupun penerima berbagi — jadi aturannya hanya satu tempat.
+  getVisibleBusinessNotes(userId) {
+    if (!userId) return [];
+    const shared = this.sharedUnitIdsFor(userId);
+    return this.getBusinessNotes(null).filter(n =>
+      n.created_by === userId || (!n.is_private && n.unit_id && shared.indexOf(n.unit_id) !== -1));
+  }
+
+  // Unit yang perlu ditampilkan kepada seseorang: semuanya bila dia pemilik,
+  // atau hanya yang dibagikan kepadanya bila dia penerima.
+  getVisibleBusinessUnits(user) {
+    if (!user) return [];
+    if (this.canManageNotes(user)) return this.getBusinessUnits();
+    const shared = this.sharedUnitIdsFor(user.id);
+    return this.getBusinessUnits().filter(u => shared.indexOf(u.id) !== -1);
+  }
+
   async createBusinessNote(data) {
     const title = String((data && data.title) || '').trim();
     if (!title) return { error: 'Judul catatan wajib diisi' };
@@ -2065,6 +2129,7 @@ class Store {
       note_date: (data && data.note_date) || todayLocal(),
       tags: (data && data.tags) || '',
       pinned: !!(data && data.pinned),
+      is_private: !!(data && data.is_private),
       created_by: (data && data.created_by) || null,
     };
     let rec;

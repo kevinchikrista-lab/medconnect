@@ -50,8 +50,10 @@ export function notesSetup() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const me = user ? user.id : '';
   window.__notesMe = me;
-  window.__notesUnits = store.getBusinessUnits();
-  window.__notesList = store.getBusinessNotes(me);
+  window.__notesUnits = store.getVisibleBusinessUnits(user);
+  window.__notesList = store.getVisibleBusinessNotes(me);
+  // Staf yang bisa diberi hak baca. Pasien tentu tidak diikutkan.
+  window.__notesStaff = store.getStaffList().filter(s => s.id !== me);
   window.__notesColors = UNIT_COLORS;
   window.__notesColorKeys = COLOR_KEYS;
   window.__notesToday = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
@@ -62,14 +64,15 @@ export function notesSetup() {
   window.__mdSnippet = mdSnippet;
 }
 
-function notesXData() {
-  return `loading: true, me: window.__notesMe || '',
+function notesXData(canEdit) {
+  return `canEdit: ${canEdit ? 'true' : 'false'}, loading: true, me: window.__notesMe || '',
     units: window.__notesUnits || [], notes: window.__notesList || [],
+    staff: window.__notesStaff || [],
     colors: window.__notesColors || {}, colorKeys: window.__notesColorKeys || [],
     q: '', unitFilter: '', openId: '',
     editing: false, saving: false, msg: '',
-    form: { id:'', unit_id:'', title:'', body:'', note_date:'', tags:'', pinned:false },
-    unitModal: false, unitForm: { id:'', name:'', description:'', color:'slate' }, unitMsg: '',
+    form: { id:'', unit_id:'', title:'', body:'', note_date:'', tags:'', pinned:false, is_private:false },
+    unitModal: false, unitForm: { id:'', name:'', description:'', color:'slate', shared_with:[] }, unitMsg: '',
 
     async load() {
       this.loading = true;
@@ -78,8 +81,27 @@ function notesXData() {
       this.loading = false;
     },
     refresh() {
-      this.units = window.__store.getBusinessUnits();
-      this.notes = window.__store.getBusinessNotes(this.me);
+      const u = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+      this.units = window.__store.getVisibleBusinessUnits(u);
+      this.notes = window.__store.getVisibleBusinessNotes(this.me);
+    },
+
+    // ---- Berbagi ----
+    isMine(n) { return n && n.created_by === this.me; },
+    sharedNames(n) { return window.__store.noteSharedNames(n); },
+    unitShared(u) { return window.__store.unitSharedWith(u); },
+    unitSharedNames(u) { return this.unitShared(u).map(id => window.__store.staffName(id)); },
+    toggleShare(id) {
+      const i = this.unitForm.shared_with.indexOf(id);
+      if (i === -1) this.unitForm.shared_with.push(id); else this.unitForm.shared_with.splice(i, 1);
+    },
+    isShared(id) { return this.unitForm.shared_with.indexOf(id) !== -1; },
+    // Siapa yang akan bisa membaca catatan yang sedang ditulis — dihitung dari
+    // unit yang dipilih, supaya tidak ada yang terbagi tanpa disadari.
+    formAudience() {
+      if (this.form.is_private || !this.form.unit_id) return [];
+      const u = window.__store.getBusinessUnit(this.form.unit_id);
+      return window.__store.unitSharedWith(u).map(id => window.__store.staffName(id));
     },
 
     unitName(id) { return window.__store.businessUnitName(id); },
@@ -102,7 +124,7 @@ function notesXData() {
 
     openNew(unitId) {
       this.editing = true; this.openId = ''; this.msg = '';
-      this.form = { id:'', unit_id: unitId || this.unitFilter || (this.units[0] ? this.units[0].id : ''), title:'', body:'', note_date: window.__notesToday, tags:'', pinned:false };
+      this.form = { id:'', unit_id: unitId || this.unitFilter || (this.units[0] ? this.units[0].id : ''), title:'', body:'', note_date: window.__notesToday, tags:'', pinned:false, is_private:false };
     },
     openMonthly() {
       this.openNew();
@@ -116,7 +138,7 @@ function notesXData() {
     openRead(n) { this.openId = n.id; this.editing = false; },
     openEdit(n) {
       this.editing = true; this.openId = n.id; this.msg = '';
-      this.form = { id: n.id, unit_id: n.unit_id || '', title: n.title || '', body: n.body || '', note_date: n.note_date || window.__notesToday, tags: n.tags || '', pinned: !!n.pinned };
+      this.form = { id: n.id, unit_id: n.unit_id || '', title: n.title || '', body: n.body || '', note_date: n.note_date || window.__notesToday, tags: n.tags || '', pinned: !!n.pinned, is_private: !!n.is_private };
     },
     closePanel() { this.editing = false; this.openId = ''; this.msg = ''; },
 
@@ -127,6 +149,7 @@ function notesXData() {
       const payload = {
         unit_id: this.form.unit_id || null, title: this.form.title, body: this.form.body,
         note_date: this.form.note_date || null, tags: this.form.tags, pinned: !!this.form.pinned,
+        is_private: !!this.form.is_private,
       };
       const r = this.form.id
         ? await window.__store.updateBusinessNote(this.form.id, payload)
@@ -191,15 +214,15 @@ function notesXData() {
       this.$nextTick(() => { ta.focus(); ta.setSelectionRange(p, p); });
     },
 
-    openUnits() { this.unitModal = true; this.unitMsg = ''; this.unitForm = { id:'', name:'', description:'', color:'slate' }; },
-    editUnit(u) { this.unitForm = { id: u.id, name: u.name || '', description: u.description || '', color: u.color || 'slate' }; this.unitMsg = ''; },
+    openUnits() { this.unitModal = true; this.unitMsg = ''; this.unitForm = { id:'', name:'', description:'', color:'slate', shared_with:[] }; },
+    editUnit(u) { this.unitForm = { id: u.id, name: u.name || '', description: u.description || '', color: u.color || 'slate', shared_with: this.unitShared(u).slice() }; this.unitMsg = ''; },
     async saveUnit() {
       this.unitMsg = '';
       const r = this.unitForm.id
-        ? await window.__store.updateBusinessUnit(this.unitForm.id, { name: this.unitForm.name, description: this.unitForm.description, color: this.unitForm.color })
+        ? await window.__store.updateBusinessUnit(this.unitForm.id, { name: this.unitForm.name, description: this.unitForm.description, color: this.unitForm.color, shared_with: this.unitForm.shared_with })
         : await window.__store.createBusinessUnit(this.unitForm);
       if (r && r.error) { this.unitMsg = r.error; return; }
-      this.unitForm = { id:'', name:'', description:'', color:'slate' };
+      this.unitForm = { id:'', name:'', description:'', color:'slate', shared_with:[] };
       this.refresh();
     },
     async removeUnit(u) {
@@ -255,13 +278,15 @@ const TOOLS = [
 export function notesPage() {
   notesSetup();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+  // Pemilik boleh menulis & mengatur; penerima berbagi hanya membaca.
+  const canEdit = store.canManageNotes(user);
   const backHref = { doctor: '#/doctor/dashboard', owner: '#/doctor/dashboard', superadmin: '#/admin/dashboard' }[user?.role] || '#/login';
 
   const toolbar = TOOLS.map(t => `<button type="button" @click="insert(${JSON.stringify(t.snip).replace(/"/g, '&quot;')})"
     title="${escHtml(t.title)}" class="px-2.5 py-1 rounded-lg text-[11.5px] font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 transition ${t.cls || ''}">${escHtml(t.label)}</button>`).join('');
 
   return `${MD_STYLE}
-  <div x-data="{ ${notesXData()} }" x-init="load()" class="min-h-screen bg-wash">
+  <div x-data="{ ${notesXData(canEdit)} }" x-init="load()" class="min-h-screen bg-wash">
     <header class="sticky top-0 z-30 h-[66px] bg-white border-b border-slate-100 px-4 flex items-center justify-between">
       <a href="${backHref}" class="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-ink transition"><span class="ms text-[20px]">arrow_back</span>Kembali</a>
       <div class="flex items-center gap-2">
@@ -274,13 +299,13 @@ export function notesPage() {
       <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
         <div>
           <h2 class="text-xl font-bold text-gray-800">Catatan Bisnis</h2>
-          <p class="text-sm text-gray-500 mt-0.5"><span x-text="shown.length"></span> catatan &middot; hanya Anda yang bisa membukanya</p>
+          <p class="text-sm text-gray-500 mt-0.5"><span x-text="shown.length"></span> catatan${canEdit ? '' : ' &middot; dibagikan kepada Anda (hanya baca)'}</p>
         </div>
-        <div class="flex gap-2 flex-wrap">
-          <button @click="openUnits()" class="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 transition">Kelola Unit</button>
+        ${canEdit ? `<div class="flex gap-2 flex-wrap">
+          <button @click="openUnits()" class="px-3 py-2 rounded-lg text-sm font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 transition">Kelola Unit &amp; Akses</button>
           <button @click="openMonthly()" class="px-3 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition">+ Evaluasi Bulan Ini</button>
           <button @click="openNew()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Catatan Baru</button>
-        </div>
+        </div>` : ''}
       </div>
 
       <div class="flex gap-2 flex-wrap items-center mb-4">
@@ -312,13 +337,18 @@ export function notesPage() {
                 <button @click="openRead(n)" class="text-left flex-1 min-w-0">
                   <p class="font-bold text-sm text-gray-800 break-words" x-text="n.title"></p>
                 </button>
-                <button @click="togglePin(n)" :title="n.pinned ? 'Lepas sematan' : 'Sematkan'" class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition" :class="n.pinned ? 'text-amber-500 bg-amber-50' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-50'">
+                ${canEdit ? `<button @click="togglePin(n)" :title="n.pinned ? 'Lepas sematan' : 'Sematkan'" class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition" :class="n.pinned ? 'text-amber-500 bg-amber-50' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-50'">
                   <span class="ms text-[16px]" :class="n.pinned ? 'ms-fill' : ''">push_pin</span>
-                </button>
+                </button>` : ''}
               </div>
               <div class="flex items-center gap-1.5 flex-wrap mt-1.5 text-[11px]">
                 <span class="px-2 py-0.5 rounded-full font-semibold" :class="unitChip(n.unit_id)" x-text="unitName(n.unit_id)"></span>
                 <span class="text-gray-400" x-text="fmtDate(n.note_date)"></span>
+                <!-- Siapa lagi yang bisa membaca — ditampilkan supaya tidak ada
+                     catatan yang terbagi tanpa disadari. -->
+                <span x-show="n.is_private" x-cloak class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-800 text-white font-semibold"><span class="ms text-[11px]">lock</span>Pribadi</span>
+                <span x-show="!n.is_private && sharedNames(n).length" x-cloak class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 font-semibold" :title="'Bisa dibaca: ' + sharedNames(n).join(', ')"><span class="ms text-[11px]">group</span><span x-text="sharedNames(n).length"></span></span>
+                <span x-show="!isMine(n)" x-cloak class="text-gray-400" x-text="'oleh ' + window.__store.staffName(n.created_by)"></span>
               </div>
               <button @click="openRead(n)" class="text-left flex-1 mt-2">
                 <p class="text-xs text-gray-500 leading-relaxed" x-text="snippet(n)"></p>
@@ -328,8 +358,10 @@ export function notesPage() {
               </div>
               <div class="flex gap-1.5 mt-3 pt-3 border-t border-slate-50">
                 <button @click="openRead(n)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Baca</button>
-                <button @click="openEdit(n)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Ubah</button>
-                <button @click="remove(n)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-red-600 bg-red-50 hover:bg-red-100 transition ml-auto">Hapus</button>
+                <!-- Mengubah & menghapus hanya milik pembuatnya, bahkan bila
+                     halamannya dibuka oleh penerima berbagi. -->
+                <template x-if="canEdit && isMine(n)"><button @click="openEdit(n)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Ubah</button></template>
+                <template x-if="canEdit && isMine(n)"><button @click="remove(n)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-red-600 bg-red-50 hover:bg-red-100 transition ml-auto">Hapus</button></template>
               </div>
             </div>
           </template>
@@ -349,13 +381,13 @@ export function notesPage() {
           </div>
           <div class="flex gap-2 shrink-0">
             <button @click="closePanel()" class="px-3 py-2 rounded-lg text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Tutup</button>
-            <button @click="openEdit(openNote)" class="px-3 py-2 rounded-lg text-xs font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Ubah</button>
+            <template x-if="canEdit && openNote && isMine(openNote)"><button @click="openEdit(openNote)" class="px-3 py-2 rounded-lg text-xs font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Ubah</button></template>
           </div>
         </div>
         <div class="md mt-5" x-html="render(openNote ? openNote.body : '')"></div>
       </div>
 
-      <!-- Tulis / ubah -->
+      ${canEdit ? `<!-- Tulis / ubah -->
       <div x-show="editing" x-cloak class="bg-white border border-slate-100 rounded-2xl p-4 lg:p-6 max-w-5xl mx-auto">
         <div x-show="msg" x-cloak class="mb-3 p-2 rounded-lg text-sm bg-red-50 text-red-700" x-text="msg"></div>
         <input type="text" x-model="form.title" placeholder="Judul catatan" class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-base font-semibold focus:outline-none focus:ring-2 focus:ring-teal-400/50 mb-3">
@@ -368,6 +400,22 @@ export function notesPage() {
           </div>
           <div><label class="block text-xs text-gray-600 mb-1">Tanggal</label><input type="date" x-model="form.note_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
           <div><label class="block text-xs text-gray-600 mb-1">Label <span class="text-gray-400">(pisah koma)</span></label><input type="text" x-model="form.tags" placeholder="evaluasi, keuangan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
+        </div>
+
+        <!-- Siapa yang bisa membaca ditentukan oleh UNIT-nya (diatur di Kelola
+             Unit & Akses), dengan satu jalan keluar per catatan bila isinya
+             sensitif. Ditampilkan di sini supaya tidak ada yang terbagi
+             tanpa disadari saat menulis. -->
+        <div class="mb-3 px-3 py-2.5 rounded-xl border" :class="form.is_private ? 'bg-slate-50 border-slate-200' : (formAudience().length ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200')">
+          <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+            <input type="checkbox" x-model="form.is_private" class="rounded border-gray-300">
+            <span class="ms text-[16px]">lock</span>Jadikan catatan ini pribadi
+          </label>
+          <p class="text-[11px] mt-1 leading-relaxed" :class="form.is_private ? 'text-gray-500' : 'text-amber-800'">
+            <span x-show="form.is_private" x-cloak>Hanya Anda yang bisa membacanya, meski unitnya dibagikan ke orang lain.</span>
+            <span x-show="!form.is_private && formAudience().length" x-cloak>Akan bisa dibaca juga oleh: <b x-text="formAudience().join(', ')"></b> &mdash; karena unit <b x-text="unitName(form.unit_id)"></b> dibagikan kepada mereka.</span>
+            <span x-show="!form.is_private && !formAudience().length" x-cloak>Saat ini hanya Anda yang bisa membacanya. Unit ini belum dibagikan ke siapa pun.</span>
+          </p>
         </div>
 
         <!-- Menulis dan hasilnya bersebelahan. Di layar sempit tersusun ke
@@ -399,16 +447,18 @@ export function notesPage() {
           <button @click="editing=false; msg=''" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
           <button @click="save()" :disabled="saving" class="px-5 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving">Simpan</span><span x-show="saving" x-cloak>Menyimpan...</span></button>
         </div>
-      </div>
+      </div>` : ''}
 
       <div class="mt-6 bg-blue-50 border border-blue-100 rounded-2xl p-4 max-w-4xl mx-auto">
-        <p class="text-xs text-blue-800 leading-relaxed"><b>Catatan ini pribadi.</b> Hanya akun Anda yang bisa membukanya &mdash; Super Admin pun tidak, karena pembatasannya ditegakkan di server, bukan sekadar disembunyikan dari menu.</p>
+        <p class="text-xs text-blue-800 leading-relaxed">${canEdit
+          ? '<b>Bawaannya pribadi.</b> Sebuah catatan baru bisa dibaca orang lain hanya bila unitnya sengaja dibagikan lewat <b>Kelola Unit &amp; Akses</b> — dan catatan yang ditandai <b>pribadi</b> tetap tertutup meski unitnya dibagikan. Pembatasannya ditegakkan di server, bukan sekadar disembunyikan dari menu.'
+          : '<b>Anda membaca catatan yang dibagikan.</b> Yang tampil hanya catatan pada unit usaha yang sengaja dibagikan kepada Anda, dan hanya bisa dibaca — tidak bisa diubah maupun dihapus.'}</p>
         <p class="text-xs text-blue-800 leading-relaxed mt-2"><b>Jangan menaruh data pasien di sini.</b> Catatan bisnis tidak dilindungi seketat rekam medis. Bila perlu menyebut kasus, tulis nomor RM-nya saja, jangan namanya.</p>
         <p class="text-xs text-blue-800 leading-relaxed mt-2">Isinya tersimpan sebagai teks biasa (Markdown), jadi bisa disalin ke mana pun dan tidak terkunci di aplikasi ini.</p>
       </div>
     </main>
 
-    <!-- Kelola unit usaha -->
+    ${canEdit ? `<!-- Kelola unit usaha -->
     <div x-show="unitModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="unitModal=false">
       <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
         <h3 class="text-lg font-bold text-gray-800 mb-4">Unit Usaha</h3>
@@ -418,6 +468,7 @@ export function notesPage() {
             <div class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-100">
               <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold" :class="colors[u.color] || colors.slate" x-text="u.name"></span>
               <span class="text-[11px] text-gray-400 flex-1 truncate" x-text="u.description || ''"></span>
+              <span x-show="unitShared(u).length" x-cloak class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10.5px] font-semibold" :title="'Bisa dibaca: ' + unitSharedNames(u).join(', ')"><span class="ms text-[11px]">group</span><span x-text="unitShared(u).length"></span></span>
               <span class="text-[11px] text-gray-400" x-text="countIn(u.id) + ' catatan'"></span>
               <button @click="editUnit(u)" class="px-2 py-1 rounded text-[11px] font-medium text-blue-700 bg-blue-50 hover:bg-blue-100">Ubah</button>
               <button @click="removeUnit(u)" class="px-2 py-1 rounded text-[11px] font-medium text-red-600 bg-red-50 hover:bg-red-100">Hapus</button>
@@ -434,6 +485,27 @@ export function notesPage() {
               <button @click="unitForm.color = c" :class="[colors[c], unitForm.color === c ? 'ring-2 ring-offset-1 ring-slate-400' : '']" class="px-3 py-1 rounded-full text-[11px] font-semibold transition" x-text="c"></button>
             </template>
           </div>
+
+          <!-- Hak baca diberikan per UNIT, bukan per label bebas-ketik:
+               daftar staf ini punya id tetap, jadi tidak mungkin salah ketik
+               dan pemberian aksesnya bisa ditelusuri. -->
+          <div class="pt-2">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Siapa yang boleh MEMBACA catatan di unit ini</label>
+            <div class="border border-gray-200 rounded-lg p-2 max-h-40 overflow-y-auto space-y-0.5">
+              <template x-for="s in staff" :key="s.id">
+                <label class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" :checked="isShared(s.id)" @change="toggleShare(s.id)" class="rounded border-gray-300">
+                  <span class="text-sm text-gray-700" x-text="s.name"></span>
+                  <span class="text-[11px] text-gray-400" x-text="'(' + s.role_label + ')'"></span>
+                </label>
+              </template>
+              <p x-show="!staff.length" x-cloak class="text-xs text-gray-400 text-center py-3">Belum ada staf lain.</p>
+            </div>
+            <p class="text-[11px] text-gray-400 mt-1 leading-relaxed">
+              Yang dibagikan hanya <b>hak baca</b> &mdash; mereka tidak bisa menulis, mengubah, maupun menghapus.
+              Catatan yang ditandai <b>pribadi</b> tetap tidak terlihat oleh mereka walau berada di unit ini.
+            </p>
+          </div>
           <div class="flex gap-2 justify-end pt-1">
             <button x-show="unitForm.id" x-cloak @click="unitForm={ id:'', name:'', description:'', color:'slate' }" class="px-3 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal ubah</button>
             <button @click="saveUnit()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)" x-text="unitForm.id ? 'Simpan' : 'Tambah'"></button>
@@ -441,6 +513,6 @@ export function notesPage() {
         </div>
         <button @click="unitModal=false" class="w-full mt-4 px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Tutup</button>
       </div>
-    </div>
+    </div>` : ''}
   </div>`;
 }

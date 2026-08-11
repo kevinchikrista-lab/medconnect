@@ -203,7 +203,8 @@ router.beforeEach = (path, meta) => {
   // (CONFIG.NOTES_MANAGER_EMAILS). Super Admin pun tidak. Pembatasan yang
   // sesungguhnya ada di RLS server; ini supaya halamannya tidak ikut terbuka.
   if (path.startsWith('/catatan')) {
-    if (store.canManageNotes(user)) return true;
+    // Pemilik boleh menulis; staf yang unitnya dibagikan boleh membaca saja.
+    if (store.canManageNotes(user) || store.canViewSharedNotes(user)) return true;
     window.location.hash = '#/login';
     return false;
   }

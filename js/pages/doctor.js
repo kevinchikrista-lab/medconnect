@@ -1993,7 +1993,7 @@ function doctorSidebar(active) {
     // dulu ke tampilan SuperAdmin. Dokter lain hanya melihat tugasnya sendiri.
     { id: 'tugas', label: store.canManageTasks(user) ? 'To-Do & Tugas' : 'Tugas Saya', icon: 'checklist', href: '#/tugas', badge: openTaskCount(user) },
     // Catatan Bisnis — pribadi, hanya muncul untuk akun pemilik klinik.
-    ...(store.canManageNotes(user) ? [{ id: 'catatan', label: 'Catatan Bisnis', icon: 'menu_book', href: '#/catatan' }] : []),
+    ...((store.canManageNotes(user) || store.canViewSharedNotes(user)) ? [{ id: 'catatan', label: 'Catatan Bisnis', icon: 'menu_book', href: '#/catatan' }] : []),
   ];
   return `
   <div x-show="sideOpen" x-cloak x-transition.opacity @click="sideOpen=false" class="fixed inset-0 bg-black/40 z-[35] lg:hidden"></div>
