@@ -58,6 +58,12 @@ export function umrohXData() {
       this.loading = true;
       try { await window.__store.loadUmrohSales(); } catch (e) {}
       this.refresh();
+      // Rentang bawaan mengikuti DATANYA, bukan bulan berjalan. Laporan kasir
+      // hampir selalu diunggah untuk periode yang sudah lewat; kalau bawaannya
+      // bulan ini, travel yang hanya beroperasi bulan sebelumnya lenyap dari
+      // daftar dan terlihat seperti datanya tidak terbaca.
+      const r = window.__store.umrohDateRange();
+      if (r.min && r.max) { this.from = r.min; this.to = r.max; }
       this.loading = false;
     },
     refresh() { this.rows = window.__store.getUmrohEntries({}); },
@@ -100,6 +106,9 @@ export function umrohXData() {
     get summary() { return window.__store.umrohSummary(this.shown); },
     get travels() { return window.__store.umrohTravels(this.inRange); },
     get doctors() { return window.__store.umrohDoctors(this.inRange); },
+    // Berapa yang tersembunyi hanya gara-gara rentang tanggalnya.
+    get outsideCount() { return this.rows.length - this.inRange.length; },
+    showAllDates() { const r = window.__store.umrohDateRange(); this.from = r.min || ''; this.to = r.max || ''; },
     get anyFilter() { return !!(this.q || this.fDoctor || this.fService || this.fCashback || this.fTravel); },
     clearFilters() { this.q = ''; this.fDoctor = ''; this.fService = ''; this.fCashback = ''; this.fTravel = ''; },
 
@@ -297,6 +306,12 @@ export function umrohBody() {
       </div>
     </div>
     <p x-show="rangeInvalid" x-cloak class="text-xs text-red-600 mt-2">Tanggal awal melewati tanggal akhir &mdash; tidak ada data yang bisa ditampilkan.</p>
+    <!-- Peringatan ini yang mencegah data terbaca "hilang" padahal hanya
+         tersembunyi rentang tanggalnya. -->
+    <p x-show="!loading && outsideCount > 0" x-cloak class="text-xs text-amber-700 mt-2">
+      <b><span x-text="outsideCount"></span> jemaah</b> tidak ditampilkan karena berada di luar rentang tanggal ini.
+      <button @click="showAllDates()" class="ml-1 font-semibold text-brand-dark underline">Tampilkan semua tanggal</button>
+    </p>
   </div>
 
   <!-- Ringkasan -->

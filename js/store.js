@@ -2896,6 +2896,20 @@ class Store {
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }
 
+  // Rentang tanggal yang benar-benar ada datanya. Halaman memakai ini sebagai
+  // rentang bawaan, BUKAN "bulan berjalan": laporan penjualan hampir selalu
+  // diunggah untuk periode yang sudah lewat, jadi bawaan "bulan ini" membuat
+  // sebagian besar datanya tidak tampil — dan travel yang kebetulan hanya
+  // beroperasi di bulan sebelumnya lenyap sama sekali dari daftar.
+  umrohDateRange() {
+    const tgl = (this.data.umroh_sales || [])
+      .map(r => String(r.sold_date || '').slice(0, 10))
+      .filter(Boolean)
+      .sort();
+    if (!tgl.length) return { min: '', max: '' };
+    return { min: tgl[0], max: tgl[tgl.length - 1] };
+  }
+
   umrohTravels(entries) {
     const names = new Set();
     (entries || []).forEach(e => { if (e.travel) names.add(e.travel); });
