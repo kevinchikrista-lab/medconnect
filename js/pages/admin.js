@@ -1555,7 +1555,7 @@ function adminSidebar(active) {
     // store.canManageTasks(). Akun lain tidak melihat menunya sama sekali.
     ...(store.canManageTasks(user) ? [{ id: 'tasks', label: 'To-Do & Tugas', icon: 'checklist', href: '#/admin/tasks' }] : []),
     // Catatan Bisnis lebih tertutup: Super Admin tidak melihatnya sama sekali.
-    ...(store.canManageNotes(user) ? [{ id: 'catatan', label: 'Catatan Bisnis', icon: 'menu_book', href: '#/catatan' }] : []),
+    ...((store.canManageNotes(user) || store.canViewSharedNotes(user)) ? [{ id: 'catatan', label: 'Catatan Bisnis', icon: 'menu_book', href: '#/catatan' }] : []),
     { id: 'users', label: 'Manajemen User', icon: 'group' },
     { id: 'patients', label: 'Rekam Medis Pasien', icon: 'clinical_notes', href: '#/admin/patients' },
     { id: 'services', label: 'Layanan', icon: 'medical_services' },

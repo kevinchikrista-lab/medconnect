@@ -46,14 +46,17 @@ const RECURRENCES = [
   { key: 'yearly', label: 'Tahunan' },
 ];
 
-// Empat kolom papan. Tiga yang pertama adalah tahapan pekerjaan sendiri
-// (todo → focus → done); "delegasi" bukan tahapan melainkan sudut pandang —
-// isinya tugas yang dikerjakan orang lain. Lihat store.groupTasksByColumn.
+// Kolom papan. Yang pertama, kedua, dan keempat adalah tahapan pekerjaan
+// sendiri (todo → focus → review → done); "delegasi" bukan tahapan melainkan
+// sudut pandang — isinya tugas yang dikerjakan orang lain. Lihat
+// store.groupTasksByColumn.
 const COLUMNS = [
   { key: 'todo', label: 'To-Do', icon: 'radio_button_unchecked', tone: 'text-slate-600', bar: 'bg-slate-300',
     empty: 'Belum ada tugas di daftar.' },
   { key: 'focus', label: 'Fokus Sekarang', icon: 'bolt', tone: 'text-amber-600', bar: 'bg-amber-400',
     empty: 'Belum ada yang sedang dikerjakan.' },
+  { key: 'review', label: 'Menunggu Tinjauan', icon: 'rate_review', tone: 'text-indigo-600', bar: 'bg-indigo-400',
+    empty: 'Tidak ada hasil kerja yang menunggu ditinjau.' },
   { key: 'delegated', label: 'Delegasi', icon: 'group', tone: 'text-blue-600', bar: 'bg-blue-400',
     empty: 'Belum ada tugas yang diberikan ke orang lain.' },
   { key: 'done', label: 'Selesai', icon: 'task_alt', tone: 'text-green-600', bar: 'bg-green-400',
@@ -144,13 +147,46 @@ export function tasksXData(mode) {
       return all.length - window.__store.recentlyDone(all, ${DONE_WINDOW_DAYS}).length;
     },
     get focusOverload() { return this.colCount('focus') > ${FOCUS_SOFT_LIMIT}; },
-    get openCount() { return this.colCount('todo') + this.colCount('focus') + this.colCount('delegated'); },
+    get openCount() { return this.colCount('todo') + this.colCount('focus') + this.colCount('review') + this.colCount('delegated'); },
     get overdueCount() {
-      return ['todo', 'focus', 'delegated'].reduce((s, k) => s + this.colTimeCount(k, 'overdue'), 0);
+      return ['todo', 'focus', 'review', 'delegated'].reduce((s, k) => s + this.colTimeCount(k, 'overdue'), 0);
     },
 
     status(t) { return window.__store.taskStatus(t); },
     isMine(t) { return window.__store.isMyTask(t, this.me); },
+
+    // ---- Peninjauan hasil kerja ----
+    // Pekerjaan yang didelegasikan tidak ditutup sendiri oleh yang
+    // mengerjakannya; dia mengajukannya, pemberi tugas yang menutup.
+    canDone(t) { return window.__store.canCompleteTask(t, this.me); },
+    inReview(t) { return window.__store.awaitingReview(t); },
+    myReview(t) { return window.__store.needsMyReview(t, this.me); },
+    reviewerName(t) { return window.__store.staffName(t.created_by); },
+    get reviewCount() { return this.colList('review').filter(t => this.myReview(t)).length; },
+    async askReview(t) {
+      const note = window.prompt('Ringkasan hasil kerja untuk ' + this.reviewerName(t) + ' (boleh dikosongkan):', t.review_note || '');
+      if (note === null) return;
+      const r = await window.__store.requestReview(t.id, this.me, note);
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      if (this.timerId === t.id) this.timerOpen = false;
+      this.refresh();
+      window.__showToast && window.__showToast('Diajukan', 'Hasil kerja dikirim ke ' + this.reviewerName(t) + ' untuk ditinjau.');
+    },
+    async approve(t) {
+      const r = await window.__store.approveTask(t.id, this.me);
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      this.refresh();
+      if (r && r.next) window.__showToast && window.__showToast('Tugas berulang', 'Dijadwalkan lagi: ' + this.fmtDate(r.next.due_date) + '.');
+      else window.__showToast && window.__showToast('Selesai', 'Hasil kerja disetujui dan tugasnya ditutup.');
+    },
+    async sendBack(t) {
+      const note = window.prompt('Apa yang perlu diperbaiki? (akan dikirim ke ' + this.staffName(t.assignee_id) + ')', '');
+      if (note === null) return;
+      const r = await window.__store.returnTask(t.id, this.me, note);
+      if (r && r.error) { window.__showToast && window.__showToast('Belum bisa dikembalikan', r.error); return; }
+      this.refresh();
+      window.__showToast && window.__showToast('Dikembalikan', 'Tugas dikembalikan ke ' + this.staffName(t.assignee_id) + ' untuk diperbaiki.');
+    },
 
     // ---- Acara ----
     isEvent(t) { return window.__store.isEvent(t); },
@@ -304,7 +340,15 @@ export function tasksXData(mode) {
       window.__showToast && window.__showToast('Tersimpan', this.editing ? 'Tugas diperbarui.' : 'Tugas baru ditambahkan.');
     },
 
-    async toggle(t) { await this.move(t, this.status(t) === 'done' ? 'todo' : 'done'); },
+    // Centang cepat mengikuti aturan yang sama dengan tombol besarnya:
+    // yang menerima delegasi mengajukan, yang memberi delegasi menutup.
+    async toggle(t) {
+      const s = this.status(t);
+      if (s === 'done') return this.move(t, 'todo');
+      if (s === 'review') { if (this.myReview(t)) await this.approve(t); return; }
+      if (!this.canDone(t)) return this.askReview(t);
+      await this.move(t, 'done');
+    },
     async toggleSub(t, i) { await window.__store.toggleSubtask(t.id, i); this.refresh(); },
     async addSubTo(t) {
       const v = window.prompt('Sub-tugas baru untuk: ' + t.title);
@@ -347,10 +391,11 @@ function taskCard(mode, source) {
   <template x-for="t in ${source}" :key="t.id">
     <div class="bg-white border border-slate-100 rounded-2xl p-3.5 hover:border-slate-200 transition">
       <div class="flex items-start gap-3">
-        <button @click="toggle(t)" :title="status(t) === 'done' ? 'Batalkan centang' : 'Tandai selesai'"
+        <button @click="toggle(t)" :title="status(t) === 'done' ? 'Batalkan centang' : (inReview(t) ? (myReview(t) ? 'Setujui &amp; tandai selesai' : 'Sedang menunggu ditinjau') : (canDone(t) ? 'Tandai selesai' : 'Mohon peninjauan hasil kerja'))"
           class="mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition"
-          :class="status(t) === 'done' ? 'bg-green-500 border-green-500' : 'border-slate-300 hover:border-green-500'">
-          <span class="ms text-[13px] text-white" x-show="status(t) === 'done'">check</span>
+          :class="status(t) === 'done' ? 'bg-green-500 border-green-500' : (inReview(t) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300 hover:border-green-500')">
+          <span class="ms text-[13px] text-white" x-show="status(t) === 'done' || inReview(t)" x-cloak
+            x-text="inReview(t) ? 'hourglass_bottom' : 'check'"></span>
         </button>
         <div class="flex-1 min-w-0">
           <div class="flex items-start gap-2 flex-wrap">
@@ -360,12 +405,31 @@ function taskCard(mode, source) {
 
           <!-- Kolom Delegasi: yang paling ingin diketahui pemberi tugas adalah
                apakah penerimanya sudah menyentuhnya atau belum. -->
-          <div class="mt-1.5" x-show="!isMine(t) && status(t) !== 'done'" x-cloak>
+          <div class="mt-1.5" x-show="!isMine(t) && status(t) !== 'done' && !inReview(t)" x-cloak>
             <span x-show="status(t) === 'focus'" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700">
               <span class="ms text-[13px]">bolt</span><span x-text="'Sedang dikerjakan ' + staffName(t.assignee_id) + (focusSince(t) ? ' \\u00b7 mulai ' + focusSince(t) : '')"></span>
             </span>
             <span x-show="status(t) !== 'focus'" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500">
               <span class="ms text-[13px]">schedule</span>Belum disentuh
+            </span>
+          </div>
+
+          <!-- Menunggu tinjauan: yang paling perlu terbaca adalah bolanya ada
+               di tangan siapa sekarang. -->
+          <div class="mt-1.5" x-show="inReview(t)" x-cloak>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+              :class="myReview(t) ? 'bg-indigo-100 text-indigo-800' : 'bg-indigo-50 text-indigo-700'">
+              <span class="ms text-[13px]">rate_review</span>
+              <span x-text="myReview(t) ? ('Perlu Anda tinjau \\u00b7 dikerjakan ' + staffName(t.assignee_id)) : ('Menunggu ditinjau ' + reviewerName(t))"></span>
+            </span>
+            <p class="text-[11px] text-slate-500 mt-1 whitespace-pre-line" x-show="t.review_note" x-cloak x-text="'Catatan: ' + t.review_note"></p>
+          </div>
+
+          <!-- Sudah pernah ditinjau lalu dikembalikan: alasannya tetap
+               menempel di kartunya, bukan hanya lewat sekali di notifikasi. -->
+          <div class="mt-1.5" x-show="!inReview(t) && status(t) !== 'done' && t.review_note" x-cloak>
+            <span class="inline-flex items-start gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-orange-50 text-orange-800">
+              <span class="ms text-[13px] mt-px">undo</span><span class="whitespace-pre-line" x-text="'Dikembalikan: ' + t.review_note"></span>
             </span>
           </div>
           <div class="flex items-center gap-2 flex-wrap mt-1.5 text-[11px]">
@@ -421,8 +485,22 @@ function taskCard(mode, source) {
               <span class="ms text-[13px]" x-text="running(t) ? 'timer' : 'play_arrow'"></span><span x-text="running(t) ? 'Buka timer' : 'Lanjutkan'"></span></button>
             <button @click="move(t, 'todo')" x-show="!isEvent(t) && isMine(t) && status(t) === 'focus'" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Tunda ke To-Do</button>
-            <button @click="move(t, 'done')" x-show="status(t) !== 'done'" x-cloak
+
+            <!-- Menutup tugas hanya untuk yang berhak: pekerjaan sendiri, atau
+                 pekerjaan yang Anda delegasikan setelah Anda tinjau. -->
+            <button @click="move(t, 'done')" x-show="status(t) !== 'done' && !inReview(t) && canDone(t)" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-semibold text-green-700 bg-green-50 hover:bg-green-100 transition" x-text="isEvent(t) ? 'Sudah dihadiri' : 'Selesai'"></button>
+            <button @click="askReview(t)" x-show="status(t) !== 'done' && !inReview(t) && !canDone(t)" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition flex items-center gap-1">
+              <span class="ms text-[13px]">rate_review</span>Mohon Peninjauan Hasil Kerja</button>
+            <button @click="approve(t)" x-show="inReview(t) && myReview(t)" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-green-700 bg-green-50 hover:bg-green-100 transition flex items-center gap-1">
+              <span class="ms text-[13px]">check</span>Setujui &amp; Selesai</button>
+            <button @click="sendBack(t)" x-show="inReview(t) && myReview(t)" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 transition">Kembalikan</button>
+            <button @click="move(t, 'todo')" x-show="inReview(t) && !myReview(t) && isMine(t)" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Tarik kembali</button>
+
             <button @click="move(t, 'todo')" x-show="status(t) === 'done'" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">Buka lagi</button>
             <button @click="toggleExpand(t.id)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition" x-text="expanded === t.id ? 'Tutup' : 'Rincian'"></button>
@@ -464,8 +542,8 @@ export function calendarTasksXData() {
     taskCountOn(dateStr) { return this.allTasks.filter(t => t.due_date === dateStr && t.status !== 'done').length; },
     taskPrioLabel(p) { return ({ urgent:'Mendesak', high:'Penting', normal:'Biasa', low:'Santai' })[p] || 'Biasa'; },
     taskPrioChip(p) { return ({ urgent:'bg-red-100 text-red-700', high:'bg-orange-100 text-orange-700', normal:'bg-blue-100 text-blue-700', low:'bg-slate-100 text-slate-600' })[p] || 'bg-blue-100 text-blue-700'; },
-    taskStatusLabel(s) { return s === 'done' ? 'Selesai' : (s === 'focus' ? 'Dikerjakan' : 'Belum'); },
-    taskStatusChip(s) { return s === 'done' ? 'bg-green-100 text-green-700' : (s === 'focus' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'); }`;
+    taskStatusLabel(s) { return ({ done:'Selesai', focus:'Dikerjakan', review:'Ditinjau' })[s] || 'Belum'; },
+    taskStatusChip(s) { return ({ done:'bg-green-100 text-green-700', focus:'bg-amber-100 text-amber-700', review:'bg-indigo-100 text-indigo-700' })[s] || 'bg-gray-100 text-gray-600'; }`;
 }
 
 // `showDivider` = ekspresi Alpine yang menentukan apakah judul pemisah perlu
@@ -563,7 +641,8 @@ function focusOverlay() {
           class="px-6 py-3 rounded-2xl text-sm font-bold bg-green-500 hover:bg-green-400 transition flex items-center gap-2"><span class="ms text-[18px]">play_arrow</span>Lanjutkan</button>
         <button x-show="timerTask && running(timerTask)" x-cloak @click="pauseT(timerTask)"
           class="px-6 py-3 rounded-2xl text-sm font-bold bg-white/10 hover:bg-white/20 transition flex items-center gap-2"><span class="ms text-[18px]">pause</span>Jeda</button>
-        <button @click="move(timerTask, 'done')" class="px-6 py-3 rounded-2xl text-sm font-bold bg-green-600 hover:bg-green-500 transition flex items-center gap-2"><span class="ms text-[18px]">check</span>Selesai</button>
+        <button @click="move(timerTask, 'done')" x-show="canDone(timerTask)" class="px-6 py-3 rounded-2xl text-sm font-bold bg-green-600 hover:bg-green-500 transition flex items-center gap-2"><span class="ms text-[18px]">check</span>Selesai</button>
+        <button @click="askReview(timerTask)" x-show="!canDone(timerTask)" x-cloak class="px-6 py-3 rounded-2xl text-sm font-bold bg-indigo-600 hover:bg-indigo-500 transition flex items-center gap-2"><span class="ms text-[18px]">rate_review</span>Mohon Peninjauan</button>
         <button @click="move(timerTask, 'todo')" class="px-4 py-3 rounded-2xl text-sm font-medium bg-white/5 hover:bg-white/10 transition">Tunda</button>
         <button @click="resetT(timerTask)" class="px-4 py-3 rounded-2xl text-sm font-medium text-slate-400 hover:text-white hover:bg-white/10 transition">Nolkan</button>
       </div>
@@ -646,6 +725,9 @@ export function tasksBody(mode) {
       ${col.key === 'focus' ? `<div x-show="focusOverload" x-cloak class="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
         <p class="text-[11px] text-amber-800 leading-relaxed">Kolom Fokus sudah berisi <b><span x-text="colCount('focus')"></span> tugas</b>. Kalau semuanya "sedang dikerjakan", kolom ini berubah jadi To-Do kedua &mdash; pertimbangkan menunda sebagian.</p>
       </div>` : ''}
+      ${col.key === 'review' ? `<div x-show="reviewCount" x-cloak class="mb-3 px-3 py-2 rounded-xl bg-indigo-50 border border-indigo-100">
+        <p class="text-[11px] text-indigo-800 leading-relaxed"><b><span x-text="reviewCount"></span> hasil kerja</b> menunggu peninjauan Anda. Tekan <b>Setujui &amp; Selesai</b> bila sudah benar, atau <b>Kembalikan</b> beserta catatan perbaikannya.</p>
+      </div>` : ''}
       ${columnInner(col)}
       <div x-show="!colCount('${col.key}')" x-cloak class="rounded-2xl border border-dashed border-slate-200 p-5 text-center">
         <p class="text-[11px] text-gray-400">${col.empty}</p>
@@ -657,7 +739,7 @@ export function tasksBody(mode) {
     <div>
       <h2 class="text-xl font-bold text-gray-800">${canManage ? 'To-Do &amp; Tugas' : 'Tugas Saya'}</h2>
       <p class="text-sm text-gray-500 mt-0.5">
-        <span x-text="openCount"></span> tugas belum selesai<span x-show="overdueCount" x-cloak>, <b class="text-red-600"><span x-text="overdueCount"></span> terlambat</b></span>.
+        <span x-text="openCount"></span> tugas belum selesai<span x-show="overdueCount" x-cloak>, <b class="text-red-600"><span x-text="overdueCount"></span> terlambat</b></span><span x-show="reviewCount" x-cloak>, <b class="text-indigo-600"><span x-text="reviewCount"></span> menunggu tinjauan Anda</b></span>.
       </p>
     </div>
     ${canManage ? `<div class="flex gap-2">
@@ -689,7 +771,7 @@ export function tasksBody(mode) {
   <div x-show="loading" class="bg-white rounded-2xl border border-slate-100 p-8 text-center text-sm text-gray-400">Memuat tugas...</div>
 
   <div x-show="!loading" x-cloak>
-    <div class="grid grid-cols-1 ${canManage ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4 items-start">
+    <div class="grid grid-cols-1 ${canManage ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4 items-start">
       ${columns}
     </div>
 
@@ -791,12 +873,13 @@ export function tasksBody(mode) {
   </div>
 
   <div class="mt-6 bg-blue-50 border border-blue-100 rounded-2xl p-4">
-    <p class="text-xs text-blue-800 leading-relaxed"><b>Cara pakai papan ini:</b> <b>To-Do</b> berisi tugas Anda sendiri yang belum dimulai, <b>Fokus Sekarang</b> yang sedang dikerjakan, <b>Delegasi</b> yang Anda berikan ke orang lain, dan <b>Selesai</b> yang sudah beres (${DONE_WINDOW_DAYS} hari terakhir). Di dalam tiap kolom, tugas tetap diurutkan menurut jatuh temponya &mdash; Terlambat, Hari Ini, Besok, dan seterusnya.</p>
+    <p class="text-xs text-blue-800 leading-relaxed"><b>Cara pakai papan ini:</b> <b>To-Do</b> berisi tugas Anda sendiri yang belum dimulai, <b>Fokus Sekarang</b> yang sedang dikerjakan, <b>Menunggu Tinjauan</b> hasil kerja yang sudah diajukan tapi belum Anda setujui, <b>Delegasi</b> yang Anda berikan ke orang lain, dan <b>Selesai</b> yang sudah beres (${DONE_WINDOW_DAYS} hari terakhir). Di dalam tiap kolom, tugas tetap diurutkan menurut jatuh temponya &mdash; Terlambat, Hari Ini, Besok, dan seterusnya.</p>
+    <p class="text-xs text-blue-800 leading-relaxed mt-1.5">Tugas yang Anda delegasikan <b>tidak bisa ditutup sendiri</b> oleh penerimanya. Yang bisa dia tekan hanya <b>Mohon Peninjauan Hasil Kerja</b>; tugasnya lalu pindah ke <b>Menunggu Tinjauan</b>, dan Anda yang menekan <b>Setujui &amp; Selesai</b> &mdash; atau <b>Kembalikan</b> beserta catatan apa yang perlu diperbaiki.</p>
     <p class="text-xs text-blue-800 leading-relaxed mt-2">Tugas di kolom <b>Delegasi</b> ikut menunjukkan apakah penerimanya sudah mulai mengerjakan: begitu dia menekan <b>Kerjakan sekarang</b> di halaman tugasnya, kartunya di sini bertanda <b>Sedang dikerjakan</b> lengkap dengan sejak kapan. Jadi yang mandek langsung kelihatan tanpa perlu bertanya.</p>
     <p class="text-xs text-blue-800 leading-relaxed mt-2">Tugas <b>berulang</b> otomatis dijadwalkan lagi begitu ditandai selesai (yang lama tetap tersimpan sebagai riwayat). Tombol <b>Ingatkan via WA</b> membuka WhatsApp dengan pesan siap kirim ke staf penerima &mdash; pesannya tidak terkirim sendiri, Anda tetap menekan tombol kirim di WhatsApp.</p>
   </div>` : `
   <div class="mt-6 bg-blue-50 border border-blue-100 rounded-2xl p-4">
-    <p class="text-xs text-blue-800 leading-relaxed">Ini tugas yang didelegasikan kepada Anda. Tekan <b>Kerjakan sekarang</b> saat mulai mengerjakannya &mdash; tugasnya pindah ke kolom <b>Fokus Sekarang</b>, dan pemberi tugas ikut melihat bahwa Anda sudah memulainya. Tekan <b>Selesai</b> bila sudah beres, dan centang sub-tugas satu per satu untuk pekerjaan bertahap. Yang membuat tugas hanya Super Admin / Owner.</p>
+    <p class="text-xs text-blue-800 leading-relaxed">Ini tugas yang didelegasikan kepada Anda. Tekan <b>Kerjakan sekarang</b> saat mulai mengerjakannya &mdash; tugasnya pindah ke kolom <b>Fokus Sekarang</b>, dan pemberi tugas ikut melihat bahwa Anda sudah memulainya. Bila sudah beres, tekan <b>Mohon Peninjauan Hasil Kerja</b>: tugasnya pindah ke <b>Menunggu Tinjauan</b> dan pemberi tugas yang menutupnya setelah memeriksa. Centang sub-tugas satu per satu untuk pekerjaan bertahap. Yang membuat tugas hanya Super Admin / Owner.</p>
   </div>`}`;
 }
 
