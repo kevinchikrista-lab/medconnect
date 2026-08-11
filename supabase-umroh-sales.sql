@@ -20,6 +20,25 @@
 -- kalau ikut ditimpa, tanda "sudah dibayar" akan hilang setiap kali laporan
 -- bulan berjalan diunggah lagi.
 --
+-- CASHBACK DIHITUNG OTOMATIS dari selisih harga jual dengan harga dasar
+-- klinik (CONFIG.UMROH_CASHBACK_BASE): combo di atas Rp450.000, polio di atas
+-- Rp260.000. Angkanya tetap bisa diubah tangan; yang diubah ditandai
+-- cashback_manual dan tidak pernah tertimpa hitungan otomatis maupun unggahan
+-- berikutnya — sama seperti travel yang diisi tangan.
+--
+-- ALUR PEMBAYARAN CASHBACK ada tiga keadaan, tidak lebih:
+--
+--   belum  →  diajukan (admin mencentang & mengajukan)  →  dibayar (ACC)
+--
+-- Yang mengajukan boleh siapa saja yang membuka halaman ini; yang meng-ACC
+-- hanya pemilik klinik. Ini memisahkan dua pekerjaan yang memang berbeda:
+-- menyusun tagihan itu kerja administrasi, sedangkan menyatakan uangnya sudah
+-- keluar adalah keputusan yang memegang uangnya.
+--
+-- ACC BERARTI SUDAH DIBAYAR — sengaja tidak dipisah jadi "disetujui" lalu
+-- "dibayar". Kalau dipisah, akan ada keadaan menggantung yang tidak dilihat
+-- siapa pun, dan justru itu yang membuat cashback terlupakan.
+--
 -- TRAVEL YANG DIISI TANGAN juga tidak ikut tertimpa. Kolom Sales di kasir
 -- kadang terlewat diisi, dan mengejar kasir untuk memperbaikinya lalu
 -- mengekspor ulang tidak selalu memungkinkan. Karena itu ada tiga kolom:
@@ -56,9 +75,17 @@ CREATE TABLE IF NOT EXISTS public.umroh_sales (
 
   -- ---- Catatan klinik (TIDAK ikut tertimpa saat unggah ulang) ----
   cashback_amount integer DEFAULT 0,
+  cashback_manual boolean DEFAULT false, -- true = diatur tangan, jangan dihitung ulang
   cashback_paid   boolean DEFAULT false,
   cashback_at     timestamptz,
-  cashback_by     uuid,                 -- profiles.id yang menandai
+  cashback_by     uuid,                 -- profiles.id yang meng-ACC
+
+  -- Pengajuan pembayaran: admin mencentang & mengajukan, pemilik klinik ACC.
+  cashback_batch        text,           -- penanda satu pengajuan, mis. 'PB-...'
+  cashback_requested_at timestamptz,
+  cashback_requested_by uuid,           -- profiles.id yang mengajukan
+  cashback_request_note text,
+  cashback_reject_note  text,
 
   -- ---- Jejak unggahan ----
   imported_at   timestamptz,
@@ -89,7 +116,15 @@ CREATE INDEX IF NOT EXISTS idx_umroh_sales_cashback_due
 -- Aman dijalankan pada tabel yang sudah terlanjur dibuat versi sebelumnya.
 ALTER TABLE public.umroh_sales
   ADD COLUMN IF NOT EXISTS travel_source text,
-  ADD COLUMN IF NOT EXISTS travel_manual boolean DEFAULT false;
+  ADD COLUMN IF NOT EXISTS travel_manual boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS cashback_batch text,
+  ADD COLUMN IF NOT EXISTS cashback_requested_at timestamptz,
+  ADD COLUMN IF NOT EXISTS cashback_requested_by uuid,
+  ADD COLUMN IF NOT EXISTS cashback_request_note text,
+  ADD COLUMN IF NOT EXISTS cashback_reject_note text,
+  ADD COLUMN IF NOT EXISTS cashback_manual boolean DEFAULT false;
+
+UPDATE public.umroh_sales SET cashback_manual = false WHERE cashback_manual IS NULL;
 
 UPDATE public.umroh_sales SET travel_manual = false WHERE travel_manual IS NULL;
 -- Baris yang sudah ada sebelum kolom ini lahir: nilai kasirnya sama dengan
@@ -100,6 +135,11 @@ UPDATE public.umroh_sales SET travel_source = travel_name WHERE travel_source IS
 CREATE INDEX IF NOT EXISTS idx_umroh_sales_tanpa_travel
   ON public.umroh_sales (sold_date)
   WHERE travel_name IS NULL OR travel_name = '';
+
+-- Antrean "menunggu ACC", diambil per pengajuan.
+CREATE INDEX IF NOT EXISTS idx_umroh_sales_pengajuan
+  ON public.umroh_sales (cashback_batch)
+  WHERE cashback_requested_at IS NOT NULL AND cashback_paid IS NOT TRUE;
 
 ALTER TABLE public.umroh_sales ENABLE ROW LEVEL SECURITY;
 
@@ -121,6 +161,8 @@ SELECT to_char(sold_date, 'YYYY-MM')                                     AS bula
        count(*) FILTER (WHERE travel_manual)                            AS diisi_manual,
        COALESCE(sum(price), 0)                                          AS nilai_penjualan,
        COALESCE(sum(cashback_amount) FILTER (WHERE NOT cashback_paid), 0) AS cashback_belum_dibayar,
-       COALESCE(sum(cashback_amount) FILTER (WHERE cashback_paid), 0)     AS cashback_sudah_dibayar
+       COALESCE(sum(cashback_amount) FILTER (WHERE cashback_paid), 0)     AS cashback_sudah_dibayar,
+       COALESCE(sum(cashback_amount) FILTER (WHERE cashback_requested_at IS NOT NULL
+                                               AND NOT cashback_paid), 0)  AS menunggu_acc
 FROM public.umroh_sales
 GROUP BY 1, 2 ORDER BY 1 DESC, 3 DESC;

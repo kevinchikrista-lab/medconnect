@@ -78,7 +78,19 @@ function scanXDataBuilders(path) {
     let j = open + 1;
     while (j < text.length) {
       const c = text[j], c2 = text[j + 1];
-      if (c === '\\') { j += 2; continue; }
+      if (c === '\\') {
+        // \n di dalam template literal menghasilkan BARIS BARU sungguhan pada
+        // atribut x-data, yang memutus string JS di dalamnya dan membuat Alpine
+        // gagal menyalakan seluruh halaman. Yang benar \\n (dua garis miring),
+        // supaya yang sampai ke atribut tetap berupa escape, bukan baris baru.
+        if (c2 === 'n' || c2 === 'r') {
+          const line = text.slice(0, j).split('\n').length;
+          const ctx = text.slice(Math.max(0, j - 70), j + 20).replace(/\n/g, ' ');
+          console.error(`❌ ${path}:${line} — \\${c2} di dalam ${m[1]}() menghasilkan baris baru sungguhan pada x-data (pakai \\\\${c2})\n   ...${ctx}...`);
+          failures++;
+        }
+        j += 2; continue;
+      }
       if (c === '`') break;                       // akhir template literal
       if (c === '$' && c2 === '{') {              // interpolasi: dinilai saat render
         let d = 1; j += 2;

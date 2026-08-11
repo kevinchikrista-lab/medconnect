@@ -32,6 +32,7 @@ function monthStart() {
 export function umrohSetup() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   window.__umrohCanCash = store.canMarkCashback(user) === true;
+  window.__umrohUser = user || null;
   window.__umrohMe = (user && user.id) || '';
   window.__umrohToday = todayStr();
   window.__umrohMonthStart = monthStart();
@@ -50,6 +51,7 @@ export function umrohXData() {
     q: '', fDoctor: '', fService: '', fCashback: '', fTravel: '',
     editKey: '', draftCash: 0, saving: false,
     travelKey: '', draftTravel: '',
+    picked: [], reqBusy: false,
     impOpen: false, impBusy: false, impName: '', impErr: '', impPreview: null, impStats: null,
     rateOpen: false, rateTravel: '', rateAmount: 0, rateBusy: false,
     waOpen: false, waTravel: '', waPhone: '', waUnpaidOnly: true, waText: '', waMarking: false,
@@ -93,8 +95,9 @@ export function umrohXData() {
       return this.inRange.filter(r => {
         if (this.fDoctor && r.doctor_name !== this.fDoctor) return false;
         if (this.fService && r.service !== this.fService) return false;
-        if (this.fCashback === 'paid' && !r.paid) return false;
-        if (this.fCashback === 'unpaid' && r.paid) return false;
+        if (this.fCashback === 'paid' && r.cb_state !== 'paid') return false;
+        if (this.fCashback === 'requested' && r.cb_state !== 'requested') return false;
+        if (this.fCashback === 'unpaid' && r.cb_state !== 'none') return false;
         // __none menjaring yang travelnya kosong di berkas kasir — itu justru
         // daftar kerja yang perlu ditelusuri, bukan sampah data.
         if (this.fTravel === '__none' && r.travel) return false;
@@ -156,6 +159,86 @@ export function umrohXData() {
       window.__showToast && window.__showToast('Berkas terbaca',
         res.baru + ' jemaah baru, ' + res.diperbarui + ' diperbarui, ' + res.sama + ' sudah sama.');
     },
+
+    // ---- Cashback otomatis ----
+    // Dihitung dari selisih harga jual dengan harga dasar klinik. Isian tangan
+    // tetap menang dan tidak pernah tertimpa — lihat store.umrohAutoCashback.
+    hitungUlang() {
+      const res = window.__store.recalcUmrohCashback(this.shown.map(r => r.id));
+      this.refresh();
+      window.__showToast && window.__showToast('Cashback dihitung ulang',
+        res.diubah + ' baris diperbarui, ' + res.dilewati + ' dilewati (diatur manual atau sudah dibayar).'
+        + (res.perluCek ? ' ' + res.perluCek + ' perlu diperiksa.' : ''));
+    },
+    resetCash(r) {
+      const res = window.__store.resetUmrohCashback(r.id);
+      if (res && res.error) { window.__showToast && window.__showToast('Gagal', res.error); return; }
+      this.editKey = ''; this.refresh();
+      window.__showToast && window.__showToast('Kembali otomatis', r.patient_name + ' \u2192 ' + this.rupiah(res.amount));
+    },
+
+    // ---- Centang & ajukan pembayaran ----
+    // Admin menyusun tagihannya, pemilik klinik yang meng-ACC. ACC berarti
+    // sudah dibayar — tidak ada langkah ketiga yang bisa menggantung.
+    isPicked(r) { return this.picked.indexOf(r.id) !== -1; },
+    togglePick(r) {
+      const i = this.picked.indexOf(r.id);
+      if (i === -1) this.picked.push(r.id); else this.picked.splice(i, 1);
+    },
+    // Yang sudah dibayar tidak bisa dicentang — kalau bisa, satu jemaah dapat
+    // terbayar dua kali tanpa ada yang menyadarinya.
+    get pickable() { return this.shown.filter(r => !r.paid); },
+    get allPicked() { return this.pickable.length > 0 && this.pickable.every(r => this.isPicked(r)); },
+    toggleAll() {
+      if (this.allPicked) { this.picked = []; return; }
+      this.picked = this.pickable.map(r => r.id);
+    },
+    clearPick() { this.picked = []; },
+    get pickedRows() { return this.rows.filter(r => this.isPicked(r)); },
+    get pickedTotal() { return this.pickedRows.reduce((a, b) => a + (Number(b.cashback) || 0), 0); },
+    get pickedTravels() { return Array.from(new Set(this.pickedRows.map(r => r.travel).filter(Boolean))).sort(); },
+    ajukan() {
+      if (this.reqBusy || !this.picked.length) return;
+      // Satu pengajuan sebaiknya satu travel — itu yang nanti dibayarkan ke
+      // satu rekening. Bercampur travel masih diizinkan, tapi ditanyakan dulu.
+      if (this.pickedTravels.length > 1 &&
+        !confirm('Centangan ini bercampur ' + this.pickedTravels.length + ' travel (' + this.pickedTravels.join(', ') + '). Ajukan jadi satu?')) return;
+      this.reqBusy = true;
+      const res = window.__store.requestUmrohPayment(this.picked, this.me, '');
+      this.reqBusy = false;
+      if (res && res.error) { window.__showToast && window.__showToast('Belum bisa diajukan', res.error); return; }
+      this.picked = []; this.refresh();
+      window.__showToast && window.__showToast('Pengajuan terkirim',
+        res.count + ' jemaah, ' + this.rupiah(res.total) + ' menunggu ACC dr. Kevin.'
+        + (res.dilewati ? ' ' + res.dilewati + ' dilewati karena sudah dibayar.' : ''));
+    },
+
+    // ---- Panel ACC ----
+    get requests() { return window.__store.getUmrohPaymentRequests(this.inRange); },
+    accReq(g) {
+      if (!confirm('ACC pembayaran cashback ' + g.travel + ' \u2014 ' + g.count + ' jemaah, ' + this.rupiah(g.total) + '? Dengan meng-ACC, seluruh jemaah ini ditandai SUDAH dibayar.')) return;
+      const res = window.__store.approveUmrohPayment(g.ids, window.__umrohUser);
+      if (res && res.error) { window.__showToast && window.__showToast('Gagal', res.error); return; }
+      this.refresh();
+      window.__showToast && window.__showToast('Sudah dibayar', g.count + ' jemaah ' + g.travel + ' ditandai lunas.');
+    },
+    tolakReq(g) {
+      const note = window.prompt('Apa yang perlu diperbaiki dari pengajuan ' + g.travel + '?', '');
+      if (note === null) return;
+      const res = window.__store.rejectUmrohPayment(g.ids, window.__umrohUser, note);
+      if (res && res.error) { window.__showToast && window.__showToast('Belum bisa dikembalikan', res.error); return; }
+      this.refresh();
+      window.__showToast && window.__showToast('Dikembalikan', 'Pengajuan ' + g.travel + ' dikembalikan ke pengaju.');
+    },
+    batalReq(g) {
+      if (!confirm('Batalkan pengajuan ' + g.travel + ' (' + g.count + ' jemaah)?')) return;
+      const res = window.__store.cancelUmrohPayment(g.ids);
+      if (res && res.error) { window.__showToast && window.__showToast('Gagal', res.error); return; }
+      this.refresh();
+      window.__showToast && window.__showToast('Dibatalkan', 'Pengajuan ' + g.travel + ' ditarik kembali.');
+    },
+    cbLabel(r) { return r.cb_state === 'paid' ? 'Sudah' : (r.cb_state === 'requested' ? 'Diajukan' : 'Belum'); },
+    cbChip(r) { return r.cb_state === 'paid' ? 'bg-green-100 text-green-700' : (r.cb_state === 'requested' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'); },
 
     // ---- Isi travel secara manual ----
     // Kolom Sales di kasir kadang terlewat diisi. Isian di sini bertahan saat
@@ -279,6 +362,7 @@ export function umrohBody() {
       <button @click="openImport()" class="px-3 py-2 rounded-lg text-sm font-semibold text-white flex items-center gap-1.5" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
         <span class="ms text-[17px]">upload_file</span>Unggah Data Penjualan
       </button>
+      <button @click="hitungUlang()" :disabled="!shown.length" class="px-3 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition disabled:opacity-40" title="Hitung ulang cashback dari harga jual, tanpa menyentuh yang diatur manual">Hitung Ulang CB</button>
       <button @click="openRate('')" :disabled="!travels.length" class="px-3 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition disabled:opacity-40">Tarif Cashback</button>
       <button @click="openWa('')" :disabled="!travels.length" class="px-3 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40 flex items-center gap-1.5" style="background:#25D366">
         <span class="ms text-[17px]">forward_to_inbox</span>Kirim Rincian
@@ -319,7 +403,7 @@ export function umrohBody() {
     ${statCard('groups', 'linear-gradient(135deg,#7c3aed,#5b21b6)', 'summary.jamaah', 'Jemaah Divaksinasi', "summary.travels + ' travel'")}
     ${statCard('vaccines', '#0d9488', 'summary.combo + summary.meningitis', 'Dapat Meningitis', "summary.combo + ' combo, ' + summary.polio + ' polio saja'")}
     ${statCard('payments', '#e0a112', 'rupiah(summary.revenue)', 'Nilai Penjualan', "summary.jamaah + ' faktur'")}
-    ${statCard('redeem', '#dc2626', 'rupiah(summary.cashbackDue)', 'Cashback Belum Dibayar', "rupiah(summary.cashbackPaid) + ' sudah dibayar'")}
+    ${statCard('redeem', '#dc2626', 'rupiah(summary.cashbackDue)', 'Cashback Belum Dibayar', "summary.requestedCount ? (rupiah(summary.cashbackRequested) + ' menunggu ACC') : (rupiah(summary.cashbackPaid) + ' sudah dibayar')")}
   </div>
 
   <!-- Penyaring -->
@@ -336,6 +420,7 @@ export function umrohBody() {
     <select x-model="fCashback" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
       <option value="">Cashback: semua</option>
       <option value="paid">Sudah dibayar</option>
+      <option value="requested">Diajukan, menunggu ACC</option>
       <option value="unpaid">Belum dibayar</option>
     </select>
     <select x-model="fTravel" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
@@ -351,6 +436,46 @@ export function umrohBody() {
     <button @click="fillBlanks()" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 transition whitespace-nowrap">Isi semua yang kosong</button>
   </div>
 
+
+  <!-- Pengajuan pembayaran yang menunggu ACC. Sengaja di ATAS tabel: ini
+       pekerjaan yang menunggu keputusan, bukan arsip. -->
+  <div x-show="!loading && requests.length" x-cloak class="mb-4 bg-white border-2 border-amber-200 rounded-2xl overflow-hidden">
+    <div class="px-4 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+      <span class="ms text-[18px] text-amber-700">receipt_long</span>
+      <p class="text-sm font-bold text-amber-900">Pengajuan Pembayaran Cashback</p>
+      <span class="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[11px] font-bold" x-text="requests.length"></span>
+      <span class="text-[11px] text-amber-700 ml-auto" x-show="!canCash" x-cloak>Menunggu ACC dr. Kevin Chikrista</span>
+    </div>
+    <div class="divide-y divide-slate-50">
+      <template x-for="g in requests" :key="g.batch">
+        <div class="px-4 py-3 flex items-center gap-3 flex-wrap">
+          <div class="flex-1 min-w-[220px]">
+            <p class="text-sm font-semibold text-gray-800" x-text="g.travel"></p>
+            <p class="text-[11px] text-slate-500">
+              <span x-text="g.count"></span> jemaah &middot; <b class="text-gray-700" x-text="rupiah(g.total)"></b>
+              &middot; diajukan <span x-text="g.requested_by_name"></span> <span x-text="fmtWhen(g.requested_at)"></span>
+            </p>
+          </div>
+          <div class="flex gap-1.5 flex-wrap">
+            <button @click="accReq(g)" x-show="canCash" x-cloak
+              class="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-600 hover:bg-green-500 transition flex items-center gap-1">
+              <span class="ms text-[15px]">check</span>ACC &amp; Tandai Dibayar
+            </button>
+            <button @click="tolakReq(g)" x-show="canCash" x-cloak
+              class="px-3 py-1.5 rounded-lg text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 transition">Kembalikan</button>
+            <button @click="batalReq(g)" x-show="!canCash" x-cloak
+              class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition">Batalkan</button>
+          </div>
+        </div>
+      </template>
+    </div>
+    <p class="px-4 py-2 bg-slate-50 text-[11px] text-slate-500 border-t border-slate-100">Menekan <b>ACC</b> berarti uangnya sudah dibayarkan &mdash; seluruh jemaah pada pengajuan itu langsung ditandai <b>Sudah</b>.</p>
+  </div>
+
+  <div x-show="!loading && summary.perluCek" x-cloak class="mb-4 px-4 py-3 rounded-2xl bg-orange-50 border border-orange-100">
+    <p class="text-xs text-orange-900 leading-relaxed"><b><span x-text="summary.perluCek"></span> faktur</b> cashback-nya perlu Anda periksa sendiri &mdash; ada yang memuat barang di luar vaksin umroh, atau berisi beberapa jemaah dalam satu faktur. Alasannya tertulis di bawah nominal cashback-nya. Hitungan otomatis tidak berani menebak untuk kasus seperti itu.</p>
+  </div>
+
   <div x-show="loading" class="bg-white rounded-2xl border border-slate-100 p-8 text-center text-sm text-gray-400">Memuat data jemaah...</div>
 
   <!-- Tabel jemaah -->
@@ -359,6 +484,10 @@ export function umrohBody() {
       <table class="w-full text-sm min-w-[900px]">
         <thead class="bg-slate-50 border-b border-slate-100">
           <tr class="text-left text-[11px] uppercase tracking-wide text-slate-500">
+            <th class="px-3 py-2.5 font-bold w-8">
+              <input type="checkbox" :checked="allPicked" @change="toggleAll()" :disabled="!pickable.length"
+                title="Centang semua yang tampil" class="rounded border-gray-300">
+            </th>
             <th class="px-3 py-2.5 font-bold">Tanggal</th>
             <th class="px-3 py-2.5 font-bold">Nama Pasien</th>
             <th class="px-3 py-2.5 font-bold">Nama Dokter</th>
@@ -371,7 +500,11 @@ export function umrohBody() {
         </thead>
         <tbody class="divide-y divide-slate-50">
           <template x-for="r in shown" :key="r.key">
-            <tr class="hover:bg-slate-50/60 align-top">
+            <tr class="hover:bg-slate-50/60 align-top" :class="isPicked(r) ? 'bg-blue-50/60' : ''">
+              <td class="px-3 py-2.5">
+                <input type="checkbox" :checked="isPicked(r)" @change="togglePick(r)" :disabled="r.paid"
+                  :title="r.paid ? 'Sudah dibayar' : 'Centang untuk diajukan pembayarannya'" class="rounded border-gray-300 disabled:opacity-30">
+              </td>
               <td class="px-3 py-2.5 whitespace-nowrap text-gray-600">
                 <span x-text="fmtDate(r.date)"></span>
                 <span class="block text-[10px] text-slate-400" x-text="r.time"></span>
@@ -417,6 +550,7 @@ export function umrohBody() {
                     <input type="number" min="0" step="1000" x-model="draftCash"
                       class="w-28 px-2 py-1 border border-gray-200 rounded-lg text-[13px] text-right focus:outline-none focus:ring-2 focus:ring-purple-400/50">
                     <button @click="saveEdit(r)" class="px-2 py-1 rounded-lg text-[11px] font-semibold text-white bg-green-600 hover:bg-green-500 transition">OK</button>
+                    <button @click="resetCash(r)" x-show="r.cashback_manual" x-cloak class="px-2 py-1 rounded-lg text-[11px] font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition" title="Kembalikan ke hitungan otomatis">Auto</button>
                     <button @click="cancelEdit()" class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition">Batal</button>
                   </span>
                 </template>
@@ -425,12 +559,13 @@ export function umrohBody() {
                     <button @click="toggleCash(r)" :disabled="!canCash"
                       :title="canCash ? (r.paid ? 'Batalkan tanda sudah' : 'Tandai sudah dibayar') : 'Hanya dr. Kevin yang menandai cashback'"
                       class="px-2 py-1 rounded-lg text-[11px] font-bold transition disabled:cursor-not-allowed"
-                      :class="r.paid ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'"
-                      x-text="r.paid ? 'Sudah' : 'Belum'"></button>
+                      :class="cbChip(r)" x-text="cbLabel(r)"></button>
                     <span x-show="r.cashback" class="text-[11px] text-gray-500" x-text="rupiah(r.cashback)"></span>
-                    <span x-show="!r.cashback" class="text-[11px] text-slate-300">nominal kosong</span>
+                    <span x-show="!r.cashback" class="text-[11px] text-slate-300">Rp0</span>
+                    <span x-show="r.cashback_manual" x-cloak class="text-[10px] text-purple-500" title="Diatur manual, tidak ikut hitungan otomatis">manual</span>
                   </span>
                 </template>
+                <p x-show="editKey !== r.key && r.cb_review" x-cloak class="text-[10px] text-amber-700 mt-0.5 max-w-[190px] leading-snug" x-text="r.cb_review"></p>
                 <p x-show="editKey !== r.key && r.paid && r.paid_at" x-cloak class="text-[10px] text-green-600 mt-0.5" x-text="'Dibayar ' + fmtWhen(r.paid_at)"></p>
               </td>
 
@@ -452,9 +587,23 @@ export function umrohBody() {
 
   <div class="mt-4 bg-blue-50 border border-blue-100 rounded-2xl p-4">
     <p class="text-xs text-blue-800 leading-relaxed"><b>Dari mana datanya:</b> seluruh isi tabel ini dibaca dari berkas <b>Laporan Detail Data Penjualan Obat</b> yang diunggah &mdash; tanggal, nama jemaah, dokter, kolom <b>Sales</b> (travel), jenis vaksin, dan total yang dibayar. Tidak ada yang perlu diketik ulang, dan angkanya selalu sama dengan yang tercatat di kasir.</p>
+    <p class="text-xs text-blue-800 leading-relaxed mt-1.5"><b>Cashback dihitung otomatis</b> dari selisih harga jual dengan harga dasar klinik: combo di atas Rp450.000 dan polio di atas Rp260.000 &mdash; jadi Rp500.000 &rarr; Rp50.000, Rp445.000 &rarr; Rp0, Rp600.000 &rarr; Rp150.000, polio Rp280.000 &rarr; Rp20.000. <b>Angkanya tetap bisa Anda ubah</b>, per baris lewat tombol <b>Nominal</b> atau sekaligus per travel lewat <b>Tarif Cashback</b>; yang diubah tangan ditandai <i>manual</i> dan tidak akan tertimpa hitungan otomatis maupun unggahan berikutnya. Tombol <b>Auto</b> mengembalikannya ke hitungan otomatis.</p>
     <p class="text-xs text-blue-800 leading-relaxed mt-1.5">Kolom <b>Sales (Travel)</b> bisa diklik dan diisi sendiri bila di kasir terlewat. Isian manual ditandai <i>diisi manual</i> dan <b>bertahan</b> saat berkasnya diunggah ulang &mdash; nilai asli dari kasir tetap disimpan, jadi mengosongkan isian manual akan mengembalikannya mengikuti kasir lagi.</p>
     <p class="text-xs text-blue-800 leading-relaxed mt-1.5">Selain itu yang diisi di sini hanya <b>nominal cashback</b> (kasir tidak mencatat itu) dan tandanya sudah / belum dibayar. Mengunggah ulang periode yang sama <b>tidak</b> menggandakan data &mdash; barisnya dikenali dari nomor faktur, dan tanda cashback yang sudah Anda beri <b>tidak</b> ikut tertimpa.</p>
-    <p class="text-xs text-blue-800 leading-relaxed mt-1.5">Tanda <b>Sudah / Belum</b> hanya bisa diubah oleh dr. Kevin Chikrista. Super Admin lain tetap bisa melihat laporannya dan mengisi nominalnya.</p>
+    <p class="text-xs text-blue-800 leading-relaxed mt-1.5"><b>Alur pembayaran:</b> centang jemaah yang mau dibayarkan &rarr; tekan <b>Ajukan Pembayaran</b>. Pengajuannya muncul di kotak kuning atas halaman ini, dan dr. Kevin tinggal menekan <b>ACC &amp; Tandai Dibayar</b> &mdash; ACC berarti uangnya sudah dibayarkan, jadi seluruh jemaah pada pengajuan itu langsung berubah jadi <b>Sudah</b>. Yang sudah dibayar tidak bisa dicentang lagi, supaya tidak terbayar dua kali.</p>
+  </div>
+
+
+  <!-- Bilah aksi saat ada yang dicentang. Menempel di bawah layar supaya tetap
+       terjangkau walau tabelnya panjang. -->
+  <div x-show="picked.length" x-cloak class="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-night text-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-3 flex-wrap max-w-[95vw]">
+    <span class="text-sm"><b x-text="picked.length"></b> jemaah dicentang &middot; <b x-text="rupiah(pickedTotal)"></b></span>
+    <span class="text-[11px] text-white/50" x-show="pickedTravels.length" x-cloak x-text="pickedTravels.join(', ')"></span>
+    <button @click="ajukan()" :disabled="reqBusy"
+      class="px-4 py-2 rounded-xl text-sm font-bold bg-[#25D366] hover:brightness-95 transition disabled:opacity-50 flex items-center gap-1.5">
+      <span class="ms text-[16px]">send</span><span x-text="canCash ? 'Ajukan Pembayaran' : 'Ajukan ke dr. Kevin'"></span>
+    </button>
+    <button @click="clearPick()" class="px-3 py-2 rounded-xl text-xs font-medium bg-white/10 hover:bg-white/20 transition">Batal</button>
   </div>
 
   <!-- Unggah berkas -->
