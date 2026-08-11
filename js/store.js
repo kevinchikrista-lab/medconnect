@@ -1497,6 +1497,28 @@ class Store {
     return { success: true };
   }
 
+  // Hapus satu kunjungan / rekam medis.
+  //
+  // Sengaja DITOLAK bila kunjungan itu masih menggantung e-resep: resepnya akan
+  // kehilangan induknya dan tetap hidup di antrean apotek tanpa ada yang bisa
+  // menelusurinya lagi. Batalkan atau selesaikan resepnya dulu — itu keputusan
+  // yang harus disadari, bukan efek samping penghapusan.
+  deleteRecord(recordId) {
+    const rec = (this.data.medical_records || []).find(r => r.id === recordId);
+    if (!rec) return { error: 'Rekam medis tidak ditemukan' };
+    const rx = this.getPrescriptionsByRecord(recordId) || [];
+    const aktif = rx.filter(x => x.status !== 'cancelled');
+    if (aktif.length) {
+      return { error: `Kunjungan ini masih punya ${aktif.length} e-resep (${aktif.map(x => x.rx_number).join(', ')}). Batalkan resepnya dulu, baru kunjungannya bisa dihapus.` };
+    }
+    this.data.medical_records = (this.data.medical_records || []).filter(r => r.id !== recordId);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(recordId).startsWith('id_')) {
+      supabase.delete('medical_records', recordId).catch(() => {});
+    }
+    return { success: true };
+  }
+
   deleteVaccination(vaxId) {
     this.data.vaccinations = this.data.vaccinations.filter(x => x.id !== vaxId);
     this._save();
