@@ -45,6 +45,14 @@
     body { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif; }
     .ms { font-family:'Material Symbols Rounded'; font-weight:normal; font-style:normal; line-height:1; -webkit-font-feature-settings:'liga'; -webkit-font-smoothing:antialiased; }
     .ms-fill { font-variation-settings:'FILL' 1; }
+    /* Daftar menu sidebar boleh digulir sendiri, supaya tombol Keluar di
+       bawahnya tetap terjangkau pada layar pendek. Batang gulirnya dibuat
+       tipis dan senada agar tidak mencolok di panel yang sempit. */
+    .side-scroll { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,.45) transparent; }
+    .side-scroll::-webkit-scrollbar { width: 6px; }
+    .side-scroll::-webkit-scrollbar-track { background: transparent; }
+    .side-scroll::-webkit-scrollbar-thumb { background: rgba(148,163,184,.45); border-radius: 999px; }
+    .side-scroll::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,.7); }
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
