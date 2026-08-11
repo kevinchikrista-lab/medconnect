@@ -29,6 +29,31 @@ export const CONFIG = {
   // ditegakkan di server — lihat supabase-business-notes.sql.
   NOTES_MANAGER_EMAILS: ['kevinchikrista@gmail.com'],
 
+  // Yang boleh menandai cashback travel SUDAH / BELUM dibayar (#/admin/umroh).
+  // Sengaja lebih sempit daripada yang boleh membuka halamannya: Super Admin
+  // boleh melihat dan mengisi data jemaah, tapi keputusan "uangnya sudah
+  // keluar" hanya di tangan pemilik klinik.
+  CASHBACK_MANAGER_EMAILS: ['kevinchikrista@gmail.com'],
+
+  // Vaksin yang dihitung sebagai layanan jemaah umroh/haji. Dicocokkan ke
+  // vaccine_name DAN vaccine_brand sekaligus, karena di lapangan yang tertulis
+  // kadang merknya ('Menivax') dan kadang nama vaksinnya ('Meningitis ACYW135').
+  // Tidak memakai flag terpisah supaya laporannya selalu ikut apa yang
+  // benar-benar disuntikkan, bukan ikut centang yang bisa lupa diisi.
+  UMROH_VACCINES: [
+    { key: 'meningitis', label: 'Meningitis', match: /meningi|menivax|mencevax|menveo|menactra|acyw/i },
+    { key: 'polio', label: 'Polio', match: /polio|\bopv\b|\bipv\b|novapol/i },
+  ],
+
+  // Harga & cashback bawaan per jenis layanan, dipakai sebagai isian awal saat
+  // sebuah kunjungan belum pernah diisi. Nol berarti "belum ditentukan" dan
+  // tetap harus diisi tangan; ubah angkanya di sini bila tarifnya sudah tetap.
+  UMROH_DEFAULTS: {
+    meningitis: { price: 0, cashback: 0 },
+    polio: { price: 0, cashback: 0 },
+    combo: { price: 0, cashback: 0 },
+  },
+
   ROLES: {
     SUPERADMIN: 'superadmin',
     OWNER: 'owner',

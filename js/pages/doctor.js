@@ -446,6 +446,10 @@ export function doctorEMR(params) {
     async viewLabFile(fp) { const url = await window.__store.getLabFileUrl(fp); if (url) window.open(url, '_blank'); else alert('Berkas tidak tersedia atau penyimpanan belum diaktifkan.'); },
     async delLab(item) { if (!confirm('Hapus hasil penunjang ini?')) return; await window.__store.deleteLabResult(item.id, item.file_path); this.loadLab(); },
     skdList: [], skdLoading: true,
+    // Surat sakit bertanggal sesuai hari pertama sakitnya, bukan hari
+    // pencetakannya — lihat js/skd.js. Disetel di sini juga supaya yang
+    // terlihat di layar sama dengan yang nanti tercetak.
+    syncSuratDate() { if (this.skdType !== 'sehat' && this.skd.from_date) this.skd.letter_date = this.skd.from_date; },
     async loadSKD() { try { this.skdList = await window.__store.getSKDForPatient('${patient.id}'); } catch(e) { this.skdList = []; } this.skdLoading = false; },
     skdStat(s) { return (s.details && s.details.approval && s.details.approval.status) || 'approved'; }
   }" x-init="loadLab(); loadSKD(); if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
@@ -776,7 +780,7 @@ export function doctorEMR(params) {
 
             <div class="flex gap-2 mb-4">
               <button @click="skdType='sehat'" :class="skdType==='sehat' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sehat</button>
-              <button @click="skdType='sakit'" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sakit</button>
+              <button @click="skdType='sakit'; syncSuratDate()" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sakit</button>
             </div>
 
             <div class="grid grid-cols-2 gap-3 mb-3">
@@ -809,7 +813,7 @@ export function doctorEMR(params) {
               <div><label class="block text-xs text-gray-600 mb-1">Diagnosis</label><input type="text" x-model="skd.diagnosis" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Febris"></div>
               <div class="grid grid-cols-3 gap-3">
                 <div><label class="block text-xs text-gray-600 mb-1">Istirahat (hari)</label><input type="number" min="1" x-model="skd.rest_days" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-                <div><label class="block text-xs text-gray-600 mb-1">Dari Tanggal</label><input type="date" x-model="skd.from_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Dari Tanggal</label><input type="date" x-model="skd.from_date" @change="syncSuratDate()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div><p class="text-[11px] text-teal-700 mt-1 sm:col-span-3" x-show="skdType==='sakit' && skd.from_date" x-cloak>Tanggal surat mengikuti hari pertama sakit (<span x-text="skd.from_date"></span>) &mdash; supaya tanggal suratnya tidak jatuh sesudah izin yang diterangkannya.</p>
                 <div><label class="block text-xs text-gray-600 mb-1">Hingga Tanggal</label><input type="date" x-model="skd.to_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
             </div>

@@ -251,6 +251,7 @@ const DEMO_DATA = {
     { id: 'bu_4', name: 'Umroh & Haji', description: 'Vaksinasi meningitis & layanan jemaah', color: 'purple', is_active: true, sort_order: 40 },
   ],
   business_notes: [],
+  umroh_sales: [],
 
   // To-do / daftar tugas klinik. Dikelola Super Admin & Owner dari halaman
   // "To-Do & Tugas", bisa didelegasikan ke staf mana pun (assignee_id =
@@ -2729,6 +2730,286 @@ class Store {
   }
 
   // Doctors list
+  // ==========================================================================
+  // UMROH & HAJI  (tabel umroh_sales)
+  //
+  // Datanya TIDAK diketik ulang: diunggah dari berkas "Laporan Detail Data
+  // Penjualan Obat" milik sistem kasir apotek, yang sudah memuat tanggal,
+  // nama pasien, nama dokter, kolom Sales (= travel pengirimnya), rincian
+  // vaksin, dan total yang dibayar. Dengan begitu angka yang dipakai menagih
+  // cashback adalah angka yang sama dengan yang tercatat di kasir — bukan
+  // angka kedua yang harus dicocokkan setiap bulan.
+  //
+  // Kunci barisnya NOMOR FAKTUR. Mengunggah ulang periode yang sama hanya
+  // memperbarui baris yang sudah ada, tidak menggandakannya — dan status
+  // cashback yang sudah ditandai TIDAK ikut tertimpa, karena itu catatan kita
+  // sendiri, bukan milik kasir.
+  //
+  // Lihat js/umroh-import.js (pembaca berkas) dan supabase-umroh-sales.sql.
+  // ==========================================================================
+
+  getUmrohSales() { return (this.data.umroh_sales || []).slice(); }
+
+  async loadUmrohSales() {
+    if (CONFIG.DEMO_MODE) return this.getUmrohSales();
+    try {
+      const rows = await supabase.select('umroh_sales', { order: 'sold_date.desc' });
+      if (Array.isArray(rows) && rows.length) {
+        this.data.umroh_sales = rows;
+        this._save();
+      } else if (Array.isArray(rows)) {
+        // select() mengembalikan [] baik saat tabelnya belum dibuat maupun saat
+        // memang kosong — tidak bisa dibedakan. Hanya baris ber-UUID yang pasti
+        // pernah sampai server, jadi hanya itu yang boleh dibuang; baris lokal
+        // hasil unggahan yang belum tersinkron tetap dipertahankan.
+        const kept = (this.data.umroh_sales || []).filter(r => String(r.id || '').startsWith('id_'));
+        if (kept.length !== (this.data.umroh_sales || []).length) { this.data.umroh_sales = kept; this._save(); }
+      }
+    } catch (e) { /* tabel belum dibuat — pakai data lokal */ }
+    return this.getUmrohSales();
+  }
+
+  // Terapkan hasil pembacaan berkas. Mengembalikan berapa yang baru, berapa
+  // yang diperbarui, dan berapa yang dilewati — supaya yang mengunggah tahu
+  // persis apa yang terjadi, bukan hanya "berhasil".
+  async importUmrohSales(entries, meta) {
+    const list = (entries || []).filter(e => e && e.invoice_no);
+    if (!list.length) return { error: 'Tidak ada transaksi vaksin umroh yang terbaca di berkas ini.' };
+    const m = meta || {};
+    const byInvoice = new Map((this.data.umroh_sales || []).map(r => [String(r.invoice_no), r]));
+    let baru = 0, diperbarui = 0, sama = 0;
+    const nowIso = new Date().toISOString();
+
+    for (const e of list) {
+      // Yang datang dari kasir hanya fakta penjualannya. Cashback sengaja
+      // tidak ikut disentuh di sini.
+      const fakta = {
+        invoice_no: String(e.invoice_no),
+        sold_date: e.sold_date || null,
+        sold_time: e.sold_time || '',
+        patient_name: e.patient_name || '',
+        doctor_name: e.doctor_name || '',
+        travel_name: e.travel_name || '',
+        service: e.service || '',
+        service_label: e.service_label || '',
+        price: Math.max(0, Math.round(Number(e.price) || 0)),
+        items: Array.isArray(e.items) ? e.items : [],
+        other_items: Array.isArray(e.other_items) ? e.other_items : [],
+      };
+      const ada = byInvoice.get(fakta.invoice_no);
+      if (ada) {
+        const berubah = Object.keys(fakta).some(k => {
+          const a = fakta[k], b = ada[k];
+          return Array.isArray(a) ? JSON.stringify(a) !== JSON.stringify(b || []) : String(a == null ? '' : a) !== String(b == null ? '' : b);
+        });
+        if (!berubah) { sama++; continue; }
+        Object.assign(ada, fakta, { imported_at: nowIso, source_file: m.source_file || '' });
+        diperbarui++;
+        if (!CONFIG.DEMO_MODE && !String(ada.id || '').startsWith('id_')) {
+          await supabase.update('umroh_sales', ada.id, { ...fakta, imported_at: nowIso, source_file: m.source_file || '' }).catch(() => null);
+        }
+      } else {
+        const rec = {
+          id: generateId(), ...fakta,
+          cashback_amount: 0, cashback_paid: false, cashback_at: null, cashback_by: null,
+          imported_at: nowIso, imported_by: m.imported_by || null, source_file: m.source_file || '',
+        };
+        this.data.umroh_sales = (this.data.umroh_sales || []).concat(rec);
+        byInvoice.set(rec.invoice_no, rec);
+        baru++;
+        if (!CONFIG.DEMO_MODE) {
+          const ins = await supabase.insert('umroh_sales', { ...rec, id: undefined }).catch(() => null);
+          if (ins && ins.id) rec.id = ins.id;
+          else if (ins && ins.error) {
+            this.data.umroh_sales = this.data.umroh_sales.filter(x => x.id !== rec.id);
+            this._save();
+            return { error: 'Gagal menyimpan ke server. Pastikan supabase-umroh-sales.sql sudah dijalankan di Supabase. (' + ins.error + ')' };
+          }
+        }
+      }
+    }
+    this._save();
+    return { success: true, baru, diperbarui, sama, total: list.length };
+  }
+
+  umrohKindLabel(key) {
+    const f = (CONFIG.UMROH_VACCINES || []).find(u => u.key === key);
+    return f ? f.label : (key || '-');
+  }
+
+  // Baris laporan dalam rentang tanggal. from/to inklusif, boleh kosong.
+  getUmrohEntries(opts) {
+    const o = opts || {};
+    const from = o.from || '';
+    const to = o.to || '';
+    return (this.data.umroh_sales || [])
+      .filter(r => {
+        const d = String(r.sold_date || '').slice(0, 10);
+        if (!d) return false;
+        if (from && d < from) return false;
+        if (to && d > to) return false;
+        return true;
+      })
+      .map(r => ({
+        key: r.id,
+        id: r.id,
+        invoice_no: r.invoice_no || '',
+        date: String(r.sold_date || '').slice(0, 10),
+        time: r.sold_time || '',
+        patient_name: r.patient_name || '-',
+        doctor_name: r.doctor_name || '-',
+        travel: String(r.travel_name || '').trim(),
+        service: r.service || '',
+        service_label: r.service_label || '-',
+        price: Number(r.price) || 0,
+        cashback: Number(r.cashback_amount) || 0,
+        paid: !!r.cashback_paid,
+        paid_at: r.cashback_at || null,
+        items: Array.isArray(r.items) ? r.items : [],
+        // Barang di luar vaksin umroh ikut menaikkan total faktur, jadi
+        // ditandai — supaya harga yang berbeda sendiri tidak dikira salah catat.
+        other_items: Array.isArray(r.other_items) ? r.other_items : [],
+      }))
+      .sort((a, b) => (a.date === b.date
+        ? String(a.time || '').localeCompare(String(b.time || ''))
+        : b.date.localeCompare(a.date)));
+  }
+
+  // Daftar nama dokter yang muncul di data — dipakai saringan. Diambil dari
+  // datanya sendiri, bukan dari master dokter, karena nama di berkas kasir
+  // ditulis apa adanya oleh kasir ('DR. KEVIN CHIKRISTA', 'dr.NIKO').
+  umrohDoctors(entries) {
+    const names = new Set();
+    (entries || []).forEach(e => { if (e.doctor_name && e.doctor_name !== '-') names.add(e.doctor_name); });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }
+
+  umrohTravels(entries) {
+    const names = new Set();
+    (entries || []).forEach(e => { if (e.travel) names.add(e.travel); });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }
+
+  // Nominal cashback satu baris.
+  setUmrohCashbackAmount(id, amount) {
+    const r = (this.data.umroh_sales || []).find(x => x.id === id);
+    if (!r) return { error: 'Data penjualan tidak ditemukan' };
+    r.cashback_amount = Math.max(0, Math.round(Number(amount) || 0));
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      supabase.update('umroh_sales', id, { cashback_amount: r.cashback_amount }).catch(() => {});
+    }
+    return { success: true };
+  }
+
+  // Tarif cashback satu travel, diterapkan sekaligus. Yang sudah ditandai
+  // dibayar sengaja dilewati — nominalnya sudah terlanjur disepakati saat itu,
+  // dan mengubahnya akan membuat riwayat pembayaran tidak lagi cocok.
+  applyUmrohTravelRate(travel, amount, opts) {
+    const o = opts || {};
+    const nominal = Math.max(0, Math.round(Number(amount) || 0));
+    const rows = (this.data.umroh_sales || []).filter(r =>
+      String(r.travel_name || '').trim() === String(travel || '').trim()
+      && !r.cashback_paid
+      && (!o.from || String(r.sold_date || '') >= o.from)
+      && (!o.to || String(r.sold_date || '') <= o.to));
+    rows.forEach(r => this.setUmrohCashbackAmount(r.id, nominal));
+    return { success: true, count: rows.length };
+  }
+
+  setUmrohCashbackPaid(ids, paid, userId) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return { error: 'Tidak ada data yang dipilih' };
+    const nowIso = new Date().toISOString();
+    let n = 0;
+    list.forEach(id => {
+      const r = (this.data.umroh_sales || []).find(x => x.id === id);
+      if (!r) return;
+      r.cashback_paid = !!paid;
+      r.cashback_at = paid ? nowIso : null;
+      r.cashback_by = paid ? (userId || null) : null;
+      n++;
+      if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+        supabase.update('umroh_sales', id, { cashback_paid: r.cashback_paid, cashback_at: r.cashback_at, cashback_by: r.cashback_by }).catch(() => {});
+      }
+    });
+    this._save();
+    if (!n) return { error: 'Data penjualan tidak ditemukan' };
+    return { success: true, count: n };
+  }
+
+  // Siapa yang boleh menandai cashback sudah dibayar. Lebih sempit daripada
+  // yang boleh membuka halamannya — lihat CONFIG.CASHBACK_MANAGER_EMAILS.
+  canMarkCashback(user) {
+    if (!user) return false;
+    const allowed = (CONFIG.CASHBACK_MANAGER_EMAILS || []).map(e => String(e).toLowerCase());
+    if (allowed.includes(String(user.email || '').toLowerCase())) return true;
+    // Cadangan yang sama seperti panel lain: kalau tidak satu pun e-mail itu
+    // terdaftar, Owner tetap boleh supaya tidak ada yang bisa menandainya.
+    if (user.role === 'owner') {
+      return !(this.data.users || []).some(u => allowed.includes(String(u.email || '').toLowerCase()));
+    }
+    return false;
+  }
+
+  umrohSummary(entries) {
+    const s = {
+      jamaah: 0, revenue: 0,
+      cashbackTotal: 0, cashbackPaid: 0, cashbackDue: 0,
+      meningitis: 0, polio: 0, combo: 0,
+      noTravel: 0, noCashback: 0, travels: 0,
+    };
+    const travels = new Set();
+    (entries || []).forEach(e => {
+      s.jamaah++;
+      s.revenue += Number(e.price) || 0;
+      const cb = Number(e.cashback) || 0;
+      s.cashbackTotal += cb;
+      if (e.paid) s.cashbackPaid += cb; else s.cashbackDue += cb;
+      if (!cb) s.noCashback++;
+      if (e.service === 'combo') s.combo++;
+      else if (e.service === 'meningitis') s.meningitis++;
+      else if (e.service === 'polio') s.polio++;
+      if (e.travel) travels.add(e.travel); else s.noTravel++;
+    });
+    s.travels = travels.size;
+    return s;
+  }
+
+  // Pesan WhatsApp berisi rincian cashback untuk satu travel.
+  // Dirakit di sini (bukan di dalam x-data) supaya teksnya bebas dari jebakan
+  // pelolosan tanda kutip pada atribut HTML.
+  buildUmrohCashbackText(travel, entries, from, to) {
+    const rupiah = (n) => 'Rp' + Number(n || 0).toLocaleString('id-ID');
+    const tgl = (d) => {
+      if (!d) return '';
+      const dt = new Date(d + 'T00:00:00');
+      return isNaN(dt) ? d : dt.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+    };
+    const list = entries || [];
+    const periode = from && to ? ` periode ${tgl(from)} \u2013 ${tgl(to)}` : '';
+    const baris = list.map((e, i) => {
+      const nominal = Number(e.cashback) > 0 ? ` \u2014 ${rupiah(e.cashback)}` : '';
+      return `${i + 1}. ${e.patient_name} (${tgl(e.date)}) \u2014 ${e.service_label}${nominal}`;
+    });
+    const total = list.reduce((sum, e) => sum + (Number(e.cashback) || 0), 0);
+    const penutup = total > 0
+      ? `Total ${list.length} jemaah, cashback ${rupiah(total)}.`
+      // Tanpa nominal, kalimat "total Rp0" justru membingungkan — lebih baik
+      // hanya menyebut jumlah jemaahnya.
+      : `Total ${list.length} jemaah.`;
+    return [
+      `Assalamu'alaikum, Tim ${travel || 'Travel'}.`,
+      '',
+      `Berikut rincian jemaah yang telah kami layani vaksinasi di ${CONFIG.APP_NAME}${periode}:`,
+      '',
+      baris.join('\n'),
+      '',
+      penutup,
+      'Mohon konfirmasinya untuk proses cashback. Terima kasih.',
+    ].join('\n');
+  }
+
   getDoctors() { return this.data.doctors; }
   getDoctor(doctorId) { return this.data.doctors.find(d => d.id === doctorId); }
   getDoctorByUserId(userId) { return this.data.doctors.find(d => d.user_id === userId); }

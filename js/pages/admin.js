@@ -6,6 +6,7 @@ import { waHref, waKontrolMsg, waButton, waSapaMsg, waMsgB64 } from '../wa.js';
 import { crmSetup, crmXData, crmBody } from './crm.js';
 import { stockXData, stockBody } from './stock.js';
 import { tasksSetup, tasksXData, tasksBody, calendarTasksSetup, calendarTasksXData, calendarTasksBlock } from './tasks.js';
+import { umrohSetup, umrohXData, umrohBody } from './umroh.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -1087,6 +1088,10 @@ export function adminPatientDetail(params) {
       window.__showToast && window.__showToast('Terkirim untuk ACC', 'Catatan vaksinasi tersimpan di rekam medis dan menunggu persetujuan ' + ((dn && dn.full_name) || 'dokter') + '.');
       setTimeout(function(){ window.__rerender && window.__rerender() }, 300);
     },
+    // Surat sakit bertanggal sesuai hari pertama sakitnya, bukan hari
+    // pencetakannya — lihat js/skd.js. Disetel di sini juga supaya yang
+    // terlihat di layar sama dengan yang nanti tercetak.
+    syncSuratDate() { if (this.skdType !== 'sehat' && this.skd.from_date) this.skd.letter_date = this.skd.from_date; },
     skdStatus(s) { return (s.details && s.details.approval && s.details.approval.status) || 'approved'; },
     async loadSKD() { try { this.skdList = await window.__store.getSKDForPatient('${patient.id}'); } catch(e) { this.skdList = []; } this.skdLoading = false; },
     reprintSKD(id) { window.__printSKD(id); },
@@ -1285,7 +1290,7 @@ export function adminPatientDetail(params) {
             </div>
             <div class="flex gap-2 mb-4">
               <button @click="skdType='sehat'" :class="skdType==='sehat' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sehat</button>
-              <button @click="skdType='sakit'" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sakit</button>
+              <button @click="skdType='sakit'; syncSuratDate()" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sakit</button>
             </div>
             <div class="grid grid-cols-2 gap-3 mb-3">
               <div><label class="block text-xs text-gray-600 mb-1">No. RM <span class="text-gray-400">(otomatis)</span></label><input type="text" readonly value="${patient.rm_number || 'dibuat saat terbit'}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-600"></div>
@@ -1313,7 +1318,7 @@ export function adminPatientDetail(params) {
               <div><label class="block text-xs text-gray-600 mb-1">Diagnosis</label><input type="text" x-model="skd.diagnosis" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Febris"></div>
               <div class="grid grid-cols-3 gap-3">
                 <div><label class="block text-xs text-gray-600 mb-1">Istirahat (hari)</label><input type="number" min="1" x-model="skd.rest_days" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-                <div><label class="block text-xs text-gray-600 mb-1">Dari Tanggal</label><input type="date" x-model="skd.from_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Dari Tanggal</label><input type="date" x-model="skd.from_date" @change="syncSuratDate()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div><p class="text-[11px] text-teal-700 mt-1 sm:col-span-3" x-show="skdType==='sakit' && skd.from_date" x-cloak>Tanggal surat mengikuti hari pertama sakit (<span x-text="skd.from_date"></span>) &mdash; supaya tanggal suratnya tidak jatuh sesudah izin yang diterangkannya.</p>
                 <div><label class="block text-xs text-gray-600 mb-1">Hingga Tanggal</label><input type="date" x-model="skd.to_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
             </div>
@@ -1422,6 +1427,23 @@ export function adminTasks() {
       ${adminHeader()}
       <main class="p-4 lg:p-6 max-w-[1500px] mx-auto">
         ${tasksBody('all')}
+      </main>
+    </div>
+  </div>`;
+}
+
+// Umroh & Haji — laporan jemaah hasil unggahan berkas penjualan dari kasir
+// apotek, beserta travel pengirimnya dan cashback-nya. Isi halamannya ada di
+// js/pages/umroh.js.
+export function adminUmroh() {
+  umrohSetup();
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, ${umrohXData()} }" x-init="load()" class="min-h-screen bg-wash">
+    ${adminSidebar('umroh')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-[1500px] mx-auto">
+        ${umrohBody()}
       </main>
     </div>
   </div>`;
@@ -1564,6 +1586,7 @@ function adminSidebar(active) {
     { id: 'calendar', label: 'Kalender', icon: 'event' },
     { id: 'consultations', label: 'Riwayat Konsultasi', icon: 'forum' },
     { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/admin/crm' },
+    { id: 'umroh', label: 'Umroh &amp; Haji', icon: 'travel_explore', href: '#/admin/umroh' },
     { id: 'stock', label: 'Stok Opening', icon: 'inventory_2', href: '#/admin/stock' },
     { id: 'locations', label: 'Lokasi Praktik', icon: 'location_on', href: '#/admin/locations' },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/admin/homecare/history' },
@@ -1581,13 +1604,27 @@ function adminSidebar(active) {
 
 function adminHeader() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
-  const label = user?.role === 'owner' ? 'Owner' : 'Super Admin';
+  const roleLabel = user?.role === 'owner' ? 'Owner' : 'Super Admin';
+  // Nama pemakainya ikut ditampilkan. Dengan beberapa Super Admin memakai
+  // konsol yang sama, label 'Super Admin' saja tidak memberi tahu siapa yang
+  // sedang login — dan itu penting justru saat ada yang keliru menekan sesuatu.
+  const prof = store.getProfile(user) || {};
+  const nama = String(prof.full_name || prof.name || '').trim();
+  const inisial = nama ? nama.charAt(0).toUpperCase() : '';
   const unread = store.getUnreadCount(user?.id);
   return `<header class="sticky top-0 z-30 h-[66px] bg-white border-b border-slate-100 px-4 flex items-center justify-between">
     <button @click="sideOpen=!sideOpen" class="p-2 rounded-xl hover:bg-wash transition"><span class="ms text-[21px] text-muted">menu</span></button>
     <div class="flex items-center gap-3">
       <a href="#/admin/notifications" class="relative w-10 h-10 rounded-xl bg-wash flex items-center justify-center hover:bg-slate-100 transition"><span class="ms text-[21px] text-slate-600">notifications</span><span data-notif-count class="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#ff5436] text-white text-[10px] font-bold flex items-center justify-center border-2 border-white" style="${unread > 0 ? '' : 'display:none'}">${unread > 99 ? '99+' : unread}</span></a>
-      <div class="flex items-center gap-2"><span class="w-8 h-8 rounded-full bg-[#2b7ee0]/20 flex items-center justify-center"><span class="ms text-[18px] text-brand-dark">shield_person</span></span><span class="text-sm font-medium text-ink hidden sm:block">${label}</span></div>
+      <div class="flex items-center gap-2">
+        <span class="w-8 h-8 rounded-full bg-[#2b7ee0]/20 flex items-center justify-center shrink-0">${inisial
+          ? `<span class="text-[13px] font-bold text-brand-dark">${escHtml(inisial)}</span>`
+          : '<span class="ms text-[18px] text-brand-dark">shield_person</span>'}</span>
+        <span class="hidden sm:block leading-tight">
+          <span class="block text-sm font-semibold text-ink">${nama ? escHtml(nama) : roleLabel}</span>
+          ${nama ? `<span class="block text-[10.5px] text-faint">${roleLabel}</span>` : ''}
+        </span>
+      </div>
     </div>
   </header>`;
 }
