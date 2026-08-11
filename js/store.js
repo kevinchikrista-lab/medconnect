@@ -1768,12 +1768,45 @@ class Store {
     return u ? ((u.email || '').split('@')[0] || 'Staf') : 'Staf';
   }
 
-  // Tahapan sebuah tugas: todo → focus → done. Baris lama memakai 'open',
-  // yang artinya sama dengan 'todo' (lihat supabase-task-status.sql), jadi
-  // dibaca lewat satu pintu ini supaya tidak ada baris yang tercecer.
+  // Tahapan sebuah tugas: todo → focus → review → done. Baris lama memakai
+  // 'open', yang artinya sama dengan 'todo' (lihat supabase-task-status.sql),
+  // jadi dibaca lewat satu pintu ini supaya tidak ada baris yang tercecer.
   taskStatus(t) {
     const s = (t && t.status) || 'todo';
     return s === 'open' ? 'todo' : s;
+  }
+
+  // ---- Peninjauan hasil kerja (lihat supabase-task-review.sql) -------------
+  //
+  // Pekerjaan yang DIDELEGASIKAN tidak boleh ditutup sendiri oleh yang
+  // mengerjakannya. Dia hanya bisa mengajukannya untuk ditinjau; yang menekan
+  // "Selesai" adalah pemberi tugas. Kalau tidak begitu, "selesai" hanya
+  // berarti "saya merasa sudah selesai", dan pemberi tugas kehilangan satu-
+  // satunya saat untuk memeriksa hasilnya.
+  //
+  // Tugas untuk diri sendiri tidak lewat jalur ini — tidak ada gunanya
+  // meminta izin kepada diri sendiri.
+  isDelegated(t) {
+    if (!t || this.isEvent(t)) return false;
+    const a = t.assignee_id || null;
+    const c = t.created_by || null;
+    return !!a && !!c && a !== c;
+  }
+
+  // Yang berhak menutup tugas adalah PEMBERI tugasnya, bukan Super Admin mana
+  // pun — supaya tugas dari Anis ditinjau Anis, bukan tidak sengaja ditutup
+  // orang lain yang tidak tahu isinya.
+  taskReviewerId(t) { return (t && t.created_by) || null; }
+
+  canCompleteTask(t, userId) {
+    if (!this.isDelegated(t)) return true;
+    return this.taskReviewerId(t) === userId;
+  }
+
+  awaitingReview(t) { return this.taskStatus(t) === 'review'; }
+  needsMyReview(t, userId) { return this.awaitingReview(t) && !!userId && this.taskReviewerId(t) === userId; }
+  countNeedingMyReview(userId) {
+    return (this.data.tasks || []).filter(t => this.needsMyReview(t, userId)).length;
   }
 
   // Tugas ini "milik" siapa dari sudut pandang seseorang. Tugas tanpa
@@ -2258,7 +2291,10 @@ class Store {
     const items = [];
 
     (this.data.tasks || []).forEach(t => {
-      if (this.taskStatus(t) === 'done') return;
+      // Yang sudah diajukan untuk ditinjau tidak perlu lagi mengejar
+      // pemiliknya — pekerjaannya sudah lepas dari tangannya.
+      const st = this.taskStatus(t);
+      if (st === 'done' || st === 'review') return;
       if (t.due_date !== today || !t.due_time) return;
       if (userId && !this.isMyTask(t, userId)) return;
       const at = toMin(t.due_time);
@@ -2294,14 +2330,20 @@ class Store {
       .map(i => ({ ...i, minutesAway: i.at - nowMin, late: i.at < nowMin }));
   }
 
-  // Pindahkan tugas ke tahap lain: 'todo' | 'focus' | 'done'.
+  // Pindahkan tugas ke tahap lain: 'todo' | 'focus' | 'review' | 'done'.
   // Untuk tugas berulang, memindahkannya ke 'done' otomatis membuat tugas
   // berikutnya dengan jatuh tempo yang sudah digeser — jadi riwayat "sudah
   // dikerjakan" tetap tersimpan, tidak ditimpa.
   async setTaskStatus(id, status, userId) {
     const t = this.getTask(id);
     if (!t) return { error: 'Tugas tidak ditemukan' };
-    const next_ = ['todo', 'focus', 'done'].includes(status) ? status : 'todo';
+    const next_ = ['todo', 'focus', 'review', 'done'].includes(status) ? status : 'todo';
+    // Satu pintu untuk aturan "yang didelegasikan tidak ditutup sendiri" —
+    // dijaga di sini, bukan di tombolnya, supaya centang cepat, layar timer,
+    // dan jalan mana pun ke depan ikut terjaga tanpa perlu diingat lagi.
+    if (next_ === 'done' && !this.canCompleteTask(t, userId)) {
+      return { error: 'Tugas ini didelegasikan. Ajukan dulu lewat "Mohon Peninjauan Hasil Kerja" — yang menutupnya adalah pemberi tugas.' };
+    }
     const nowDone = next_ === 'done';
     const nowIso = new Date().toISOString();
     // Bukukan dulu potongan waktu yang sedang berjalan, apa pun tahap
@@ -2311,11 +2353,17 @@ class Store {
     const updates = nowDone
       ? { status: 'done', completed_at: nowIso, completed_by: userId || null,
           focus_seconds: banked, focus_at: null }
-      // Keluar dari 'done' mengembalikan tugas ke tahap yang diminta dan
-      // membersihkan jejak penyelesaiannya, supaya tidak tercatat selesai dua
-      // kali di riwayat. Masuk ke 'focus' langsung menyalakan timernya.
-      : { status: next_, completed_at: null, completed_by: null,
-          focus_seconds: banked, focus_at: next_ === 'focus' ? nowIso : null };
+      : next_ === 'review'
+        // Diajukan untuk ditinjau: timernya berhenti (pekerjaannya memang
+        // sudah dilepas), tapi belum tercatat selesai.
+        ? { status: 'review', completed_at: null, completed_by: null,
+            focus_seconds: banked, focus_at: null, review_requested_at: nowIso }
+        // Keluar dari 'done'/'review' mengembalikan tugas ke tahap yang
+        // diminta dan membersihkan jejaknya, supaya tidak tercatat selesai dua
+        // kali di riwayat. Masuk ke 'focus' langsung menyalakan timernya.
+        : { status: next_, completed_at: null, completed_by: null,
+            focus_seconds: banked, focus_at: next_ === 'focus' ? nowIso : null,
+            review_requested_at: null };
     const res = await this.updateTask(id, updates);
     if (res && res.error) return res;
 
@@ -2341,10 +2389,68 @@ class Store {
   }
 
   // Centang / batal-centang. Membatalkan centang mengembalikan tugas ke To-Do.
+  // Untuk tugas yang didelegasikan, centangnya ditolak setTaskStatus — yang
+  // dipakai penerimanya adalah requestReview.
   async toggleTaskDone(id, userId) {
     const t = this.getTask(id);
     if (!t) return { error: 'Tugas tidak ditemukan' };
     return this.setTaskStatus(id, this.taskStatus(t) === 'done' ? 'todo' : 'done', userId);
+  }
+
+  // Penerima tugas mengajukan hasil kerjanya untuk ditinjau.
+  async requestReview(id, userId, note) {
+    const t = this.getTask(id);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    const clean = String(note || '').trim();
+    const res = await this.updateTask(id, {
+      status: 'review', completed_at: null, completed_by: null,
+      focus_seconds: this.focusBanked(t), focus_at: null,
+      review_requested_at: new Date().toISOString(),
+      review_note: clean,
+    });
+    if (res && res.error) return res;
+    const reviewer = this.taskReviewerId(t);
+    if (reviewer && reviewer !== userId) {
+      this.addNotification(reviewer, 'Minta Peninjauan',
+        `${this.staffName(userId)} sudah mengerjakan "${t.title}" dan meminta peninjauan Anda.${clean ? ' Catatan: ' + clean : ''}`,
+        'system');
+    }
+    return { success: true, task: t };
+  }
+
+  // Pemberi tugas menyetujui hasilnya. Lewat setTaskStatus supaya tugas
+  // berulang tetap dijadwalkan ulang seperti biasa.
+  async approveTask(id, userId) {
+    const t = this.getTask(id);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    const worker = t.assignee_id || null;
+    const res = await this.setTaskStatus(id, 'done', userId);
+    if (res && res.error) return res;
+    if (worker && worker !== userId) {
+      this.addNotification(worker, 'Hasil Kerja Disetujui',
+        `Tugas "${t.title}" sudah ditinjau dan ditutup. Terima kasih.`, 'system');
+    }
+    return res;
+  }
+
+  // Dikembalikan untuk diperbaiki. Alasannya wajib — dikembalikan tanpa
+  // keterangan hanya membuat pekerjaan yang sama diulang dengan cara yang sama.
+  async returnTask(id, userId, note) {
+    const t = this.getTask(id);
+    if (!t) return { error: 'Tugas tidak ditemukan' };
+    const clean = String(note || '').trim();
+    if (!clean) return { error: 'Tulis dulu apa yang perlu diperbaiki.' };
+    const res = await this.updateTask(id, {
+      status: 'todo', completed_at: null, completed_by: null,
+      focus_at: null, review_requested_at: null, review_note: clean,
+    });
+    if (res && res.error) return res;
+    const worker = t.assignee_id || null;
+    if (worker && worker !== userId) {
+      this.addNotification(worker, 'Perlu Diperbaiki',
+        `Tugas "${t.title}" dikembalikan oleh ${this.staffName(userId)}. Catatan: ${clean}`, 'system');
+    }
+    return { success: true, task: t };
   }
 
   async toggleSubtask(taskId, index) {
@@ -2406,10 +2512,14 @@ class Store {
   // pemberi tugas dan di kolom To-Do/Fokus pada papan penerimanya — tanpa
   // pernah muncul dua kali di papan yang sama.
   groupTasksByColumn(tasks, userId) {
-    const cols = { todo: [], focus: [], delegated: [], done: [] };
+    const cols = { todo: [], focus: [], review: [], delegated: [], done: [] };
     (tasks || []).forEach(t => {
       const s = this.taskStatus(t);
       if (s === 'done') { cols.done.push(t); return; }
+      // Menunggu tinjauan berlaku untuk kedua belah pihak: yang mengajukan
+      // dan yang meninjau sama-sama melihatnya di satu kolom, jadi tidak ada
+      // pekerjaan yang mengendap tanpa ada yang merasa memegangnya.
+      if (s === 'review') { cols.review.push(t); return; }
       if (!this.isMyTask(t, userId)) { cols.delegated.push(t); return; }
       cols[s === 'focus' ? 'focus' : 'todo'].push(t);
     });
