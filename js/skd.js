@@ -59,7 +59,19 @@ export async function createSKD(opts) {
   const birth = opts.birth_date || patient.birth_date || '';
   const gender = opts.gender || patient.gender || '';
   const address = opts.address || patient.address || '';
-  const letterDate = opts.letter_date || new Date().toISOString().split('T')[0];
+  // SURAT SAKIT BERTANGGAL SESUAI MULAI SAKITNYA, bukan tanggal ia dicetak.
+  // Pasien sering baru sempat mengurus suratnya sehari setelah tidak masuk;
+  // kalau suratnya bertanggal hari pencetakan, tanggalnya jatuh SESUDAH hari
+  // pertama izin yang diterangkannya sendiri — dan surat seperti itu wajar
+  // dipertanyakan tempat kerja atau sekolahnya.
+  //
+  // Nomor surat ikut mengambil bulan & tahun dari tanggal ini, jadi
+  // penomorannya pun tetap runtut dengan tanggal suratnya.
+  // Berlaku untuk semua jalur penerbitan (dokter, admin, cetak ulang).
+  // Surat keterangan sehat tidak punya rentang sakit, jadi tidak terpengaruh.
+  const letterDate = (!isSehat && opts.from_date)
+    ? opts.from_date
+    : (opts.letter_date || new Date().toISOString().split('T')[0]);
   const year = new Date(letterDate).getFullYear();
   const monthRoman = ROMAN[new Date(letterDate).getMonth()];
   const initials = doctorInitials(doctor.full_name);
