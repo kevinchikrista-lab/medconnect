@@ -28,6 +28,21 @@ window.__renderSKDInto = renderSKDInto;
 window.__skdLoadingDoc = SKD_LOADING_DOC;
 window.__logWaReminder = (table, id) => store.logWaReminder(table, id);
 window.__rerender = () => { try { router.resolve(); } catch (e) {} };
+
+// Hapus satu kunjungan / rekam medis. Konfirmasinya menyebut tanggalnya, bukan
+// sekadar "yakin?" — supaya yang dihapus benar-benar yang dimaksud, dan alasan
+// penolakannya (mis. masih ada e-resep) sampai ke pengguna apa adanya.
+window.__hapusRekam = (recordId, tanggal) => {
+  if (!confirm('Hapus kunjungan tanggal ' + (tanggal || '-') + '? Seluruh isinya (anamnesis, pemeriksaan, diagnosis, terapi) ikut terhapus dan tidak bisa dikembalikan.')) return;
+  const r = store.deleteRecord(recordId);
+  if (r && r.error) {
+    if (window.__showToast) window.__showToast('Belum bisa dihapus', r.error);
+    else alert(r.error);
+    return;
+  }
+  if (window.__showToast) window.__showToast('Terhapus', 'Kunjungan tanggal ' + (tanggal || '-') + ' dihapus.');
+  setTimeout(() => window.__rerender && window.__rerender(), 150);
+};
 window.__waHref = waHref;
 window.__crmWaMsg = waProspekMsg;
 

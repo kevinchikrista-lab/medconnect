@@ -523,7 +523,7 @@ export function doctorEMR(params) {
                     </div>`;
                   }).join('')}
                 </div>
-                <div class="flex gap-2 mt-4"><a href="#/doctor/emr/edit/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit Rekam Medis</a><a href="#/doctor/prescriptions/new/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 transition">Buat E-Resep</a></div>
+                <div class="flex gap-2 mt-4 flex-wrap"><a href="#/doctor/emr/edit/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit Rekam Medis</a><a href="#/doctor/prescriptions/new/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 transition">Buat E-Resep</a><button onclick="window.__hapusRekam('${r.id}', '${qAttr(formatDate(r.visit_date))}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition ml-auto">Hapus Kunjungan</button></div>
               </div>
             </div>`;
           }).join('')}
@@ -537,7 +537,8 @@ export function doctorEMR(params) {
               <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
                 <div class="flex items-center justify-between mb-3"><h4 class="font-semibold text-gray-800">${name}${doses[0]?.vaccine_brand ? ' ('+doses[0].vaccine_brand+')' : ''}</h4><span class="text-xs text-gray-400">${doses[0]?.vax_mode === 'booster' ? 'Booster' : 'Seri '+doses.filter(d=>d.date_given).length+'/'+doses[0]?.total_doses}</span></div>
                 <div class="space-y-3">
-                  ${doses.map(d => `<div class="flex items-center gap-3 p-3 rounded-lg ${d.date_given ? 'bg-green-50' : 'bg-gray-50'}" x-data="{editing:false}">
+                  ${doses.map(d => `<div x-data="{editing:false}">
+                  <div class="flex items-center gap-3 p-3 rounded-lg ${d.date_given ? 'bg-green-50' : 'bg-gray-50'}">
                     <div class="w-8 h-8 rounded-full flex items-center justify-center ${d.date_given ? 'bg-green-500' : 'bg-gray-300'} text-white text-xs font-bold">${d.dose_number}</div>
                     <div class="flex-1">
                       <p class="text-sm font-medium text-gray-800">Dosis ${d.dose_number}/${d.total_doses} ${d.date_given ? '— Selesai' : '— Terjadwal'}${d.vaccine_brand ? ' | '+d.vaccine_brand : ''}</p>
@@ -545,13 +546,18 @@ export function doctorEMR(params) {
                     </div>
                     <div class="flex gap-1">
                       <button @click="editing=!editing" class="px-2 py-1 rounded text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit</button>
-                      <button onclick="if(confirm('Hapus data vaksinasi dosis ini?')){window.__store.deleteVaccination('${d.id}'); window.location.hash='/doctor/dashboard'; setTimeout(()=>window.location.hash='/doctor/emr/${params.patientId}',50)}" class="px-2 py-1 rounded text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition">Hapus</button>
+                      <button onclick="if(confirm('Hapus data vaksinasi dosis ini?')){window.__store.deleteVaccination('${d.id}'); setTimeout(function(){ window.__rerender && window.__rerender() }, 150)}" class="px-2 py-1 rounded text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition">Hapus</button>
                     </div>
-                    <div x-show="editing" x-cloak class="absolute right-0 mt-2 z-10"></div>
                   </div>
-                  <template x-if="editing"><div class="ml-11 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm" x-data="{
+                  <template x-if="editing"><div class="ml-11 mt-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm" x-data="{
                     ef: { dose_number: ${d.dose_number}, total_doses: ${d.total_doses}, vaccine_brand:'${qAttr(d.vaccine_brand)}', batch_number:'${qAttr(d.batch_number)}', location:'${qAttr(d.location)}', date_given:'${d.date_given||''}', next_dose_date:'${d.next_dose_date||''}' },
-                    saveVax() { window.__store.updateVaccination('${d.id}', this.ef); window.location.hash='/doctor/dashboard'; setTimeout(()=>window.location.hash='/doctor/emr/${params.patientId}',50); }
+                    saveVax() {
+                      const r = window.__store.updateVaccination('${d.id}', this.ef);
+                      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+                      this.editing = false;
+                      window.__showToast && window.__showToast('Tersimpan', 'Data vaksinasi diperbarui.');
+                      setTimeout(function(){ window.__rerender && window.__rerender() }, 150);
+                    }
                   }">
                     <p class="text-xs font-semibold text-blue-700 mb-2">Edit Vaksinasi</p>
                     <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
@@ -562,9 +568,13 @@ export function doctorEMR(params) {
                       <div><label class="block text-xs text-gray-500 mb-1">Tanggal</label><input type="date" x-model="ef.date_given" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
                       <div><label class="block text-xs text-gray-500 mb-1">Jadwal Berikut</label><input type="date" x-model="ef.next_dose_date" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
                       <div><label class="block text-xs text-gray-500 mb-1">Lokasi</label><input type="text" x-model="ef.location" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
-                      <div class="flex items-end"><button @click="saveVax()" class="px-3 py-1.5 rounded text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition w-full">Simpan</button></div>
+                      <div class="flex items-end gap-1">
+                        <button @click="saveVax()" class="px-3 py-1.5 rounded text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition flex-1">Simpan</button>
+                        <button @click="editing=false" class="px-3 py-1.5 rounded text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition">Batal</button>
+                      </div>
                     </div>
                   </div></template>
+                  </div>
                   `).join('')}
                   ${(() => {
                     const lastDose = doses[doses.length-1];
@@ -638,8 +648,7 @@ export function doctorEMR(params) {
                                 notes: 'Batch: ' + self.af.batch_number
                               });
                               self.saving = false;
-                              window.location.hash='/doctor/dashboard';
-                              setTimeout(function(){ window.location.hash='/doctor/emr/${params.patientId}'; },50);
+                              setTimeout(function(){ window.__rerender && window.__rerender() }, 150);
                             }, 400);
                           }
                         }">

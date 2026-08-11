@@ -45,13 +45,21 @@ export const CONFIG = {
     { key: 'polio', label: 'Polio', match: /polio|\bopv\b|\bipv\b|novapol/i },
   ],
 
-  // Harga & cashback bawaan per jenis layanan, dipakai sebagai isian awal saat
-  // sebuah kunjungan belum pernah diisi. Nol berarti "belum ditentukan" dan
-  // tetap harus diisi tangan; ubah angkanya di sini bila tarifnya sudah tetap.
-  UMROH_DEFAULTS: {
-    meningitis: { price: 0, cashback: 0 },
-    polio: { price: 0, cashback: 0 },
-    combo: { price: 0, cashback: 0 },
+  // HARGA DASAR klinik per jenis layanan. Cashback travel dihitung otomatis
+  // dari selisihnya:  cashback = harga yang dibayar jemaah - harga dasar.
+  //
+  // Satu rumus ini menjelaskan semua kesepakatan yang berlaku:
+  //   combo 500.000 -> 50.000   (500.000 - 450.000)
+  //   combo 445.000 -> 0        (di bawah harga dasar, tidak ada cashback)
+  //   combo 600.000 -> 150.000  (selebihnya memang hak travel)
+  //   polio 280.000 -> 20.000   (280.000 - 260.000)
+  //
+  // null = harga dasarnya belum ditentukan; cashback-nya tidak dihitung
+  // otomatis dan harus diisi tangan, bukan ditebak.
+  UMROH_CASHBACK_BASE: {
+    combo: 450000,
+    polio: 260000,
+    meningitis: null,
   },
 
   ROLES: {

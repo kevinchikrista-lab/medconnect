@@ -1497,6 +1497,28 @@ class Store {
     return { success: true };
   }
 
+  // Hapus satu kunjungan / rekam medis.
+  //
+  // Sengaja DITOLAK bila kunjungan itu masih menggantung e-resep: resepnya akan
+  // kehilangan induknya dan tetap hidup di antrean apotek tanpa ada yang bisa
+  // menelusurinya lagi. Batalkan atau selesaikan resepnya dulu — itu keputusan
+  // yang harus disadari, bukan efek samping penghapusan.
+  deleteRecord(recordId) {
+    const rec = (this.data.medical_records || []).find(r => r.id === recordId);
+    if (!rec) return { error: 'Rekam medis tidak ditemukan' };
+    const rx = this.getPrescriptionsByRecord(recordId) || [];
+    const aktif = rx.filter(x => x.status !== 'cancelled');
+    if (aktif.length) {
+      return { error: `Kunjungan ini masih punya ${aktif.length} e-resep (${aktif.map(x => x.rx_number).join(', ')}). Batalkan resepnya dulu, baru kunjungannya bisa dihapus.` };
+    }
+    this.data.medical_records = (this.data.medical_records || []).filter(r => r.id !== recordId);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(recordId).startsWith('id_')) {
+      supabase.delete('medical_records', recordId).catch(() => {});
+    }
+    return { success: true };
+  }
+
   deleteVaccination(vaxId) {
     this.data.vaccinations = this.data.vaccinations.filter(x => x.id !== vaxId);
     this._save();
@@ -2789,7 +2811,10 @@ class Store {
         sold_time: e.sold_time || '',
         patient_name: e.patient_name || '',
         doctor_name: e.doctor_name || '',
-        travel_name: e.travel_name || '',
+        // Nilai apa adanya dari kolom Sales di berkas kasir. Disimpan terpisah
+        // dari travel_name supaya isian manual tidak menghapusnya, dan
+        // sebaliknya — keduanya bisa hidup berdampingan.
+        travel_source: e.travel_name || '',
         service: e.service || '',
         service_label: e.service_label || '',
         price: Math.max(0, Math.round(Number(e.price) || 0)),
@@ -2798,6 +2823,20 @@ class Store {
       };
       const ada = byInvoice.get(fakta.invoice_no);
       if (ada) {
+        // ISIAN MANUAL TIDAK PERNAH TERTIMPA UNGGAHAN ULANG.
+        // Kalau tidak begini, travel yang sudah susah payah diisi tangan akan
+        // hilang lagi setiap kali laporan bulan berjalan diunggah — sebab di
+        // berkas kasirnya kolom Sales itu memang masih kosong.
+        if (!ada.travel_manual) fakta.travel_name = fakta.travel_source;
+        // Cashback ikut dihitung ulang bila harganya berubah — kecuali sudah
+        // diisi tangan, atau sudah terlanjur dibayar (nominalnya sudah
+        // disepakati saat itu, mengubahnya membuat riwayat tidak lagi cocok).
+        if (!ada.cashback_manual && !ada.cashback_paid) {
+          const auto = this.umrohAutoCashback({ ...ada, ...fakta });
+          if ((Number(ada.cashback_amount) || 0) !== auto.amount) {
+            fakta.cashback_amount = auto.amount;
+          }
+        }
         const berubah = Object.keys(fakta).some(k => {
           const a = fakta[k], b = ada[k];
           return Array.isArray(a) ? JSON.stringify(a) !== JSON.stringify(b || []) : String(a == null ? '' : a) !== String(b == null ? '' : b);
@@ -2811,7 +2850,8 @@ class Store {
       } else {
         const rec = {
           id: generateId(), ...fakta,
-          cashback_amount: 0, cashback_paid: false, cashback_at: null, cashback_by: null,
+          travel_name: fakta.travel_source, travel_manual: false,
+          cashback_amount: this.umrohAutoCashback(fakta).amount, cashback_manual: false, cashback_paid: false, cashback_at: null, cashback_by: null,
           imported_at: nowIso, imported_by: m.imported_by || null, source_file: m.source_file || '',
         };
         this.data.umroh_sales = (this.data.umroh_sales || []).concat(rec);
@@ -2859,16 +2899,30 @@ class Store {
         patient_name: r.patient_name || '-',
         doctor_name: r.doctor_name || '-',
         travel: String(r.travel_name || '').trim(),
+        // Dari mana nama travelnya: diisi tangan, atau ikut berkas kasir.
+        travel_manual: !!r.travel_manual,
+        travel_source: String(r.travel_source || '').trim(),
         service: r.service || '',
         service_label: r.service_label || '-',
         price: Number(r.price) || 0,
         cashback: Number(r.cashback_amount) || 0,
+        cashback_manual: !!r.cashback_manual,
         paid: !!r.cashback_paid,
         paid_at: r.cashback_at || null,
+        // Tiga keadaan: belum diajukan → diajukan admin → di-ACC (= dibayar).
+        cb_state: this.umrohCashbackState(r),
+        batch: r.cashback_batch || '',
+        requested_at: r.cashback_requested_at || null,
+        requested_by: r.cashback_requested_by || null,
+        requested_by_name: r.cashback_requested_by ? this.staffName(r.cashback_requested_by) : '',
+        reject_note: r.cashback_reject_note || '',
         items: Array.isArray(r.items) ? r.items : [],
         // Barang di luar vaksin umroh ikut menaikkan total faktur, jadi
         // ditandai — supaya harga yang berbeda sendiri tidak dikira salah catat.
         other_items: Array.isArray(r.other_items) ? r.other_items : [],
+        jemaah_count: this.umrohJemaahCount(r.patient_name),
+        // Alasan bila angkanya perlu diperiksa orang (bukan langsung dipercaya).
+        cb_review: this.umrohAutoCashback(r).review ? this.umrohAutoCashback(r).reason : '',
       }))
       .sort((a, b) => (a.date === b.date
         ? String(a.time || '').localeCompare(String(b.time || ''))
@@ -2884,22 +2938,156 @@ class Store {
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }
 
+  // Berapa jemaah dalam satu faktur. Kasir kadang menggabungkan sekeluarga
+  // dalam satu transaksi, dan nama-namanya ditulis dipisah koma. Kalau ini
+  // tidak dihitung, faktur Rp2.000.000 untuk 4 orang akan terbaca sebagai satu
+  // jemaah yang membayar 2 juta — dan cashback-nya melonjak jauh dari yang
+  // seharusnya.
+  umrohJemaahCount(nama) {
+    const bagian = String(nama || '').split(',').map(x => x.trim()).filter(Boolean);
+    return Math.max(1, bagian.length);
+  }
+
+  // Cashback otomatis: selisih antara yang dibayar jemaah dan harga dasar
+  // klinik. Lihat CONFIG.UMROH_CASHBACK_BASE.
+  //
+  // Mengembalikan juga `review`: penanda bahwa angkanya perlu diperiksa orang,
+  // bukan langsung dipercaya. Lebih baik menandai yang meragukan daripada
+  // diam-diam menghitung angka yang salah — cashback yang kelebihan bayar
+  // tidak akan pernah kembali.
+  umrohAutoCashback(row) {
+    const service = (row && row.service) || '';
+    const price = Number((row && row.price) || 0);
+    const base = (CONFIG.UMROH_CASHBACK_BASE || {})[service];
+    if (base === null || base === undefined) {
+      return { amount: 0, review: true, reason: 'Harga dasar untuk layanan ini belum ditentukan' };
+    }
+    const lain = (row && row.other_items) || [];
+    if (lain.length) {
+      // Barang di luar vaksin umroh ikut menaikkan total faktur, dan tidak ada
+      // cara memisahkannya dari angka total. Ditandai untuk diisi tangan.
+      return { amount: 0, review: true, reason: 'Faktur memuat barang lain: ' + lain.join(', ') };
+    }
+    const n = this.umrohJemaahCount(row && row.patient_name);
+    const perOrang = Math.round(price / n);
+    const amount = Math.max(0, perOrang - base) * n;
+    return {
+      amount,
+      review: n > 1,
+      reason: n > 1 ? (n + ' jemaah dalam satu faktur, dibagi rata') : '',
+    };
+  }
+
+  // Rentang tanggal yang benar-benar ada datanya. Halaman memakai ini sebagai
+  // rentang bawaan, BUKAN "bulan berjalan": laporan penjualan hampir selalu
+  // diunggah untuk periode yang sudah lewat, jadi bawaan "bulan ini" membuat
+  // sebagian besar datanya tidak tampil — dan travel yang kebetulan hanya
+  // beroperasi di bulan sebelumnya lenyap sama sekali dari daftar.
+  umrohDateRange() {
+    const tgl = (this.data.umroh_sales || [])
+      .map(r => String(r.sold_date || '').slice(0, 10))
+      .filter(Boolean)
+      .sort();
+    if (!tgl.length) return { min: '', max: '' };
+    return { min: tgl[0], max: tgl[tgl.length - 1] };
+  }
+
   umrohTravels(entries) {
     const names = new Set();
     (entries || []).forEach(e => { if (e.travel) names.add(e.travel); });
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }
 
+  // Isi / ubah travel sebuah baris secara manual.
+  //
+  // Kolom Sales di kasir kadang terlewat diisi, dan mengejar kasir untuk
+  // memperbaiki lalu mengekspor ulang tidak selalu memungkinkan. Isian di sini
+  // ditandai travel_manual, dan tanda itulah yang membuatnya bertahan saat
+  // berkas yang sama diunggah lagi.
+  //
+  // Nilai asli dari kasir tetap disimpan di travel_source, jadi isian manual
+  // tidak menghapus apa pun — dan sewaktu-waktu bisa dikembalikan.
+  setUmrohTravel(id, name) {
+    const r = (this.data.umroh_sales || []).find(x => x.id === id);
+    if (!r) return { error: 'Data penjualan tidak ditemukan' };
+    const clean = String(name || '').trim();
+    const updates = clean
+      ? { travel_name: clean, travel_manual: true }
+      // Dikosongkan = batalkan isian manual, kembali mengikuti berkas kasir.
+      : { travel_name: String(r.travel_source || '').trim(), travel_manual: false };
+    Object.assign(r, updates);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      supabase.update('umroh_sales', id, updates).catch(() => {});
+    }
+    return { success: true, travel: r.travel_name, manual: r.travel_manual };
+  }
+
+  // Isi travel sekaligus untuk beberapa baris — biasanya satu travel memang
+  // mengirim serombongan jemaah pada hari yang sama.
+  setUmrohTravelBulk(ids, name) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return { error: 'Tidak ada baris yang dipilih' };
+    const clean = String(name || '').trim();
+    if (!clean) return { error: 'Nama travel belum diisi.' };
+    let n = 0;
+    list.forEach(id => { const res = this.setUmrohTravel(id, clean); if (res && res.success) n++; });
+    if (!n) return { error: 'Data penjualan tidak ditemukan' };
+    return { success: true, count: n };
+  }
+
   // Nominal cashback satu baris.
   setUmrohCashbackAmount(id, amount) {
     const r = (this.data.umroh_sales || []).find(x => x.id === id);
     if (!r) return { error: 'Data penjualan tidak ditemukan' };
-    r.cashback_amount = Math.max(0, Math.round(Number(amount) || 0));
+    const updates = {
+      cashback_amount: Math.max(0, Math.round(Number(amount) || 0)),
+      // Ditandai supaya hitungan otomatis tidak menimpanya saat unggah ulang.
+      cashback_manual: true,
+    };
+    Object.assign(r, updates);
     this._save();
     if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
-      supabase.update('umroh_sales', id, { cashback_amount: r.cashback_amount }).catch(() => {});
+      supabase.update('umroh_sales', id, updates).catch(() => {});
     }
     return { success: true };
+  }
+
+  // Kembalikan satu baris ke hitungan otomatis.
+  resetUmrohCashback(id) {
+    const r = (this.data.umroh_sales || []).find(x => x.id === id);
+    if (!r) return { error: 'Data penjualan tidak ditemukan' };
+    const updates = { cashback_amount: this.umrohAutoCashback(r).amount, cashback_manual: false };
+    Object.assign(r, updates);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      supabase.update('umroh_sales', id, updates).catch(() => {});
+    }
+    return { success: true, amount: updates.cashback_amount };
+  }
+
+  // Hitung ulang cashback otomatis untuk baris yang belum diisi tangan dan
+  // belum dibayar. Dipakai tombol "Hitung Ulang Otomatis" — berguna setelah
+  // harga dasarnya diubah, atau untuk data yang diunggah sebelum aturan ini ada.
+  recalcUmrohCashback(ids) {
+    const target = (ids && ids.length)
+      ? (this.data.umroh_sales || []).filter(r => ids.indexOf(r.id) !== -1)
+      : (this.data.umroh_sales || []);
+    let diubah = 0, dilewati = 0, perluCek = 0;
+    target.forEach(r => {
+      if (r.cashback_manual || r.cashback_paid) { dilewati++; return; }
+      const auto = this.umrohAutoCashback(r);
+      if (auto.review) perluCek++;
+      if ((Number(r.cashback_amount) || 0) === auto.amount) return;
+      const updates = { cashback_amount: auto.amount, cashback_manual: false };
+      Object.assign(r, updates);
+      diubah++;
+      if (!CONFIG.DEMO_MODE && !String(r.id).startsWith('id_')) {
+        supabase.update('umroh_sales', r.id, updates).catch(() => {});
+      }
+    });
+    this._save();
+    return { success: true, diubah, dilewati, perluCek };
   }
 
   // Tarif cashback satu travel, diterapkan sekaligus. Yang sudah ditandai
@@ -2917,6 +3105,169 @@ class Store {
     return { success: true, count: rows.length };
   }
 
+  // =========================================================================
+  // PENGAJUAN PEMBAYARAN CASHBACK
+  //
+  //   belum  →  diajukan (admin mencentang & mengajukan)  →  dibayar (ACC)
+  //
+  // Yang mengajukan boleh siapa saja yang membuka halaman ini; yang meng-ACC
+  // hanya pemilik klinik. Ini memisahkan dua pekerjaan yang memang berbeda:
+  // menyusun tagihan itu kerja administrasi, sedangkan menyatakan uangnya
+  // sudah keluar adalah keputusan yang memegang uangnya.
+  //
+  // ACC BERARTI SUDAH DIBAYAR — tidak ada langkah ketiga. Kalau dipisah lagi
+  // ("disetujui" lalu "dibayar"), akan ada keadaan menggantung yang tidak
+  // dilihat siapa pun, dan justru itu yang membuat cashback terlupakan.
+  // =========================================================================
+
+  umrohCashbackState(r) {
+    if (!r) return 'none';
+    if (r.cashback_paid) return 'paid';
+    if (r.cashback_requested_at) return 'requested';
+    return 'none';
+  }
+
+  _umrohWrite(id, updates) {
+    const r = (this.data.umroh_sales || []).find(x => x.id === id);
+    if (!r) return false;
+    Object.assign(r, updates);
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      supabase.update('umroh_sales', id, updates).catch(() => {});
+    }
+    return true;
+  }
+
+  // Admin mengajukan sekumpulan baris untuk dibayarkan.
+  requestUmrohPayment(ids, userId, note) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return { error: 'Belum ada jemaah yang dicentang.' };
+    const rows = list.map(id => (this.data.umroh_sales || []).find(x => x.id === id)).filter(Boolean);
+    if (!rows.length) return { error: 'Data penjualan tidak ditemukan' };
+    // Yang sudah dibayar tidak boleh ikut diajukan lagi — kalau ikut, satu
+    // jemaah bisa terbayar dua kali tanpa ada yang menyadarinya.
+    const bisa = rows.filter(r => !r.cashback_paid);
+    if (!bisa.length) return { error: 'Semua yang dicentang sudah ditandai dibayar.' };
+    const tanpaNominal = bisa.filter(r => !(Number(r.cashback_amount) > 0));
+    if (tanpaNominal.length === bisa.length) {
+      return { error: 'Nominal cashback-nya belum diisi. Isi dulu lewat tombol Nominal atau Tarif Cashback.' };
+    }
+    const batch = 'PB-' + generateId();
+    const nowIso = new Date().toISOString();
+    bisa.forEach(r => this._umrohWrite(r.id, {
+      cashback_batch: batch,
+      cashback_requested_at: nowIso,
+      cashback_requested_by: userId || null,
+      cashback_request_note: String(note || '').trim(),
+      cashback_reject_note: '',
+    }));
+    this._save();
+
+    // Kabari yang berhak meng-ACC. Tanpa ini pengajuannya hanya menunggu
+    // sampai kebetulan ada yang membuka halamannya.
+    const total = bisa.reduce((a, b) => a + (Number(b.cashback_amount) || 0), 0);
+    const travel = Array.from(new Set(bisa.map(r => String(r.travel_name || '').trim()).filter(Boolean)));
+    const rupiah = 'Rp' + total.toLocaleString('id-ID');
+    const allowed = (CONFIG.CASHBACK_MANAGER_EMAILS || []).map(e => String(e).toLowerCase());
+    (this.data.users || [])
+      .filter(u => allowed.includes(String(u.email || '').toLowerCase()) && u.id !== userId)
+      .forEach(u => this.addNotification(u.id, 'Pengajuan Pembayaran Cashback',
+        `${this.staffName(userId)} mengajukan pembayaran cashback ${travel.join(', ') || 'travel'}: ${bisa.length} jemaah, ${rupiah}.`, 'system'));
+
+    return { success: true, batch, count: bisa.length, total, dilewati: rows.length - bisa.length, tanpaNominal: tanpaNominal.length };
+  }
+
+  // Membatalkan pengajuan yang belum di-ACC.
+  cancelUmrohPayment(ids) {
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return { error: 'Tidak ada pengajuan yang dipilih' };
+    let n = 0;
+    list.forEach(id => {
+      const r = (this.data.umroh_sales || []).find(x => x.id === id);
+      if (!r || r.cashback_paid) return;
+      if (this._umrohWrite(id, { cashback_batch: '', cashback_requested_at: null, cashback_requested_by: null, cashback_request_note: '' })) n++;
+    });
+    this._save();
+    if (!n) return { error: 'Tidak ada pengajuan yang bisa dibatalkan.' };
+    return { success: true, count: n };
+  }
+
+  // ACC = sudah dibayar. Hanya pemilik klinik.
+  approveUmrohPayment(ids, user) {
+    if (!this.canMarkCashback(user)) {
+      return { error: 'Hanya dr. Kevin Chikrista yang bisa meng-ACC pembayaran cashback.' };
+    }
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return { error: 'Tidak ada pengajuan yang dipilih' };
+    const res = this.setUmrohCashbackPaid(list, true, (user && user.id) || null);
+    if (res && res.error) return res;
+    // Kabari yang mengajukan bahwa uangnya sudah keluar.
+    const pengaju = new Set();
+    list.forEach(id => {
+      const r = (this.data.umroh_sales || []).find(x => x.id === id);
+      if (r && r.cashback_requested_by && r.cashback_requested_by !== (user && user.id)) pengaju.add(r.cashback_requested_by);
+    });
+    pengaju.forEach(pid => this.addNotification(pid, 'Cashback Sudah Dibayar',
+      `Pengajuan pembayaran cashback Anda sudah di-ACC dan dibayarkan (${res.count} jemaah).`, 'system'));
+    return res;
+  }
+
+  // Dikembalikan ke pengaju untuk diperbaiki. Alasannya wajib — dikembalikan
+  // tanpa keterangan hanya membuat pengajuan yang sama diajukan lagi.
+  rejectUmrohPayment(ids, user, note) {
+    if (!this.canMarkCashback(user)) {
+      return { error: 'Hanya dr. Kevin Chikrista yang bisa menolak pengajuan.' };
+    }
+    const clean = String(note || '').trim();
+    if (!clean) return { error: 'Tulis dulu alasan pengembaliannya.' };
+    const list = (ids || []).filter(Boolean);
+    if (!list.length) return { error: 'Tidak ada pengajuan yang dipilih' };
+    const pengaju = new Set();
+    let n = 0;
+    list.forEach(id => {
+      const r = (this.data.umroh_sales || []).find(x => x.id === id);
+      if (!r || r.cashback_paid) return;
+      if (r.cashback_requested_by) pengaju.add(r.cashback_requested_by);
+      if (this._umrohWrite(id, { cashback_batch: '', cashback_requested_at: null, cashback_requested_by: null, cashback_reject_note: clean })) n++;
+    });
+    this._save();
+    if (!n) return { error: 'Tidak ada pengajuan yang bisa dikembalikan.' };
+    pengaju.forEach(pid => {
+      if (pid === (user && user.id)) return;
+      this.addNotification(pid, 'Pengajuan Cashback Dikembalikan',
+        `Pengajuan pembayaran cashback Anda dikembalikan. Catatan: ${clean}`, 'system');
+    });
+    return { success: true, count: n };
+  }
+
+  // Pengajuan yang belum di-ACC, dikelompokkan per pengajuan (batch).
+  getUmrohPaymentRequests(entries) {
+    const per = new Map();
+    (entries || []).forEach(e => {
+      if (e.cb_state !== 'requested' || !e.batch) return;
+      if (!per.has(e.batch)) {
+        per.set(e.batch, {
+          batch: e.batch, rows: [], travels: new Set(),
+          requested_at: e.requested_at, requested_by_name: e.requested_by_name || 'Admin',
+        });
+      }
+      const g = per.get(e.batch);
+      g.rows.push(e);
+      if (e.travel) g.travels.add(e.travel);
+      // Yang paling awal diajukan jadi penanda waktunya.
+      if (e.requested_at && (!g.requested_at || e.requested_at < g.requested_at)) g.requested_at = e.requested_at;
+    });
+    return Array.from(per.values()).map(g => ({
+      batch: g.batch,
+      requested_at: g.requested_at,
+      requested_by_name: g.requested_by_name,
+      travel: Array.from(g.travels).sort().join(', ') || '(tanpa travel)',
+      count: g.rows.length,
+      total: g.rows.reduce((a, b) => a + (Number(b.cashback) || 0), 0),
+      ids: g.rows.map(r => r.id),
+      rows: g.rows,
+    })).sort((a, b) => String(a.requested_at || '').localeCompare(String(b.requested_at || '')));
+  }
+
   setUmrohCashbackPaid(ids, paid, userId) {
     const list = (ids || []).filter(Boolean);
     if (!list.length) return { error: 'Tidak ada data yang dipilih' };
@@ -2928,9 +3279,13 @@ class Store {
       r.cashback_paid = !!paid;
       r.cashback_at = paid ? nowIso : null;
       r.cashback_by = paid ? (userId || null) : null;
+      // Batal lunas juga menghapus jejak pengajuannya, supaya barisnya kembali
+      // ke keadaan awal dan tidak tertinggal sebagai pengajuan hantu.
+      const extra = paid ? {} : { cashback_batch: '', cashback_requested_at: null, cashback_requested_by: null };
+      Object.assign(r, extra);
       n++;
       if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
-        supabase.update('umroh_sales', id, { cashback_paid: r.cashback_paid, cashback_at: r.cashback_at, cashback_by: r.cashback_by }).catch(() => {});
+        supabase.update('umroh_sales', id, { cashback_paid: r.cashback_paid, cashback_at: r.cashback_at, cashback_by: r.cashback_by, ...extra }).catch(() => {});
       }
     });
     this._save();
@@ -2955,9 +3310,9 @@ class Store {
   umrohSummary(entries) {
     const s = {
       jamaah: 0, revenue: 0,
-      cashbackTotal: 0, cashbackPaid: 0, cashbackDue: 0,
+      cashbackTotal: 0, cashbackPaid: 0, cashbackDue: 0, cashbackRequested: 0, requestedCount: 0,
       meningitis: 0, polio: 0, combo: 0,
-      noTravel: 0, noCashback: 0, travels: 0,
+      noTravel: 0, noCashback: 0, travels: 0, perluCek: 0,
     };
     const travels = new Set();
     (entries || []).forEach(e => {
@@ -2966,7 +3321,9 @@ class Store {
       const cb = Number(e.cashback) || 0;
       s.cashbackTotal += cb;
       if (e.paid) s.cashbackPaid += cb; else s.cashbackDue += cb;
+      if (e.cb_state === 'requested') { s.cashbackRequested += cb; s.requestedCount++; }
       if (!cb) s.noCashback++;
+      if (e.cb_review) s.perluCek++;
       if (e.service === 'combo') s.combo++;
       else if (e.service === 'meningitis') s.meningitis++;
       else if (e.service === 'polio') s.polio++;
