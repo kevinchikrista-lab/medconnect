@@ -5,7 +5,7 @@ import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from '
 import { tasksPage } from './pages/tasks.js';
 import { notesPage } from './pages/notes.js';
 import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh } from './pages/admin.js';
-import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorCrm } from './pages/doctor.js';
+import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorRmDebt, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyCertificates, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
@@ -289,9 +289,12 @@ router.add('/doctor/dashboard', () => render(doctorDashboard));
 router.add('/doctor/patients', () => render(doctorPatients));
 router.add('/doctor/records', () => render(doctorRecords));
 router.add('/doctor/skd-approval', () => render(doctorSKDApproval));
+router.add('/doctor/rm-debt', () => render(doctorRmDebt));
 router.add('/doctor/crm', () => render(doctorCrm));
 router.add('/doctor/emr/:patientId', (p) => render(doctorEMR, p));
 router.add('/doctor/emr/:patientId/new', (p) => render(doctorEMRNew, p));
+// Membuat rekam medis sambil melunasi kewajiban sebuah resep / surat.
+router.add('/doctor/emr/:patientId/new/:debtKind/:debtId', (p) => render(doctorEMRNew, p));
 router.add('/doctor/prescriptions', () => render(doctorPrescriptions));
 router.add('/doctor/prescriptions/new/:recordId', (p) => render(doctorPrescriptionNew, p));
 router.add('/doctor/prescriptions/edit/:rxId', (p) => render(doctorPrescriptionEdit, p));

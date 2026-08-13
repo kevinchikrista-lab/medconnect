@@ -899,6 +899,13 @@ export function doctorEMRNew(params) {
   window.__peOtherInit = '';
   // Old visits for the reference panel — passed via a global (not embedded in
   // x-data) so free text (anamnesis/therapy/notes) can never break the page.
+  // Bila halaman ini dibuka dari daftar Kewajiban Rekam Medis, resep/surat
+  // yang sedang dilunasi ikut dibawa supaya tautannya terpasang begitu rekam
+  // medisnya tersimpan — bukan menyisakan pekerjaan kedua yang mudah terlupa.
+  window.__rmDebt = (params.debtKind && params.debtId) ? { kind: params.debtKind, id: params.debtId } : null;
+  const hutangIni = window.__rmDebt
+    ? store.rmDebtsForDoctor(doc && doc.id).find(h => h.kind === params.debtKind && h.id === params.debtId)
+    : null;
   const oldRecords = store.getRecords(patient.id);
   window.__oldRecords = oldRecords.map(r => ({
     id: r.id, visit_date: r.visit_date || '', diagnosis: r.diagnosis || '', anamnesis: r.anamnesis || '',
@@ -978,6 +985,12 @@ export function doctorEMRNew(params) {
         // offline), fall back to the EMR list — creating a prescription with a
         // placeholder record_id would be rejected by Supabase UUID column.
         const savedId = result && result.id ? String(result.id) : '';
+        // Melunasi kewajiban rekam medis: tautkan resep/suratnya sekarang juga.
+        if (window.__rmDebt && savedId) {
+          const t = await window.__store.linkRecordTo(window.__rmDebt.kind, window.__rmDebt.id, result.id);
+          if (t && t.error) window.__showToast && window.__showToast('Belum tertaut', t.error);
+          else window.__showToast && window.__showToast('Tertaut', 'Rekam medis ini menjadi dasar dokumen tersebut.');
+        }
         self.saving = false; self.saved = true; self.savedRecordId = savedId && !savedId.startsWith('id_') ? savedId : null;
       }, 400);
     },
@@ -992,11 +1005,17 @@ export function doctorEMRNew(params) {
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="flex items-center justify-between mb-6">
           <div class="flex items-center gap-2 text-sm text-gray-500"><a href="#/doctor/emr/${patient.id}" class="hover:text-teal-600 transition">${escHtml(patient.full_name)}</a><span>/</span><span class="text-gray-800 font-medium">Kunjungan Baru</span></div>
+
           <div class="flex gap-2">
             <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${patient.id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
+        ${hutangIni ? `
+        <div class="mb-4 px-4 py-3 rounded-2xl bg-amber-50 border-2 border-amber-200">
+          <p class="text-sm font-bold text-amber-900">Melunasi kewajiban rekam medis</p>
+          <p class="text-[12px] text-amber-800 leading-relaxed mt-0.5">Rekam medis yang Anda simpan di sini akan menjadi dasar tertulis untuk <b>${escHtml(hutangIni.label)}</b> (${escHtml(hutangIni.detail)}). Tautannya dipasang otomatis begitu tersimpan.</p>
+        </div>` : ''}
         <div class="grid lg:grid-cols-[1fr_320px] gap-4 items-start">
         <div class="min-w-0">
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
@@ -1966,6 +1985,126 @@ export function doctorSKDApproval() {
   </div>`;
 }
 
+// ===========================================================================
+// KEWAJIBAN REKAM MEDIS.
+//
+// Resep dan surat keterangan adalah tindakan medis. Begitu dokter meng-ACC
+// salah satunya, ia sudah membuat keputusan klinis atas nama pasien itu — dan
+// keputusan klinis harus ada rekam medisnya. Resep atau surat tanpa rekam
+// medis adalah tindakan tanpa dasar tertulis: tidak bisa ditelusuri, tidak
+// bisa dipertanggungjawabkan bila dipersoalkan, dan membuat riwayat pasiennya
+// bolong justru di bagian yang paling penting.
+//
+// DUA JALAN MELUNASINYA, dan yang kedua sama pentingnya dengan yang pertama:
+// membuat rekam medis baru, ATAU menautkan ke kunjungan yang memang sudah
+// tercatat. Tanpa jalan kedua, dokter yang resepnya cuma lupa tertaut akan
+// membuat rekam medis kembar — dan riwayat pasien yang penuh kembaran sama
+// tidak bisa dibacanya dengan yang bolong.
+// ===========================================================================
+export function doctorRmDebt() {
+  const doc = getDoctor();
+  const hutang = store.rmDebtsForDoctor(doc?.id);
+  // Kunjungan yang sudah tercatat untuk tiap pasien pada daftar ini —
+  // dipakai pilihan "tautkan ke kunjungan yang sudah ada".
+  const kunjungan = {};
+  [...new Set(hutang.map(h => h.patient_id))].forEach(pid => {
+    kunjungan[pid] = store.getRecords(pid).map(r => ({
+      id: r.id,
+      label: (r.visit_date || '') + ' — ' + (r.diagnosis || r.anamnesis || 'Kunjungan'),
+    }));
+  });
+  window.__rmHutang = hutang;
+  window.__rmKunjungan = kunjungan;
+  return `
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024,
+    docId: '${doc?.id || ''}',
+    hutang: window.__rmHutang || [],
+    kunjungan: window.__rmKunjungan || {},
+    pilihan: {},
+    sibuk: '',
+    kunjunganUntuk(h) { return this.kunjungan[h.patient_id] || []; },
+    urlBuatRm(h) { return '#/doctor/emr/' + h.patient_id + '/new/' + h.kind + '/' + h.id; },
+    lamaHari(h) {
+      if (!h.date) return null;
+      const d = Math.floor((Date.now() - new Date(h.date).getTime()) / 86400000);
+      return isNaN(d) ? null : Math.max(0, d);
+    },
+    async tautkan(h) {
+      const recId = this.pilihan[h.kind + ':' + h.id];
+      if (!recId) return;
+      this.sibuk = h.kind + ':' + h.id;
+      const r = await window.__store.linkRecordTo(h.kind, h.id, recId);
+      this.sibuk = '';
+      if (r && r.error) { window.__showToast && window.__showToast('Belum tertaut', r.error); return; }
+      this.hutang = this.hutang.filter(x => !(x.kind === h.kind && x.id === h.id));
+      window.__showToast && window.__showToast('Tertaut', h.label + ' kini punya dasar rekam medis.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 400);
+    }
+  }" class="min-h-screen bg-wash">
+    ${doctorSidebar('rm-debt')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${doctorHeader(doc)}
+      <main class="p-4 lg:p-6 max-w-4xl mx-auto">
+        <div class="flex items-center gap-2 mb-1 flex-wrap">
+          <h2 class="text-xl font-bold text-gray-800">Kewajiban Rekam Medis</h2>
+          <span x-show="hutang.length > 0" x-cloak class="px-2 py-0.5 rounded-full bg-[#ff5436] text-white text-xs font-bold" x-text="hutang.length"></span>
+        </div>
+        <p class="text-sm text-gray-500 mb-6">Resep dan surat keterangan yang sudah <b>sah atas nama Anda</b> tetapi belum punya rekam medis. Setiap tindakan medis perlu dasar tertulis &mdash; tanpa itu, resep atau suratnya tidak bisa dipertanggungjawabkan bila dipersoalkan.</p>
+
+        <template x-if="hutang.length === 0">
+          <div class="bg-white rounded-3xl border border-slate-100 p-8 text-center">
+            <p class="text-sm font-semibold text-green-700">Tidak ada kewajiban yang tertunggak.</p>
+            <p class="text-xs text-gray-400 mt-1">Semua resep &amp; surat keterangan Anda sudah punya rekam medisnya.</p>
+          </div>
+        </template>
+
+        <div class="space-y-3">
+          <template x-for="h in hutang" :key="h.kind + ':' + h.id">
+            <div class="bg-white border border-slate-100 rounded-3xl p-4">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div class="min-w-[220px]">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="h.kind === 'rx' ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'" x-text="h.kind === 'rx' ? 'Resep' : 'Surat'"></span>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Belum ada RM</span>
+                    <span x-show="h.from_pharmacy" x-cloak class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">dari apotek</span>
+                  </div>
+                  <p class="font-semibold text-gray-800 mt-2" x-text="h.patient_name"></p>
+                  <p class="text-xs text-gray-500" x-text="h.label + (h.date ? ' · ' + h.date : '')"></p>
+                  <p class="text-xs text-gray-500 mt-0.5" x-text="h.detail"></p>
+                  <!-- Umur hutangnya disebut: yang menua paling sulit ditulis,
+                       karena kejadiannya sudah tidak diingat lagi. -->
+                  <p x-show="lamaHari(h) !== null && lamaHari(h) >= 7" x-cloak class="text-[11px] font-semibold text-red-600 mt-1" x-text="'Tertunggak ' + lamaHari(h) + ' hari'"></p>
+                </div>
+                <a :href="urlBuatRm(h)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition shrink-0" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Buat Rekam Medis</a>
+              </div>
+
+              <!-- Jalan kedua: kunjungannya mungkin memang sudah tercatat dan
+                   yang kurang cuma tautannya. Memaksa membuat RM baru untuk
+                   kasus itu justru menghasilkan rekam medis kembar. -->
+              <template x-if="kunjunganUntuk(h).length">
+                <div class="mt-3 pt-3 border-t border-slate-100">
+                  <p class="text-[11px] text-slate-500 mb-1.5">Atau tautkan ke kunjungan yang sudah tercatat:</p>
+                  <div class="flex gap-2 flex-wrap">
+                    <select x-model="pilihan[h.kind + ':' + h.id]" class="flex-1 min-w-[200px] px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+                      <option value="">Pilih kunjungan...</option>
+                      <template x-for="k in kunjunganUntuk(h)" :key="k.id"><option :value="k.id" x-text="k.label"></option></template>
+                    </select>
+                    <button @click="tautkan(h)" :disabled="!pilihan[h.kind + ':' + h.id] || sibuk === (h.kind + ':' + h.id)" class="px-3 py-2 rounded-lg text-xs font-semibold text-teal-800 bg-teal-100 hover:bg-teal-200 transition disabled:opacity-40">Tautkan</button>
+                  </div>
+                </div>
+              </template>
+              <template x-if="!kunjunganUntuk(h).length">
+                <p class="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-400">Pasien ini belum punya kunjungan tercatat sama sekali &mdash; rekam medisnya harus dibuat baru.</p>
+              </template>
+            </div>
+          </template>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
 export function doctorCalendar(params) {
   const doc = getDoctor();
   const today = new Date();
@@ -2191,12 +2330,18 @@ function doctorSidebar(active) {
   // membuka halamannya — dan yang tidak dibuka menahan apotek serta pasien.
   let accMenunggu = 0;
   try { accMenunggu = doc ? store.pendingAccCounts(doc.id).total : 0; } catch (e) { accMenunggu = 0; }
+  // Resep & surat sah yang belum punya rekam medis. Angkanya sengaja terpisah
+  // dari "Menunggu ACC": yang satu pekerjaan memutuskan, yang satu pekerjaan
+  // mencatat — menggabungkannya membuat keduanya sama-sama kabur.
+  let rmHutang = 0;
+  try { rmHutang = doc ? store.rmDebtCount(doc.id) : 0; } catch (e) { rmHutang = 0; }
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view', href: '#/doctor/dashboard' },
     { id: 'patients', label: 'Pasien', icon: 'groups', href: '#/doctor/patients' },
     { id: 'emr', label: 'Rekam Medis', icon: 'clinical_notes', href: '#/doctor/records' },
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/doctor/prescriptions' },
     { id: 'skd-approval', label: 'Menunggu ACC', icon: 'assignment_turned_in', href: '#/doctor/skd-approval', badge: accMenunggu },
+    { id: 'rm-debt', label: 'Kewajiban RM', icon: 'assignment_late', href: '#/doctor/rm-debt', badge: rmHutang },
     { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/doctor/crm' },
     { id: 'chat', label: 'Pesan', icon: 'forum', href: '#/doctor/chat', badge: unreadChat },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/doctor/homecare/history' },

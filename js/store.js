@@ -1800,6 +1800,129 @@ class Store {
     }, items, { pharmacyId: o.pharmacyId, doctorId: o.doctorId });
   }
 
+  // =========================================================================
+  // KEWAJIBAN REKAM MEDIS
+  //
+  // Resep dan surat keterangan adalah TINDAKAN MEDIS. Begitu dokter meng-ACC
+  // salah satunya, ia sudah membuat keputusan klinis atas nama pasien itu —
+  // dan keputusan klinis harus ada rekam medisnya. Resep atau surat yang tidak
+  // punya rekam medis adalah tindakan tanpa dasar tertulis: tidak bisa
+  // ditelusuri, tidak bisa dipertanggungjawabkan bila dipersoalkan, dan
+  // membuat riwayat pasiennya bolong justru di bagian yang paling penting.
+  //
+  // Yang menghubungkan keduanya sudah ada: prescriptions.record_id. Resep yang
+  // ditulis dokter dari sebuah kunjungan otomatis terisi. Yang KOSONG adalah
+  // resep yang lahir dari apotek — dan sejak apotek boleh menyusun resep serta
+  // surat, lubang itu bertambah besar. Surat keterangan belum punya
+  // penghubungnya sama sekali; itu yang ditambahkan (certificates.record_id).
+  //
+  // DIHITUNG SEBAGAI HUTANG HANYA YANG SUDAH SAH. Yang masih menunggu ACC atau
+  // ditolak belum menjadi tindakan apa pun, jadi belum ada yang harus dicatat.
+  //
+  // Lihat supabase-rm-obligation.sql.
+  // =========================================================================
+
+  // Surat ini tanggung jawab dokter yang mana. Yang di-ACC menyebut dokternya
+  // secara tegas; surat yang diterbitkan dokter sendiri tidak menyimpan id
+  // itu, jadi dicocokkan lewat namanya — nama itulah yang tercetak di suratnya
+  // dan yang akan ditanyakan orang bila surat itu dipersoalkan.
+  _skdMilikDokter(cert, doctorId) {
+    const a = (cert && cert.details && cert.details.approval) || {};
+    if (a.doctor_id) return a.doctor_id === doctorId;
+    const d = this.getDoctor(doctorId);
+    if (!d || !d.full_name) return false;
+    return this.normalizeName(cert.doctor_name) === this.normalizeName(d.full_name);
+  }
+
+  // Resep & surat SAH milik dokter ini yang belum punya rekam medis.
+  rmDebtsForDoctor(doctorId) {
+    if (!doctorId) return [];
+    const hutang = [];
+
+    for (const rx of (this.data.prescriptions || [])) {
+      if (rx.doctor_id !== doctorId) continue;
+      if (this.rxApprovalStatus(rx) !== 'approved') continue;
+      if (rx.status === 'cancelled') continue;
+      if (rx.record_id) continue;
+      const obat = this.getPrescriptionItems(rx.id);
+      hutang.push({
+        kind: 'rx', id: rx.id,
+        patient_id: rx.patient_id,
+        patient_name: (this.getPatient(rx.patient_id) || {}).full_name || 'Pasien',
+        date: String(rx.created_at || '').slice(0, 10),
+        label: 'Resep ' + (rx.rx_number || ''),
+        detail: obat.map(i => i.drug_name || '').filter(Boolean).join(', ') || '(tanpa obat tercatat)',
+        from_pharmacy: !!rx.drafted_by_pharmacy,
+      });
+    }
+
+    for (const c of (this.data.certificates || [])) {
+      if (c.cert_type !== 'skd') continue;
+      const status = (c.details && c.details.approval && c.details.approval.status) || 'approved';
+      if (status !== 'approved') continue;
+      if (c.record_id || (c.details && c.details.record_id)) continue;
+      if (!this._skdMilikDokter(c, doctorId)) continue;
+      const d = c.details || {};
+      hutang.push({
+        kind: 'skd', id: c.id,
+        patient_id: c.patient_id,
+        patient_name: c.patient_name || 'Pasien',
+        date: String(d.letter_date || c.issued_at || '').slice(0, 10),
+        label: 'Surat ' + ((c.perihal || '').toUpperCase() === 'SEHAT' ? 'Sehat' : 'Sakit') + ' ' + (c.cert_number || ''),
+        detail: d.diagnosis || d.keperluan || '(tanpa keterangan)',
+        from_pharmacy: !!(d.approval && d.approval.by_pharmacy),
+      });
+    }
+
+    // Yang paling lama menunggu didahulukan: hutang yang menua adalah hutang
+    // yang paling sulit ditulis, karena dokternya sudah lupa kejadiannya.
+    return hutang.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }
+
+  rmDebtCount(doctorId) { return this.rmDebtsForDoctor(doctorId).length; }
+
+  // Tautkan sebuah resep / surat ke rekam medis. Menolak menimpa tautan yang
+  // sudah ada: menautkan ulang ke kunjungan lain diam-diam memindahkan dasar
+  // sebuah tindakan, dan itu tidak boleh terjadi tanpa disadari.
+  async linkRecordTo(kind, id, recordId) {
+    if (!recordId) return { error: 'Rekam medis tidak disebutkan.' };
+    const rec = (this.data.medical_records || []).find(r => r.id === recordId);
+    if (!rec) return { error: 'Rekam medis tidak ditemukan.' };
+
+    if (kind === 'rx') {
+      const rx = (this.data.prescriptions || []).find(r => r.id === id);
+      if (!rx) return { error: 'Resep tidak ditemukan.' };
+      if (rx.record_id) return { error: 'Resep ini sudah tertaut ke rekam medis lain.' };
+      if (rx.patient_id !== rec.patient_id) return { error: 'Rekam medis itu milik pasien yang berbeda.' };
+      rx.record_id = recordId;
+      this._save();
+      if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_') && !String(recordId).startsWith('id_')) {
+        supabase.update('prescriptions', id, { record_id: recordId }).catch(() => {});
+      }
+      return { success: true };
+    }
+
+    if (kind === 'skd') {
+      const c = (this.data.certificates || []).find(x => x.id === id);
+      if (!c) return { error: 'Surat tidak ditemukan.' };
+      if (c.record_id) return { error: 'Surat ini sudah tertaut ke rekam medis lain.' };
+      if (c.patient_id && rec.patient_id && c.patient_id !== rec.patient_id) {
+        return { error: 'Rekam medis itu milik pasien yang berbeda.' };
+      }
+      c.record_id = recordId;
+      this._save();
+      if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_') && !String(recordId).startsWith('id_')) {
+        // Kolomnya baru ada setelah supabase-rm-obligation.sql dijalankan.
+        // Kalau belum, tautannya tetap tersimpan lokal dan tercatat ulang saat
+        // SQL-nya dijalankan — bukan hilang tanpa kabar.
+        supabase.update('certificates', id, { record_id: recordId }).catch(() => {});
+      }
+      return { success: true };
+    }
+
+    return { error: 'Jenis dokumen tidak dikenal.' };
+  }
+
   // ---- SATU HITUNGAN UNTUK SEMUA YANG MENUNGGU KEPUTUSAN DOKTER ----------
   //
   // Yang butuh ACC dokter datang dari tiga arah sekaligus: resep yang disusun
