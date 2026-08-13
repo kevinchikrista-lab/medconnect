@@ -185,6 +185,14 @@ export const supabase = {
     } catch (e) { return { error: e.message || 'Kesalahan jaringan' }; }
   },
 
+  // URL tetap untuk berkas di bucket PUBLIK. Logo kop harus memakai ini, bukan
+  // signedUrl: tautan bertanda tangan kedaluwarsa dalam hitungan jam, sedangkan
+  // logo pada kop resep harus tetap tampil kapan pun lembarnya dicetak ulang.
+  publicUrl(bucket, path) {
+    if (!path) return '';
+    return `${SUPA_URL}/storage/v1/object/public/${bucket}/${String(path).replace(/^\/+/, '')}`;
+  },
+
   async removeFile(bucket, path) {
     const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
     try {

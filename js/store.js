@@ -2057,6 +2057,28 @@ class Store {
     return kop;
   }
 
+  // Unggah logo kop sebuah tempat praktik.
+  //
+  // Disimpan di bucket PUBLIK 'letterheads'. Logo bukan rahasia, dan kop resep
+  // harus tetap tampil saat lembarnya dicetak ulang bertahun kemudian —
+  // tautan bertanda tangan kedaluwarsa dalam hitungan jam, jadi tidak cocok.
+  async uploadKopLogo(locationId, file) {
+    if (!file) return { error: 'Belum ada berkas yang dipilih.' };
+    const tipe = String(file.type || '');
+    if (!/^image\//.test(tipe)) return { error: 'Berkasnya harus berupa gambar (PNG / JPG / WEBP).' };
+    // Logo yang terlalu besar memperlambat setiap kali resep dicetak, dan
+    // tidak menambah ketajaman pada ukuran cetak 20mm.
+    if (file.size > 2 * 1024 * 1024) return { error: 'Ukuran logo maksimal 2 MB. Perkecil dulu gambarnya.' };
+    if (CONFIG.DEMO_MODE) return { success: true, url: '' };
+    const aman = String(file.name || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${locationId || 'umum'}/${Date.now()}_${aman}`;
+    const up = await supabase.uploadFile('letterheads', path, file);
+    if (up && up.error) return { error: 'Gagal mengunggah logo: ' + up.error };
+    const url = supabase.publicUrl('letterheads', path);
+    if (!url) return { error: 'Logo terunggah tapi tautannya tidak terbentuk.' };
+    return { success: true, url, path };
+  }
+
   // Menyetel kop bawaan seorang dokter.
   async setDoctorKop(doctorId, locationId) {
     const d = this.getDoctor(doctorId);

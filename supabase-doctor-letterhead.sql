@@ -30,6 +30,33 @@ ALTER TABLE public.practice_locations
   ADD COLUMN IF NOT EXISTS kop_email    text,
   ADD COLUMN IF NOT EXISTS kop_logo_url text;   -- URL logo; kosong = tanpa logo
 
+-- ---- Tempat menyimpan logo kop -------------------------------------------
+-- Bucket ini sengaja PUBLIK. Logo bukan rahasia, dan kop resep harus tetap
+-- tampil saat lembarnya dicetak ulang bertahun kemudian — tautan bertanda
+-- tangan (signed URL) kedaluwarsa dalam hitungan jam, jadi tidak cocok untuk
+-- gambar yang tertanam di kertas resep.
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('letterheads', 'letterheads', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- Siapa pun boleh MEMBACA (itu maksudnya publik), tapi hanya pengguna yang
+-- sudah masuk yang boleh mengunggah dan menghapus.
+DROP POLICY IF EXISTS "letterheads read" ON storage.objects;
+CREATE POLICY "letterheads read" ON storage.objects
+  FOR SELECT USING (bucket_id = 'letterheads');
+
+DROP POLICY IF EXISTS "letterheads insert" ON storage.objects;
+CREATE POLICY "letterheads insert" ON storage.objects
+  FOR INSERT WITH CHECK (bucket_id = 'letterheads' AND auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "letterheads update" ON storage.objects;
+CREATE POLICY "letterheads update" ON storage.objects
+  FOR UPDATE USING (bucket_id = 'letterheads' AND auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "letterheads delete" ON storage.objects;
+CREATE POLICY "letterheads delete" ON storage.objects
+  FOR DELETE USING (bucket_id = 'letterheads' AND auth.role() = 'authenticated');
+
 -- SATU DOKTER BISA BERPRAKTIK DI LEBIH DARI SATU TEMPAT, jadi kop tidak bisa
 -- ditetapkan sekali untuk selamanya. Karena itu ada dua hal berbeda:
 --

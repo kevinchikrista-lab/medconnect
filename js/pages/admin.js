@@ -1571,6 +1571,18 @@ export function adminLocations() {
     showForm: false, editing: null, msg: '', saving: false,
     form: { name:'', address:'', phone:'', notes:'', sort_order:100 },
     openNew() { this.editing = null; this.form = { name:'', address:'', phone:'', notes:'', sort_order:100, kop_name:'', kop_sub:'', kop_email:'', kop_logo_url:'' }; this.msg = ''; this.showForm = true; },
+    logoBusy: false, logoErr: '',
+    async unggahLogo(ev) {
+      const file = ev && ev.target && ev.target.files && ev.target.files[0];
+      if (!file) return;
+      this.logoBusy = true; this.logoErr = '';
+      const r = await window.__store.uploadKopLogo(this.editing || 'baru', file);
+      this.logoBusy = false;
+      if (ev.target) ev.target.value = '';
+      if (r && r.error) { this.logoErr = r.error; return; }
+      if (!r.url) { this.logoErr = 'Mode demo: logo tidak benar-benar diunggah.'; return; }
+      this.form.kop_logo_url = r.url;
+    },
     async save() {
       if (this.saving) return;
       const name = (this.form.name || '').trim();
@@ -1629,7 +1641,26 @@ export function adminLocations() {
                   <div><label class="block text-[11px] text-indigo-800 mb-1">Nama besar di kop</label><input type="text" x-model="form.kop_name" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="cth: APOTEK MEDIKA RAYA"></div>
                   <div><label class="block text-[11px] text-indigo-800 mb-1">Baris kecil di bawahnya</label><input type="text" x-model="form.kop_sub" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="cth: (Medika Raya)"></div>
                   <div><label class="block text-[11px] text-indigo-800 mb-1">E-mail pada kop</label><input type="text" x-model="form.kop_email" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="Opsional"></div>
-                  <div><label class="block text-[11px] text-indigo-800 mb-1">URL logo</label><input type="text" x-model="form.kop_logo_url" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="https://... (kosong = tanpa logo)"></div>
+                  <div class="sm:col-span-2">
+                    <label class="block text-[11px] text-indigo-800 mb-1">Logo kop</label>
+                    <div class="flex items-start gap-3 flex-wrap">
+                      <img :src="form.kop_logo_url" x-show="form.kop_logo_url" x-cloak alt="Logo kop"
+                        class="h-14 w-auto max-w-[140px] object-contain rounded-lg bg-white border border-indigo-200 p-1">
+                      <div class="flex-1 min-w-[220px]">
+                        <label class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-indigo-800 bg-indigo-100 hover:bg-indigo-200 transition cursor-pointer">
+                          <span class="ms text-[16px]">upload</span>
+                          <span x-text="logoBusy ? 'Mengunggah...' : (form.kop_logo_url ? 'Ganti logo' : 'Unggah logo')"></span>
+                          <input type="file" accept="image/*" class="hidden" @change="unggahLogo($event)">
+                        </label>
+                        <button type="button" x-show="form.kop_logo_url" x-cloak @click="form.kop_logo_url = ''"
+                          class="ml-1.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition">Hapus logo</button>
+                        <p class="text-[11px] text-indigo-700 mt-1.5 leading-relaxed">PNG / JPG / WEBP, maksimal 2 MB. Dicetak setinggi ±20 mm di kop, jadi gambar besar tidak menambah ketajaman.</p>
+                        <p x-show="logoErr" x-cloak class="text-[11px] text-red-600 mt-1" x-text="logoErr"></p>
+                        <input type="text" x-model="form.kop_logo_url" placeholder="atau tempel URL logo di sini"
+                          class="mt-1.5 w-full px-3 py-2 border border-indigo-200 rounded-lg text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50">
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
