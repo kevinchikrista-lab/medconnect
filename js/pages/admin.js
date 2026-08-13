@@ -66,6 +66,10 @@ export function adminUsers() {
   // Owner can create another.
   const ownerExists = store.getUsers('owner').length > 0;
   const canCreateOwner = currentUser?.role === 'owner' || !ownerExists;
+  // Daftar tempat praktik untuk menautkan akun apotek — lihat bukaTempatApotek.
+  window.__lokasiPraktik = (store.data.practice_locations || [])
+    .filter(l => l.is_active !== false)
+    .map(l => ({ id: l.id, name: l.name || '' }));
   return `
   <div x-data="adminUsersData()" class="min-h-screen bg-wash">
     ${adminSidebar('users')}
@@ -185,6 +189,29 @@ export function adminUsers() {
             </div>
           </div>
         </div>
+        <!-- Tempat praktik apotek -->
+        <div x-show="tempatUser" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="tempatUser=null">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h3 class="text-lg font-bold text-gray-800 mb-1">Tempat Praktik Apotek</h3>
+            <p class="text-sm text-gray-500 mb-4"><span class="font-medium text-gray-800" x-text="tempatUser?.profile?.name || tempatUser?.profile?.full_name || ''"></span></p>
+            <div class="mb-3 px-3 py-2 rounded-xl bg-blue-50 border border-blue-100">
+              <p class="text-[11.5px] text-blue-900 leading-relaxed">Tautan ini menentukan <b>dokter mana yang boleh dijadikan penanggung jawab surat keterangan</b> yang disusun apotek ini &mdash; hanya dokter yang berpraktik di tempat yang sama. Tidak berpengaruh pada resep.</p>
+            </div>
+            <div x-show="tempatMsg" x-cloak class="mb-3 p-2 rounded-lg text-sm bg-red-50 text-red-700" x-text="tempatMsg"></div>
+            <label class="block text-xs text-gray-600 mb-1">Tempat praktik</label>
+            <select x-model="tempatPilih" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50">
+              <option value="">— belum ditautkan —</option>
+              <template x-for="l in lokasiList" :key="l.id"><option :value="l.id" x-text="l.name"></option></template>
+            </select>
+            <p class="text-[11px] mt-2" x-show="tempatPilih" x-cloak
+               :class="dokterDiTempat(tempatPilih).length ? 'text-slate-500' : 'text-amber-700'"
+               x-text="dokterDiTempat(tempatPilih).length ? ('Dokter di sini: ' + dokterDiTempat(tempatPilih).join(', ')) : 'Belum ada dokter yang terdaftar berpraktik di sini — apotek ini belum bisa membuat surat keterangan sampai ada. Atur di halaman Tempat Praktik & Kop.'"></p>
+            <div class="flex gap-2 justify-end mt-4">
+              <button @click="tempatUser=null" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="simpanTempatApotek()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Simpan</button>
+            </div>
+          </div>
+        </div>
         <!-- Certificate Download Modal -->
         <div x-show="certUser" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="certUser=null">
           <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
@@ -218,6 +245,7 @@ export function adminUsers() {
                   <button @click="resetUser=user; resetNewPass=''; resetMsg=''" class="px-2 py-1 rounded text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Reset Pass</button>
                   <template x-if="user.role==='patient'"><button @click="certUser=user" class="px-2 py-1 rounded text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition">Sertifikat</button></template>
                   <template x-if="user.role==='doctor' || user.role==='owner'"><button @click="openEditDoc(user)" class="px-2 py-1 rounded text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition">Edit Dokter/SIP</button></template>
+                  <template x-if="user.role==='pharmacy'"><button @click="bukaTempatApotek(user)" title="Tautkan apotek ini ke tempat praktik — menentukan dokter mana yang boleh dijadikan penanggung jawab surat keterangannya" class="px-2 py-1 rounded text-xs font-medium" :class="tempatApotek(user) ? 'text-blue-700 bg-blue-50 hover:bg-blue-100' : 'text-amber-700 bg-amber-50 hover:bg-amber-100'" x-text="tempatApotek(user) || 'Tempat Praktik: belum diatur'"></button></template>
                   <template x-if="user.role==='pharmacy'"><button @click="toggleRxIzin(user)" :title="user.profile?.can_prescribe ? 'Cabut izin menyusun resep' : 'Izinkan apotek ini menyusun resep (tetap harus di-ACC dokter)'" class="px-2 py-1 rounded text-xs font-medium" :class="user.profile?.can_prescribe ? 'text-purple-700 bg-purple-100 hover:bg-purple-200' : 'text-slate-600 bg-slate-100 hover:bg-slate-200'" x-text="user.profile?.can_prescribe ? 'Boleh Tulis Resep' : 'Tidak Boleh Tulis Resep'"></button></template>
                   <template x-if="user.role==='doctor'"><button @click="toggleDoctorListing(user)" class="px-2 py-1 rounded text-xs font-medium" :class="user.profile?.is_public_listed ? 'text-red-700 bg-red-50 hover:bg-red-100' : 'text-green-700 bg-green-50 hover:bg-green-100'" x-text="user.profile?.is_public_listed ? 'Sembunyikan dari Beranda' : 'Tampilkan di Beranda'"></button></template>
                   <button @click="deleteUser(user)" class="px-2 py-1 rounded text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Hapus</button>
@@ -286,6 +314,40 @@ export function adminUsersData() {
     // menegaskan bahwa resepnya tetap harus di-ACC dokter — supaya izin ini
     // tidak diberikan karena salah paham bahwa apotek jadi bisa meresepkan
     // sendiri tanpa dokter.
+    // ---- Tempat praktik apotek ----
+    // Menentukan dokter mana yang boleh dijadikan penanggung jawab surat
+    // keterangan yang disusun apotek itu: hanya dokter yang berpraktik di
+    // tempat yang sama. Tanpa tautan ini apotek tidak bisa membuat surat sama
+    // sekali — bukan bisa memilih dokter mana pun.
+    lokasiList: window.__lokasiPraktik || [],
+    tempatUser: null, tempatPilih: '', tempatMsg: '',
+    tempatApotek(user) {
+      const ph = user && user.profile;
+      if (!ph || !ph.id) return '';
+      const id = window.__store.pharmacyLocationId(ph.id);
+      const l = (this.lokasiList || []).find(x => x.id === id);
+      return l ? l.name : '';
+    },
+    bukaTempatApotek(user) {
+      const ph = user && user.profile;
+      if (!ph || !ph.id) { window.__showToast && window.__showToast('Gagal', 'Data apotek tidak ditemukan.'); return; }
+      this.tempatMsg = '';
+      this.tempatPilih = ph.location_id || window.__store.pharmacyLocationId(ph.id) || '';
+      this.tempatUser = user;
+    },
+    dokterDiTempat(id) {
+      return window.__store.doctorsAtLocation(id).map(d => d.full_name || 'Dokter');
+    },
+    async simpanTempatApotek() {
+      const ph = this.tempatUser && this.tempatUser.profile;
+      if (!ph) return;
+      const r = await window.__store.setPharmacyLocation(ph.id, this.tempatPilih || null);
+      if (r && r.error) { this.tempatMsg = r.error; return; }
+      ph.location_id = r.location_id;
+      this.tempatUser = null;
+      window.__showToast && window.__showToast('Tersimpan', (ph.name || 'Apotek') + ' ditautkan ke tempat praktik.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
+    },
     async toggleRxIzin(user) {
       const ph = user && user.profile;
       if (!ph || !ph.id) { window.__showToast && window.__showToast('Gagal', 'Data apotek tidak ditemukan.'); return; }

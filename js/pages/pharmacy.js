@@ -18,6 +18,162 @@ function getPharmacy() {
 function getUser() { return JSON.parse(sessionStorage.getItem('medconnect_user')); }
 function formatDate(d) { if (!d) return '-'; return new Date(d).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); }
 
+// ---------------------------------------------------------------------------
+// MENDAFTARKAN PASIEN BARU — dipakai dua halaman (E-Resep dan Surat
+// Keterangan). Ditaruh di satu tempat supaya pagar duplikatnya tidak pernah
+// berbeda antar halaman: pagar yang disalin cepat atau lambat menyimpang, dan
+// yang menyimpang justru halaman yang jarang dibuka.
+//
+// Yang berbeda antar halaman hanya APA YANG TERJADI setelah pasiennya
+// terpilih, jadi hanya itu yang disuntikkan.
+// ---------------------------------------------------------------------------
+function pasienBaruXData(pilihExpr) {
+  return `
+    // ---- Mendaftarkan pasien baru ----
+    // Yang paling sering terjadi: namanya sudah diketik di kotak cari, lalu
+    // ternyata belum terdaftar. Karena itu nama yang sudah diketik dibawa masuk
+    // ke formulir ini, bukan mulai dari kosong lagi.
+    npOpen: false, npSaving: false, npErr: '', npMirip: [],
+    npKosong() { return { full_name: '', nik: '', birth_date: '', gender: '', phone: '', address: '', allergies: '', family_name: '', family_phone: '', family_relation: '' }; },
+    npForm: { full_name: '', nik: '', birth_date: '', gender: '', phone: '', address: '', allergies: '', family_name: '', family_phone: '', family_relation: '' },
+    bukaPasienBaru(namaAwal) {
+      this.npErr = '';
+      this.npForm = { ...this.npKosong(), full_name: (namaAwal || '').trim() };
+      this.cekMirip();
+      this.npOpen = true;
+    },
+    // Duplikat pasien baru ketahuan saat riwayat obatnya dibutuhkan, dan saat
+    // itu sudah terlambat. Jadi calon kembarannya ditampilkan sambil diketik,
+    // sebelum ada yang tersimpan.
+    cekMirip() {
+      this.npMirip = window.__store.findSimilarPatients({ full_name: this.npForm.full_name, phone: this.npForm.phone, nik: this.npForm.nik });
+    },
+    // 'Ternyata sudah ada' — pakai yang lama, jangan buat yang kedua.
+    pakaiPasienLama(p) {
+      if (!this.rxPatients.some(x => x.id === p.id)) this.rxPatients = [{ id: p.id, name: p.full_name, phone: p.phone || '' }, ...this.rxPatients];
+      ${pilihExpr}
+      this.npOpen = false;
+      window.__showToast && window.__showToast('Pasien dipilih', p.full_name + ' dipakai dari data yang sudah ada.');
+    },
+    async simpanPasienBaru() {
+      if (this.npSaving) return;
+      this.npErr = '';
+      if (!(this.npForm.full_name || '').trim()) { this.npErr = 'Nama lengkap pasien wajib diisi.'; return; }
+      this.npSaving = true;
+      const res = await window.__store.createPatientByStaff(this.npForm, { byUserId: this.userId, via: 'apotek' });
+      this.npSaving = false;
+      if (!res || !res.success) { this.npErr = (res && res.error) || 'Gagal menyimpan data pasien.'; return; }
+      const p = res.patient;
+      // Dimasukkan sendiri ke daftar pilihan halaman ini (bukan memuat ulang
+      // seluruh halaman) lalu langsung terpilih, supaya resepnya bisa
+      // diteruskan tanpa mencari lagi dari awal.
+      this.rxPatients = [{ id: p.id, name: p.full_name, phone: p.phone || '' }, ...this.rxPatients];
+      ${pilihExpr}
+      this.npOpen = false;
+      window.__showToast && window.__showToast('Pasien terdaftar',
+        p.full_name + ' sudah masuk daftar pasien' + (p.rm_number ? ' dengan No. RM ' + p.rm_number : '') + '.');
+    },
+`;
+}
+
+function pasienBaruModal() {
+  return `
+        <!-- Mendaftarkan pasien baru. Sengaja dipasang sebagai lapisan di ATAS
+             formulir resep (z-60), bukan menggantikannya: yang sudah diketik di
+             formulir resep tidak boleh hilang hanya karena pasiennya ternyata
+             belum terdaftar. -->
+        <div x-show="npOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" @click.self="npOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-lg font-bold text-gray-800">Daftarkan Pasien Baru</h3>
+              <button @click="npOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <p class="text-[11.5px] text-gray-500 mb-4 leading-relaxed">Nomor rekam medis diberikan otomatis. Akun ini dibuat <b>tanpa login</b> &mdash; Super Admin bisa menambahkan e-mail pasien belakangan lewat Manajemen User bila pasiennya ingin memakai aplikasi.</p>
+
+            <!-- Peringatan duplikat muncul SEBELUM disimpan, bukan sesudah.
+                 Satu orang yang terdaftar dua kali membuat riwayat obatnya
+                 terbelah, dan itu baru ketahuan saat riwayatnya dibutuhkan. -->
+            <div x-show="npMirip.length" x-cloak class="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p class="text-[11.5px] font-bold text-amber-900 mb-2">Sudah ada pasien yang mirip &mdash; pastikan bukan orang yang sama:</p>
+              <div class="space-y-1.5">
+                <template x-for="m in npMirip" :key="m.id">
+                  <div class="flex items-center justify-between gap-2 bg-white rounded-lg px-2.5 py-1.5 border border-amber-100">
+                    <div class="min-w-0">
+                      <p class="text-[12.5px] font-semibold text-gray-800 truncate" x-text="m.full_name"></p>
+                      <p class="text-[11px] text-slate-500 truncate">
+                        <span x-text="m.match_reason"></span>
+                        <span x-text="m.phone ? ' · ' + m.phone : ''"></span>
+                        <span x-text="m.rm_number ? ' · RM ' + m.rm_number : ''"></span>
+                      </p>
+                    </div>
+                    <button type="button" @click="pakaiPasienLama(m)" class="shrink-0 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 transition">Pakai yang ini</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div class="sm:col-span-2">
+                <label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label>
+                <input type="text" x-model="npForm.full_name" @input.debounce.300ms="cekMirip()" placeholder="Sesuai KTP / KK" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">No. HP</label>
+                <input type="text" x-model="npForm.phone" @input.debounce.300ms="cekMirip()" placeholder="08xxxxxxxxxx" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">NIK</label>
+                <input type="text" x-model="npForm.nik" @input.debounce.300ms="cekMirip()" placeholder="16 digit (opsional)" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label>
+                <input type="date" x-model="npForm.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label>
+                <select x-model="npForm.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                  <option value="">-</option>
+                  <option value="Laki-laki">Laki-laki</option>
+                  <option value="Perempuan">Perempuan</option>
+                </select>
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-xs text-gray-600 mb-1">Alamat</label>
+                <input type="text" x-model="npForm.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-xs text-gray-600 mb-1">Alergi Obat</label>
+                <input type="text" x-model="npForm.allergies" placeholder="Kosongkan bila tidak ada" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                <p class="text-[11px] text-gray-400 mt-1">Ditulis di sini supaya dokter melihatnya saat meng-ACC resep.</p>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Nama Keluarga / Wali</label>
+                <input type="text" x-model="npForm.family_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">HP Keluarga</label>
+                  <input type="text" x-model="npForm.family_phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">Hubungan</label>
+                  <input type="text" x-model="npForm.family_relation" placeholder="Mis. Ibu" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                </div>
+              </div>
+            </div>
+
+            <p x-show="npErr" x-cloak class="text-xs text-red-600 mt-3 leading-relaxed" x-text="npErr"></p>
+            <div class="flex gap-2 justify-end mt-4">
+              <button @click="npOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="simpanPasienBaru()" :disabled="npSaving || !npForm.full_name.trim()" class="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
+                <span x-show="!npSaving">Simpan Pasien</span><span x-show="npSaving" x-cloak>Menyimpan...</span>
+              </button>
+            </div>
+          </div>
+        </div>
+`;
+}
+
 export function pharmacyDashboard() {
   const pharmacy = getPharmacy();
   const user = getUser();
@@ -42,7 +198,19 @@ export function pharmacyDashboard() {
     ulangOpen: false, ulangCari: '', ulangHasil: [], ulangBusy: false, ulangErr: '', ulangDokter: '', ulangPilih: '',
     rxForm: { patient_id: '', doctor_id: '', notes: '', items: [] },
     // ---- Menyusun resep (wajib ACC dokter) ----
-    rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), instructions: '' }; },
+    rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), duration: '', instructions: '', is_compound: false, compound_details: '', display_name: '' }; },
+    // Peringatan alergi memakai data alergi pasien yang dipilih di formulir ini
+    // — termasuk pasien yang baru saja didaftarkan apotek, karena kolom alergi
+    // memang ditanyakan saat mendaftarkannya. Komposisi racikan ikut diperiksa:
+    // obat yang memicu alergi paling sering justru sembunyi di dalam racikan,
+    // bukan di nama tampilnya.
+    rxAlergiHit(item) {
+      const hay = ((item.drug_name || '') + ' ' + (item.compound_details || '')).toLowerCase();
+      return (window.__store.patientAllergyTerms(this.rxForm.patient_id) || []).find(t => hay.includes(t)) || '';
+    },
+    get rxAlergiBentrok() {
+      return this.rxForm.items.map((it, i) => ({ i, term: this.rxAlergiHit(it) })).filter(x => x.term);
+    },
     openRx() {
       this.rxErr = ''; this.rxCari = '';
       this.rxForm = { patient_id: '', doctor_id: (this.rxDoctors[0] && this.rxDoctors[0].id) || '', notes: '', items: [this.rxBlank()] };
@@ -79,7 +247,10 @@ export function pharmacyDashboard() {
     },
     cariUlang() { this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, 25); },
     ulangRingkas(r) {
-      return (r.items || []).map(i => i.drug_name + (i.dosage ? ' ' + i.dosage : '')).join(', ');
+      // Racikan ditandai di ringkasannya: dua resep bisa punya nama tampil yang
+      // sama persis padahal isinya berbeda, jadi tanpa penanda ini yang dipilih
+      // untuk diulang bisa bukan yang dimaksud.
+      return (r.items || []).map(i => (i.is_compound ? i.drug_name + ' (Racikan)' : i.drug_name + (i.dosage ? ' ' + i.dosage : ''))).join(', ');
     },
     async kirimUlang(r) {
       if (this.ulangBusy) return;
@@ -102,7 +273,9 @@ export function pharmacyDashboard() {
         patient_id: r.patient_id,
         doctor_id: this.ulangDokter || (this.rxDoctors[0] && this.rxDoctors[0].id) || '',
         notes: 'Resep ulang dari ' + r.rx_number,
-        items: (r.items || []).map(i => ({ drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time, quantity: i.quantity, unit: i.unit || (this.rxUnits[0] || 'Tablet'), instructions: i.instructions })),
+        // Racikan ikut tersalin utuh — kalau tidak, menyunting resep ulang
+        // diam-diam mengubah racikan jadi obat biasa yang tinggal namanya.
+        items: (r.items || []).map(i => ({ drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time, quantity: i.quantity, unit: i.unit || (this.rxUnits[0] || 'Tablet'), duration: i.duration || '', instructions: i.instructions, is_compound: !!i.is_compound, compound_details: i.compound_details || '', display_name: i.display_name || '' })),
       };
       if (!this.rxForm.items.length) this.rxForm.items = [this.rxBlank()];
       this.rxOpen = true;
@@ -255,7 +428,19 @@ export function pharmacyPrescriptions() {
     ulangOpen: false, ulangCari: '', ulangHasil: [], ulangBusy: false, ulangErr: '', ulangDokter: '', ulangPilih: '',
     rxForm: { patient_id: '', doctor_id: '', notes: '', items: [] },
     // ---- Menyusun resep (wajib ACC dokter) ----
-    rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), instructions: '' }; },
+    rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), duration: '', instructions: '', is_compound: false, compound_details: '', display_name: '' }; },
+    // Peringatan alergi memakai data alergi pasien yang dipilih di formulir ini
+    // — termasuk pasien yang baru saja didaftarkan apotek, karena kolom alergi
+    // memang ditanyakan saat mendaftarkannya. Komposisi racikan ikut diperiksa:
+    // obat yang memicu alergi paling sering justru sembunyi di dalam racikan,
+    // bukan di nama tampilnya.
+    rxAlergiHit(item) {
+      const hay = ((item.drug_name || '') + ' ' + (item.compound_details || '')).toLowerCase();
+      return (window.__store.patientAllergyTerms(this.rxForm.patient_id) || []).find(t => hay.includes(t)) || '';
+    },
+    get rxAlergiBentrok() {
+      return this.rxForm.items.map((it, i) => ({ i, term: this.rxAlergiHit(it) })).filter(x => x.term);
+    },
     openRx() {
       this.rxErr = ''; this.rxCari = '';
       this.rxForm = { patient_id: '', doctor_id: (this.rxDoctors[0] && this.rxDoctors[0].id) || '', notes: '', items: [this.rxBlank()] };
@@ -283,50 +468,7 @@ export function pharmacyPrescriptions() {
       window.__showToast && window.__showToast('Terkirim untuk ACC',
         'Resep ' + res.rx.rx_number + ' menunggu persetujuan dokter. Resep ini belum berlaku sampai disetujui.');
     },
-    // ---- Mendaftarkan pasien baru ----
-    // Yang paling sering terjadi: namanya sudah diketik di kotak cari, lalu
-    // ternyata belum terdaftar. Karena itu nama yang sudah diketik dibawa masuk
-    // ke formulir ini, bukan mulai dari kosong lagi.
-    npOpen: false, npSaving: false, npErr: '', npMirip: [],
-    npKosong() { return { full_name: '', nik: '', birth_date: '', gender: '', phone: '', address: '', allergies: '', family_name: '', family_phone: '', family_relation: '' }; },
-    npForm: { full_name: '', nik: '', birth_date: '', gender: '', phone: '', address: '', allergies: '', family_name: '', family_phone: '', family_relation: '' },
-    bukaPasienBaru(namaAwal) {
-      this.npErr = '';
-      this.npForm = { ...this.npKosong(), full_name: (namaAwal || '').trim() };
-      this.cekMirip();
-      this.npOpen = true;
-    },
-    // Duplikat pasien baru ketahuan saat riwayat obatnya dibutuhkan, dan saat
-    // itu sudah terlambat. Jadi calon kembarannya ditampilkan sambil diketik,
-    // sebelum ada yang tersimpan.
-    cekMirip() {
-      this.npMirip = window.__store.findSimilarPatients({ full_name: this.npForm.full_name, phone: this.npForm.phone, nik: this.npForm.nik });
-    },
-    // 'Ternyata sudah ada' — pakai yang lama, jangan buat yang kedua.
-    pakaiPasienLama(p) {
-      if (!this.rxPatients.some(x => x.id === p.id)) this.rxPatients = [{ id: p.id, name: p.full_name, phone: p.phone || '' }, ...this.rxPatients];
-      this.rxForm.patient_id = p.id; this.rxCari = p.full_name || '';
-      this.npOpen = false;
-      window.__showToast && window.__showToast('Pasien dipilih', p.full_name + ' dipakai dari data yang sudah ada.');
-    },
-    async simpanPasienBaru() {
-      if (this.npSaving) return;
-      this.npErr = '';
-      if (!(this.npForm.full_name || '').trim()) { this.npErr = 'Nama lengkap pasien wajib diisi.'; return; }
-      this.npSaving = true;
-      const res = await window.__store.createPatientByStaff(this.npForm, { byUserId: this.userId, via: 'apotek' });
-      this.npSaving = false;
-      if (!res || !res.success) { this.npErr = (res && res.error) || 'Gagal menyimpan data pasien.'; return; }
-      const p = res.patient;
-      // Dimasukkan sendiri ke daftar pilihan halaman ini (bukan memuat ulang
-      // seluruh halaman) lalu langsung terpilih, supaya resepnya bisa
-      // diteruskan tanpa mencari lagi dari awal.
-      this.rxPatients = [{ id: p.id, name: p.full_name, phone: p.phone || '' }, ...this.rxPatients];
-      this.rxForm.patient_id = p.id; this.rxCari = p.full_name;
-      this.npOpen = false;
-      window.__showToast && window.__showToast('Pasien terdaftar',
-        p.full_name + ' sudah masuk daftar pasien' + (p.rm_number ? ' dengan No. RM ' + p.rm_number : '') + '.');
-    },
+    ${pasienBaruXData("this.rxForm.patient_id = p.id; this.rxCari = p.full_name || p.name || '';")}
     // ---- Resep ulang: ambil dari resep yang pernah sah ----
     openUlang() {
       this.ulangOpen = true; this.ulangErr = ''; this.ulangPilih = '';
@@ -336,7 +478,10 @@ export function pharmacyPrescriptions() {
     },
     cariUlang() { this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, 25); },
     ulangRingkas(r) {
-      return (r.items || []).map(i => i.drug_name + (i.dosage ? ' ' + i.dosage : '')).join(', ');
+      // Racikan ditandai di ringkasannya: dua resep bisa punya nama tampil yang
+      // sama persis padahal isinya berbeda, jadi tanpa penanda ini yang dipilih
+      // untuk diulang bisa bukan yang dimaksud.
+      return (r.items || []).map(i => (i.is_compound ? i.drug_name + ' (Racikan)' : i.drug_name + (i.dosage ? ' ' + i.dosage : ''))).join(', ');
     },
     async kirimUlang(r) {
       if (this.ulangBusy) return;
@@ -359,7 +504,9 @@ export function pharmacyPrescriptions() {
         patient_id: r.patient_id,
         doctor_id: this.ulangDokter || (this.rxDoctors[0] && this.rxDoctors[0].id) || '',
         notes: 'Resep ulang dari ' + r.rx_number,
-        items: (r.items || []).map(i => ({ drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time, quantity: i.quantity, unit: i.unit || (this.rxUnits[0] || 'Tablet'), instructions: i.instructions })),
+        // Racikan ikut tersalin utuh — kalau tidak, menyunting resep ulang
+        // diam-diam mengubah racikan jadi obat biasa yang tinggal namanya.
+        items: (r.items || []).map(i => ({ drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time, quantity: i.quantity, unit: i.unit || (this.rxUnits[0] || 'Tablet'), duration: i.duration || '', instructions: i.instructions, is_compound: !!i.is_compound, compound_details: i.compound_details || '', display_name: i.display_name || '' })),
       };
       if (!this.rxForm.items.length) this.rxForm.items = [this.rxBlank()];
       this.rxOpen = true;
@@ -628,18 +775,42 @@ export function pharmacyPrescriptions() {
                 <label class="block text-xs text-gray-600">Obat</label>
                 <button type="button" @click="rxAddItem()" class="text-xs text-purple-700 font-semibold">+ Tambah obat</button>
               </div>
+              <!-- Ringkasan alergi di atas tombol kirim, bukan hanya per baris:
+                   yang menekan Kirim belum tentu baru saja melihat baris yang
+                   bermasalah. -->
+              <div x-show="rxAlergiBentrok.length" x-cloak class="mb-2 px-3 py-2 rounded-lg bg-red-50 border border-red-300 text-red-700 text-xs font-medium">
+                Peringatan alergi: <span class="font-bold" x-text="rxAlergiBentrok.map(c => 'R/' + (c.i+1) + ' (' + c.term + ')').join(', ')"></span> cocok dengan riwayat alergi pasien. Periksa kembali sebelum mengirim.
+              </div>
               <div class="space-y-2">
                 <template x-for="(it, ix) in rxForm.items" :key="ix">
-                  <div class="rounded-xl border border-slate-100 p-2.5 bg-slate-50/50">
+                  <div class="rounded-xl border p-2.5" :class="it.is_compound ? 'border-purple-200 bg-purple-50/40' : 'border-slate-100 bg-slate-50/50'">
+                    <div class="flex items-center justify-between mb-2">
+                      <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" x-model="it.is_compound" class="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-400/50">
+                        <span class="text-xs font-semibold text-purple-700" x-text="'R/ ' + (ix+1) + ' — Obat Racikan'"></span>
+                      </label>
+                      <button type="button" @click="rxForm.items.splice(ix,1)" x-show="rxForm.items.length > 1" class="text-red-400 hover:text-red-600 text-xs">Hapus</button>
+                    </div>
                     <div class="grid grid-cols-12 gap-2">
-                      <input type="text" x-model="it.drug_name" placeholder="Nama obat *" class="col-span-7 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-                      <input type="text" x-model="it.dosage" placeholder="Dosis (mis. 500 mg)" class="col-span-5 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                      <!-- Pada racikan, kolom ini bukan nama obat melainkan nama
+                           yang DILIHAT PASIEN; komposisinya di kotak ungu. -->
+                      <input type="text" x-model="it.drug_name" :placeholder="it.is_compound ? 'Nama tampil pasien * (cth: Obat Batuk Pilek)' : 'Nama obat *'"
+                        class="px-2 py-1.5 border rounded text-sm bg-white focus:outline-none focus:ring-2"
+                        :class="[it.is_compound ? 'col-span-12' : 'col-span-7', rxAlergiHit(it) ? 'border-red-400 focus:ring-red-400/50 bg-red-50' : 'border-gray-200 focus:ring-purple-400/50']">
+                      <input x-show="!it.is_compound" type="text" x-model="it.dosage" placeholder="Dosis (mis. 500 mg)" class="col-span-5 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
                       <select x-model="it.frequency" class="col-span-4 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white"><option value="">Frekuensi</option><template x-for="f in rxSigna" :key="f"><option :value="f" x-text="f"></option></template></select>
                       <select x-model="it.time" class="col-span-4 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white"><option value="">Waktu</option><template x-for="t in rxSignaTime" :key="t"><option :value="t" x-text="t"></option></template></select>
                       <input type="number" min="1" x-model="it.quantity" placeholder="Jml" class="col-span-2 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white">
                       <select x-model="it.unit" class="col-span-2 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white"><template x-for="u in rxUnits" :key="u"><option :value="u" x-text="u"></option></template></select>
-                      <input type="text" x-model="it.instructions" placeholder="Aturan tambahan (opsional)" class="col-span-11 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white">
-                      <button type="button" @click="rxForm.items.splice(ix,1)" x-show="rxForm.items.length > 1" class="col-span-1 text-red-400 hover:text-red-600 text-sm">&times;</button>
+                      <input type="text" x-model="it.duration" placeholder="Durasi (mis. 5 hari)" class="col-span-4 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white">
+                      <input type="text" x-model="it.instructions" placeholder="Aturan tambahan (opsional)" class="col-span-8 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white">
+                    </div>
+                    <p x-show="rxAlergiHit(it)" x-cloak class="text-[11px] text-red-600 font-medium mt-1.5" x-text="'⚠️ Cocok alergi pasien: ' + rxAlergiHit(it)"></p>
+                    <!-- Komposisi WAJIB untuk racikan: inilah yang dibaca dokter
+                         saat meng-ACC dan yang tercetak sebagai isi resepnya. -->
+                    <div x-show="it.is_compound" x-cloak class="mt-2 p-2 rounded-lg bg-purple-50 border border-purple-200">
+                      <label class="block text-[11px] text-purple-700 font-semibold mb-1">Komposisi Racikan * <span class="font-normal text-purple-500">(dibaca dokter &amp; apoteker, tidak tampil sebagai nama obat ke pasien)</span></label>
+                      <textarea x-model="it.compound_details" rows="2" class="w-full px-2 py-1.5 border border-purple-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50 resize-none" placeholder="cth: Codein 10mg + GG 100mg + Salbutamol 2mg + CTM 2mg per kapsul"></textarea>
                     </div>
                   </div>
                 </template>
@@ -661,100 +832,247 @@ export function pharmacyPrescriptions() {
           </div>
         </div>
 
-        <!-- Mendaftarkan pasien baru. Sengaja dipasang sebagai lapisan di ATAS
-             formulir resep (z-60), bukan menggantikannya: yang sudah diketik di
-             formulir resep tidak boleh hilang hanya karena pasiennya ternyata
-             belum terdaftar. -->
-        <div x-show="npOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" @click.self="npOpen=false">
-          <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto">
-            <div class="flex items-center justify-between mb-1">
-              <h3 class="text-lg font-bold text-gray-800">Daftarkan Pasien Baru</h3>
-              <button @click="npOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
-            </div>
-            <p class="text-[11.5px] text-gray-500 mb-4 leading-relaxed">Nomor rekam medis diberikan otomatis. Akun ini dibuat <b>tanpa login</b> &mdash; Super Admin bisa menambahkan e-mail pasien belakangan lewat Manajemen User bila pasiennya ingin memakai aplikasi.</p>
+        ${pasienBaruModal()}
+</main>
+    </div>
+  </div>`;
+}
 
-            <!-- Peringatan duplikat muncul SEBELUM disimpan, bukan sesudah.
-                 Satu orang yang terdaftar dua kali membuat riwayat obatnya
-                 terbelah, dan itu baru ketahuan saat riwayatnya dibutuhkan. -->
-            <div x-show="npMirip.length" x-cloak class="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
-              <p class="text-[11.5px] font-bold text-amber-900 mb-2">Sudah ada pasien yang mirip &mdash; pastikan bukan orang yang sama:</p>
-              <div class="space-y-1.5">
-                <template x-for="m in npMirip" :key="m.id">
-                  <div class="flex items-center justify-between gap-2 bg-white rounded-lg px-2.5 py-1.5 border border-amber-100">
-                    <div class="min-w-0">
-                      <p class="text-[12.5px] font-semibold text-gray-800 truncate" x-text="m.full_name"></p>
-                      <p class="text-[11px] text-slate-500 truncate">
-                        <span x-text="m.match_reason"></span>
-                        <span x-text="m.phone ? ' · ' + m.phone : ''"></span>
-                        <span x-text="m.rm_number ? ' · RM ' + m.rm_number : ''"></span>
-                      </p>
-                    </div>
-                    <button type="button" @click="pakaiPasienLama(m)" class="shrink-0 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 transition">Pakai yang ini</button>
-                  </div>
+// ===========================================================================
+// SURAT KETERANGAN DARI APOTEK.
+//
+// Surat keterangan dibuat ATAS NAMA seorang dokter dan ditandatanganinya.
+// Karena itu apotek hanya boleh menyusunnya untuk dokter yang berpraktik di
+// tempat itu — bukan dokter mana pun yang kebetulan terdaftar di sistem.
+// Surat atas nama dokter yang tidak pernah berpraktik di sana adalah surat
+// yang tidak bisa dipertanggungjawabkan siapa pun.
+//
+// Suratnya TETAP menunggu ACC dokter, persis seperti surat yang disusun admin
+// klinik: yang tercetak sebelum ACC hanyalah draft bertanda air.
+// ===========================================================================
+export function pharmacyCertificates() {
+  const pharmacy = getPharmacy();
+  const user = getUser();
+  const unread = store.getUnreadCount(user?.id);
+  const locId = store.pharmacyLocationId(pharmacy?.id);
+  const tempat = (store.data.practice_locations || []).find(l => l.id === locId);
+  const dokters = store.doctorsForPharmacySKD(pharmacy?.id);
+  window.__pharmacyPatients = (store.data.patients || []).map(p => ({ id: p.id, name: p.full_name, phone: p.phone || '' }));
+  window.__skdDokterApotek = dokters.map(d => ({ id: d.id, full_name: d.full_name || 'Dokter', sip_number: store.doctorSipFor(d.id, locId) || '' }));
+  const hariIni = new Date().toISOString().split('T')[0];
+
+  return `
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024,
+    pharmacyId: '${pharmacy?.id || ''}',
+    userId: '${user?.id || ''}',
+    rxPatients: window.__pharmacyPatients || [],
+    dokters: window.__skdDokterApotek || [],
+    daftar: [], memuat: true,
+    skdOpen: false, saving: false, err: '',
+    cari: '', pasienId: '',
+    skdType: 'sehat',
+    dokterId: (window.__skdDokterApotek && window.__skdDokterApotek[0] && window.__skdDokterApotek[0].id) || '',
+    skd: { letter_date: '${hariIni}', birth_date: '', gender: '', address: '',
+      berat_badan: '', tinggi_badan: '', tekanan_darah: '', nadi: '',
+      keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
+      diagnosis: '', rest_days: '', from_date: '${hariIni}', to_date: '' },
+    ${pasienBaruXData("this.pasienId = p.id; this.cari = p.full_name || p.name || '';")}
+    get pasienTersaring() {
+      const q = (this.cari || '').toLowerCase();
+      if (!q) return this.rxPatients.slice(0, 8);
+      return this.rxPatients.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 8);
+    },
+    pasienNama(id) { const p = this.rxPatients.find(x => x.id === id); return p ? p.name : ''; },
+    // Tanggal surat sakit mengikuti hari pertama sakitnya, bukan hari
+    // pencetakannya — surat yang bertanggal SESUDAH izin yang diterangkannya
+    // sendiri wajar dipertanyakan tempat kerja atau sekolahnya.
+    syncTanggal() { if (this.skdType !== 'sehat' && this.skd.from_date) this.skd.letter_date = this.skd.from_date; },
+    statusSurat(s) { return (s.details && s.details.approval && s.details.approval.status) || 'approved'; },
+    labelStatus(s) { const x = this.statusSurat(s); return x === 'pending' ? 'Menunggu ACC dokter' : (x === 'rejected' ? 'Ditolak dokter' : 'Sah'); },
+    chipStatus(s) { const x = this.statusSurat(s); return x === 'pending' ? 'bg-amber-100 text-amber-800' : (x === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'); },
+    async load() {
+      try { this.daftar = await window.__store.getSKDCreatedBy(this.userId); } catch (e) { this.daftar = []; }
+      this.memuat = false;
+    },
+    buka() {
+      this.err = '';
+      if (!this.dokters.length) return;
+      this.skdOpen = true;
+    },
+    cetak(id) { window.__printSKD(id); },
+    async kirim() {
+      if (this.saving) return;
+      this.err = '';
+      if (!this.pasienId) { this.err = 'Pilih pasiennya terlebih dahulu.'; return; }
+      const doc = this.dokters.find(d => d.id === this.dokterId);
+      if (!doc) { this.err = 'Pilih dokter penanggung jawab surat terlebih dahulu.'; return; }
+      // Diperiksa lagi di store, bukan sekadar percaya isi dropdown: halaman
+      // ini bisa sudah lama terbuka dan tempat praktik dokternya berubah.
+      const gerbang = window.__store.canPharmacyIssueSKDFor(this.pharmacyId, doc.id);
+      if (!gerbang.ok) { this.err = gerbang.error; return; }
+      this.saving = true;
+      window.__store.updatePatientProfile(this.pasienId, { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address });
+      const cert = await window.__issueSKD({
+        patientId: this.pasienId, type: this.skdType, status: 'pending',
+        approvalDoctorId: doc.id, createdBy: this.userId, byPharmacyId: this.pharmacyId,
+        doctor: { full_name: doc.full_name, sip_number: doc.sip_number }, ...this.skd });
+      this.saving = false;
+      if (!cert) { this.err = 'Surat tidak jadi dibuat.'; return; }
+      this.skdOpen = false;
+      this.daftar.unshift(cert);
+      window.__showToast && window.__showToast('Draft surat dikirim',
+        'Surat menunggu ACC ' + doc.full_name + '. Yang tercetak sekarang masih draft bertanda air.');
+    }
+  }" x-init="load()" class="min-h-screen bg-wash">
+    ${pharmacySidebar('certificates')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${pharmacyHeader(pharmacy, unread)}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-4">
+          <h2 class="text-xl font-bold text-gray-800">Surat Keterangan</h2>
+          <div class="flex gap-2 flex-wrap">
+            <button @click="bukaPasienBaru('')" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition flex items-center gap-1.5">
+              <span class="ms text-[17px]">person_add</span>Pasien Baru
+            </button>
+            <button @click="buka()" :disabled="!dokters.length" class="px-4 py-2 rounded-lg text-sm font-semibold text-white flex items-center gap-1.5 disabled:opacity-40" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">
+              <span class="ms text-[17px]">description</span>Buat Surat Keterangan
+            </button>
+          </div>
+        </div>
+
+        ${dokters.length ? `
+        <div class="mb-4 px-4 py-3 rounded-2xl bg-white border border-slate-100">
+          <p class="text-[12.5px] text-slate-700 leading-relaxed">
+            Surat dibuat atas nama dokter yang berpraktik di
+            <b>${escHtml(tempat ? (tempat.name || '') : '')}</b>, dan <b>baru sah setelah dokternya meng-ACC</b>.
+            Sebelum di-ACC, yang tercetak adalah draft bertanda air.
+          </p>
+          <p class="text-[11.5px] text-slate-500 mt-1.5">
+            Dokter yang bisa dipilih: ${dokters.map(d => escHtml(d.full_name || 'Dokter')).join(', ')}.
+          </p>
+        </div>` : `
+        <div class="mb-4 px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200">
+          <p class="text-[12.5px] font-bold text-amber-900 mb-1">Belum bisa membuat surat keterangan</p>
+          <p class="text-[12px] text-amber-800 leading-relaxed">
+            ${tempat
+              ? 'Belum ada dokter yang terdaftar berpraktik di <b>' + escHtml(tempat.name || '') + '</b>. Surat keterangan hanya boleh atas nama dokter yang berpraktik di sini, jadi belum ada yang bisa dipilih.'
+              : 'Apotek ini belum ditautkan ke tempat praktik mana pun, jadi belum diketahui dokter mana yang berpraktik di sini.'}
+          </p>
+          <p class="text-[11.5px] text-amber-700 mt-1.5">
+            Minta Super Admin klinik mengaturnya lewat <b>Manajemen User</b> (tempat praktik apotek) dan <b>Tempat Praktik &amp; Kop</b> (tempat praktik dokter).
+          </p>
+        </div>`}
+
+        <template x-if="memuat"><p class="bg-white border border-slate-100 rounded-3xl p-8 text-center text-gray-400 text-sm">Memuat surat...</p></template>
+        <template x-if="!memuat && daftar.length === 0"><p class="bg-white border border-slate-100 rounded-3xl p-8 text-center text-gray-400 text-sm">Belum ada surat keterangan yang Anda buat.</p></template>
+        <div class="space-y-2">
+          <template x-for="s in daftar" :key="s.id">
+            <div class="bg-white border border-slate-100 rounded-2xl px-4 py-3 flex items-center gap-3 flex-wrap">
+              <div class="flex-1 min-w-[200px]">
+                <p class="text-sm font-semibold text-gray-800"><span x-text="s.cert_number || '-'"></span> &middot; <span x-text="s.patient_name || '-'"></span></p>
+                <p class="text-[11px] text-slate-500">
+                  <span x-text="'Keterangan ' + ((s.perihal || '').toLowerCase() === 'sehat' ? 'Sehat' : 'Sakit')"></span>
+                  &middot; <span x-text="s.doctor_name || '-'"></span>
+                </p>
+                <p x-show="statusSurat(s) === 'rejected' && s.details && s.details.approval && s.details.approval.reject_reason" x-cloak
+                   class="text-[11px] text-red-600 mt-0.5" x-text="'Alasan penolakan: ' + ((s.details && s.details.approval && s.details.approval.reject_reason) || '')"></p>
+              </div>
+              <span class="px-2 py-1 rounded-full text-[11px] font-bold" :class="chipStatus(s)" x-text="labelStatus(s)"></span>
+              <button @click="cetak(s.id)" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 transition" x-text="statusSurat(s) === 'approved' ? 'Cetak Ulang' : 'Lihat Draft'"></button>
+            </div>
+          </template>
+        </div>
+
+        <!-- Menyusun surat. Dokter yang bisa dipilih sudah disaring di server
+             halaman ini; pilihannya diperiksa ulang saat dikirim. -->
+        <div x-show="skdOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="skdOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-lg font-bold text-gray-800">Buat Surat Keterangan</h3>
+              <button @click="skdOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div class="mb-4 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+              <p class="text-[11.5px] text-amber-900 leading-relaxed">Surat ini <b>belum sah</b> sampai di-ACC dokter. Yang tercetak sekarang adalah draft bertanda air.</p>
+            </div>
+
+            <div class="mb-3">
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs text-gray-600">Pasien *</label>
+                <button type="button" @click="bukaPasienBaru(cari)" class="text-[11px] font-semibold text-purple-700 hover:underline">+ Pasien baru</button>
+              </div>
+              <input type="text" x-model="cari" placeholder="Ketik nama pasien..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50">
+              <div class="mt-1 border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-40 overflow-y-auto">
+                <template x-for="p in pasienTersaring" :key="p.id">
+                  <button type="button" @click="pasienId = p.id; cari = p.name"
+                    class="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition"
+                    :class="pasienId === p.id ? 'bg-blue-50 font-semibold text-blue-800' : 'text-gray-700'">
+                    <span x-text="p.name"></span><span class="text-[11px] text-slate-400" x-text="p.phone ? ' · ' + p.phone : ''"></span>
+                  </button>
+                </template>
+                <template x-if="cari && !pasienTersaring.length">
+                  <button type="button" @click="bukaPasienBaru(cari)" class="w-full text-left px-3 py-2.5 text-sm text-purple-800 hover:bg-purple-50 transition">
+                    <span class="ms text-[15px] align-middle">person_add</span>
+                    <span>Belum terdaftar — daftarkan <b x-text="cari"></b> sebagai pasien baru</span>
+                  </button>
                 </template>
               </div>
+              <p x-show="pasienId" x-cloak class="text-[11px] text-green-700 mt-1" x-text="'Terpilih: ' + pasienNama(pasienId)"></p>
             </div>
 
-            <div class="grid sm:grid-cols-2 gap-3">
-              <div class="sm:col-span-2">
-                <label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label>
-                <input type="text" x-model="npForm.full_name" @input.debounce.300ms="cekMirip()" placeholder="Sesuai KTP / KK" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-              </div>
-              <div>
-                <label class="block text-xs text-gray-600 mb-1">No. HP</label>
-                <input type="text" x-model="npForm.phone" @input.debounce.300ms="cekMirip()" placeholder="08xxxxxxxxxx" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-              </div>
-              <div>
-                <label class="block text-xs text-gray-600 mb-1">NIK</label>
-                <input type="text" x-model="npForm.nik" @input.debounce.300ms="cekMirip()" placeholder="16 digit (opsional)" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-              </div>
-              <div>
-                <label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label>
-                <input type="date" x-model="npForm.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-              </div>
-              <div>
-                <label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label>
-                <select x-model="npForm.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-                  <option value="">-</option>
-                  <option value="Laki-laki">Laki-laki</option>
-                  <option value="Perempuan">Perempuan</option>
-                </select>
-              </div>
-              <div class="sm:col-span-2">
-                <label class="block text-xs text-gray-600 mb-1">Alamat</label>
-                <input type="text" x-model="npForm.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-              </div>
-              <div class="sm:col-span-2">
-                <label class="block text-xs text-gray-600 mb-1">Alergi Obat</label>
-                <input type="text" x-model="npForm.allergies" placeholder="Kosongkan bila tidak ada" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-                <p class="text-[11px] text-gray-400 mt-1">Ditulis di sini supaya dokter melihatnya saat meng-ACC resep.</p>
-              </div>
-              <div>
-                <label class="block text-xs text-gray-600 mb-1">Nama Keluarga / Wali</label>
-                <input type="text" x-model="npForm.family_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-              </div>
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="block text-xs text-gray-600 mb-1">HP Keluarga</label>
-                  <input type="text" x-model="npForm.family_phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-                </div>
-                <div>
-                  <label class="block text-xs text-gray-600 mb-1">Hubungan</label>
-                  <input type="text" x-model="npForm.family_relation" placeholder="Mis. Ibu" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-                </div>
-              </div>
+            <div class="mb-3 p-3 rounded-xl bg-amber-50 border border-amber-100">
+              <label class="block text-xs font-semibold text-amber-800 mb-1">Dokter penanggung jawab (yang meng-ACC &amp; tanda tangan) *</label>
+              <select x-model="dokterId" class="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/50">
+                <template x-for="d in dokters" :key="d.id"><option :value="d.id" x-text="d.full_name + (d.sip_number ? ' — SIP ' + d.sip_number : ' — (SIP belum diisi)')"></option></template>
+              </select>
+              <p class="text-[11px] text-amber-600 mt-1">Hanya dokter yang berpraktik di apotek ini yang muncul di sini. Nama &amp; SIP dokter inilah yang tercetak di surat.</p>
             </div>
 
-            <p x-show="npErr" x-cloak class="text-xs text-red-600 mt-3 leading-relaxed" x-text="npErr"></p>
+            <div class="flex gap-2 mb-3">
+              <button @click="skdType='sehat'" :class="skdType==='sehat' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Keterangan Sehat</button>
+              <button @click="skdType='sakit'; syncTanggal()" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Keterangan Sakit</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mb-3">
+              <div><label class="block text-xs text-gray-600 mb-1">Tanggal Surat</label><input type="date" x-model="skd.letter_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label><input type="date" x-model="skd.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label><select x-model="skd.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option><option>Laki-laki</option><option>Perempuan</option></select></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="skd.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Alamat pasien"></div>
+            </div>
+
+            <div x-show="skdType==='sehat'" class="space-y-3">
+              <div class="grid grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Berat Badan (KG)</label><input type="text" x-model="skd.berat_badan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Tinggi Badan (CM)</label><input type="text" x-model="skd.tinggi_badan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Tekanan Darah (MMHG)</label><input type="text" x-model="skd.tekanan_darah" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="120/80"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Nadi (X/MIN)</label><input type="text" x-model="skd.nadi" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              </div>
+              <div><label class="block text-xs text-gray-600 mb-1">Dipergunakan untuk</label><input type="text" x-model="skd.keperluan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Melamar pekerjaan"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Kesimpulan</label><input type="text" x-model="skd.kesimpulan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+            </div>
+
+            <div x-show="skdType==='sakit'" x-cloak class="space-y-3">
+              <div><label class="block text-xs text-gray-600 mb-1">Diagnosis</label><input type="text" x-model="skd.diagnosis" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Febris"></div>
+              <div class="grid grid-cols-3 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Istirahat (hari)</label><input type="number" min="1" x-model="skd.rest_days" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Dari Tanggal</label><input type="date" x-model="skd.from_date" @change="syncTanggal()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Hingga Tanggal</label><input type="date" x-model="skd.to_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+              </div>
+              <p class="text-[11px] text-teal-700" x-show="skd.from_date" x-cloak>Tanggal surat mengikuti hari pertama sakit (<span x-text="skd.from_date"></span>) &mdash; supaya tanggal suratnya tidak jatuh sesudah izin yang diterangkannya.</p>
+            </div>
+
+            <p x-show="err" x-cloak class="text-xs text-red-600 mt-3 leading-relaxed" x-text="err"></p>
             <div class="flex gap-2 justify-end mt-4">
-              <button @click="npOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
-              <button @click="simpanPasienBaru()" :disabled="npSaving || !npForm.full_name.trim()" class="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
-                <span x-show="!npSaving">Simpan Pasien</span><span x-show="npSaving" x-cloak>Menyimpan...</span>
+              <button @click="skdOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="kirim()" :disabled="saving || !pasienId" class="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">
+                <span x-show="!saving">Buat &amp; Kirim untuk ACC</span><span x-show="saving" x-cloak>Menyimpan...</span>
               </button>
             </div>
           </div>
         </div>
-</main>
+
+        ${pasienBaruModal()}
+      </main>
     </div>
   </div>`;
 }
@@ -799,6 +1117,7 @@ function pharmacySidebar(active) {
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view', href: '#/pharmacy/dashboard' },
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/pharmacy/prescriptions' },
+    { id: 'certificates', label: 'Surat Keterangan', icon: 'description', href: '#/pharmacy/certificates' },
     { id: 'inventory', label: 'Inventaris', icon: 'inventory_2', href: '#/pharmacy/inventory' },
     { id: 'tugas', label: 'Tugas Saya', icon: 'checklist', href: '#/tugas', badge: openTasks },
   ];
