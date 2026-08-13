@@ -26,6 +26,7 @@ export function tasksSetup() {
   window.__taskMe = user ? user.id : '';
   window.__taskMeRole = user ? user.role : '';
   window.__taskStaff = store.getStaffList();
+  window.__taskBolehPribadi = store.canMakeTaskPrivate(user);
   window.__taskToday = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   window.__taskPriorities = PRIORITIES;
   window.__taskRecurrences = RECURRENCES;
@@ -89,7 +90,9 @@ export function tasksXData(mode) {
     q: '', filterAssignee: '', filterPriority: '', expanded: '',
     tab: 'todo', allHistory: false,
     modal: false, editing: null, saving: false, msg: '', newSub: '',
-    form: { kind:'task', title:'', notes:'', category:'', priority:'normal', due_date:'', due_time:'', end_time:'', location:'', assignee_id:'', attendee_ids:[], recurrence:'none', recurrence_interval:1, subtasks:[] },
+    form: { kind:'task', title:'', notes:'', category:'', priority:'normal', due_date:'', due_time:'', end_time:'', location:'', assignee_id:'', attendee_ids:[], recurrence:'none', recurrence_interval:1, subtasks:[], is_private:false },
+    bolehPribadi: window.__taskBolehPribadi === true,
+    isPrivate(t) { return !!(t && t.is_private); },
 
     now: Date.now(), timerId: '', timerOpen: false, beeped: {},
 
@@ -300,7 +303,7 @@ export function tasksXData(mode) {
       this.editing = null; this.msg = ''; this.newSub = '';
       this.form = { kind: kind === 'event' ? 'event' : 'task', title:'', notes:'', category:'', priority:'normal',
         due_date: window.__taskToday, due_time:'', end_time:'', location:'', assignee_id:'', attendee_ids:[],
-        recurrence:'none', recurrence_interval:1, subtasks:[] };
+        recurrence:'none', recurrence_interval:1, subtasks:[], is_private:false };
       this.modal = true;
     },
     openEdit(t) {
@@ -310,8 +313,17 @@ export function tasksXData(mode) {
         due_date: t.due_date || '', due_time: t.due_time || '', end_time: t.end_time || '', location: t.location || '',
         assignee_id: t.assignee_id || '', attendee_ids: this.attendees(t).slice(),
         recurrence: t.recurrence || 'none', recurrence_interval: t.recurrence_interval || 1,
-        subtasks: (t.subtasks || []).map(s => ({ text: s.text, done: !!s.done })) };
+        subtasks: (t.subtasks || []).map(s => ({ text: s.text, done: !!s.done })),
+        is_private: !!t.is_private };
       this.modal = true;
+    },
+    // Mencentang pribadi langsung mengosongkan penerima/pesertanya, bukan
+    // membiarkan formulir memuat dua hal yang saling meniadakan lalu ditolak
+    // saat disimpan.
+    onPrivateToggle() {
+      if (!this.form.is_private) return;
+      this.form.assignee_id = '';
+      this.form.attendee_ids = [];
     },
     addFormSub() { const v = (this.newSub || '').trim(); if (!v) return; this.form.subtasks.push({ text: v, done: false }); this.newSub = ''; },
     rmFormSub(i) { this.form.subtasks.splice(i, 1); },
@@ -330,6 +342,7 @@ export function tasksXData(mode) {
         assignee_id: isEv ? null : (this.form.assignee_id || null), recurrence: this.form.recurrence,
         recurrence_interval: Number(this.form.recurrence_interval) || 1,
         subtasks: this.form.subtasks, created_by: this.me,
+        is_private: this.bolehPribadi ? !!this.form.is_private : false,
       };
       const r = this.editing
         ? await window.__store.updateTask(this.editing.id, payload)
@@ -337,6 +350,7 @@ export function tasksXData(mode) {
       this.saving = false;
       if (r && r.error) { this.msg = r.error; return; }
       this.modal = false; this.refresh();
+      if (r && r.warning) { alert(r.warning); return; }
       window.__showToast && window.__showToast('Tersimpan', this.editing ? 'Tugas diperbarui.' : 'Tugas baru ditambahkan.');
     },
 
@@ -433,6 +447,7 @@ function taskCard(mode, source) {
             </span>
           </div>
           <div class="flex items-center gap-2 flex-wrap mt-1.5 text-[11px]">
+            <span class="px-2 py-0.5 rounded-full font-bold bg-slate-800 text-white inline-flex items-center gap-1" x-show="isPrivate(t)" x-cloak title="Hanya Anda yang bisa melihat tugas ini"><span class="ms text-[12px]">lock</span>Pribadi</span>
             <span class="px-2 py-0.5 rounded-full font-bold bg-violet-100 text-violet-700 inline-flex items-center gap-1" x-show="isEvent(t)" x-cloak><span class="ms text-[12px]">groups</span>Acara</span>
             <span class="px-2 py-0.5 rounded-full font-semibold" :class="prioChip(t.priority)" x-text="prioLabel(t.priority)"></span>
             <span class="inline-flex items-center gap-1 text-gray-500"><span class="ms text-[13px]">event</span><span x-text="dueLabel(t)"></span></span>
@@ -508,7 +523,7 @@ function taskCard(mode, source) {
             <button @click="addSubTo(t)" class="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 transition">+ Sub-tugas</button>` : ''}
             <a :href="waLink(t)" x-show="!isEvent(t) && waLink(t)" @click="onWa(t)" target="_blank" rel="noopener" class="px-2 py-1 rounded-lg text-[11px] font-semibold text-white bg-[#25D366] hover:brightness-95 transition">Ingatkan via WA</a>
             <span x-show="!isEvent(t) && t.assignee_id && !waPhone(t)" class="text-[11px] text-gray-300" title="Nomor HP staf ini belum terisi di profilnya">WA: no. HP kosong</span>
-            ${canManage ? `<select x-show="!isEvent(t)" @change="reassign(t, $event.target.value); $event.target.value = ''" class="px-2 py-1 rounded-lg text-[11px] text-slate-600 bg-slate-50 border border-slate-100">
+            ${canManage ? `<select x-show="!isEvent(t) && !isPrivate(t)" @change="reassign(t, $event.target.value); $event.target.value = ''" class="px-2 py-1 rounded-lg text-[11px] text-slate-600 bg-slate-50 border border-slate-100">
               <option value="">Delegasikan ke...</option>
               <template x-for="s in staff" :key="s.id"><option :value="s.id" x-text="s.name + ' (' + s.role_label + ')'"></option></template>
             </select>
@@ -813,7 +828,24 @@ export function tasksBody(mode) {
           <div x-show="form.kind === 'event'" x-cloak><label class="block text-xs text-gray-600 mb-1">Jam selesai</label><input type="time" x-model="form.end_time" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"></div>
         </div>
         <div x-show="form.kind === 'event'" x-cloak><label class="block text-xs text-gray-600 mb-1">Tempat</label><input type="text" x-model="form.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Contoh: Aula IDI, atau tautan Zoom"></div>
-        <div x-show="form.kind === 'task'"><label class="block text-xs text-gray-600 mb-1">Delegasikan ke</label>
+        <!-- TUGAS PRIBADI. Panel ini sengaja terbuka antar staf, tapi ada
+             rencana yang memang belum boleh dibaca siapa pun — negosiasi
+             sewa, penambahan orang, urusan yang menyangkut nama seseorang.
+             Tanpa jalan keluar ini satu-satunya cara menyimpannya adalah
+             dengan tidak menuliskannya, dan yang tidak tertulis terlupakan.
+             Hanya muncul untuk akun pemilik klinik. -->
+        <div x-show="bolehPribadi" x-cloak class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <label class="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" x-model="form.is_private" @change="onPrivateToggle()" class="mt-0.5 rounded border-gray-300">
+            <span class="min-w-0">
+              <span class="block text-sm font-semibold text-ink">Jadikan tugas ini pribadi</span>
+              <span class="block text-[11.5px] text-gray-500 leading-relaxed mt-0.5">Hanya Anda yang bisa melihat dan membukanya. Tidak muncul di panel staf mana pun, tidak di kalender mereka, dan tidak bisa didelegasikan.</span>
+            </span>
+          </label>
+          <p x-show="form.is_private" x-cloak class="text-[11px] text-amber-700 mt-2 ps-6">Karena pribadi, penerima dan peserta dikosongkan &mdash; tugas yang tidak bisa dibaca penerimanya tidak akan pernah dikerjakan.</p>
+        </div>
+
+        <div x-show="form.kind === 'task' && !form.is_private"><label class="block text-xs text-gray-600 mb-1">Delegasikan ke</label>
           <select x-model="form.assignee_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
             <option value="">Saya sendiri</option>
             <template x-for="s in staff" :key="s.id"><option :value="s.id" x-text="s.name + ' (' + s.role_label + ')'"></option></template>
@@ -822,7 +854,7 @@ export function tasksBody(mode) {
         </div>
 
         <!-- Acara bisa dihadiri lebih dari satu orang, jadi dicentang, bukan dipilih satu. -->
-        <div x-show="form.kind === 'event'" x-cloak>
+        <div x-show="form.kind === 'event' && !form.is_private" x-cloak>
           <label class="block text-xs text-gray-600 mb-1">Siapa yang hadir <span class="text-gray-400">(boleh lebih dari satu)</span></label>
           <div class="border border-gray-200 rounded-lg p-2 max-h-44 overflow-y-auto space-y-0.5">
             <template x-for="s in staff" :key="s.id">
