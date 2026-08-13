@@ -409,6 +409,44 @@ class Store {
     return record;
   }
 
+  // Jalur PUBLIK untuk halaman verifikasi QR — dipakai orang yang tidak punya
+  // akun. Sengaja terpisah dari getCertificateById: yang ini hanya boleh
+  // mengembalikan secukupnya untuk membuktikan keaslian dokumen, TANPA
+  // diagnosis, keperluan, alamat, tanggal lahir, No. RM, maupun daftar obat.
+  // Yang perlu dibuktikan orang HRD atau sekolah adalah suratnya asli dan
+  // berlaku — bukan sakit apa pasiennya.
+  //
+  // Di server, batas itu ditegakkan fungsi verify_certificate() yang hanya
+  // menerima SATU id; tabelnya sendiri sudah tertutup. Lihat
+  // supabase-certificate-privacy.sql.
+  async verifyCertificate(certId) {
+    if (!certId) return null;
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const hasil = await supabase.rpc('verify_certificate', { p_id: certId });
+        const row = Array.isArray(hasil) ? hasil[0] : hasil;
+        if (row && row.id) return row;
+        return null;
+      } catch (e) { console.warn('Gagal memverifikasi dokumen:', e); return null; }
+    }
+    // Mode demo: bentuk yang sama persis, disusun dari data lokal — supaya
+    // halaman verifikasinya diuji terhadap bentuk yang benar-benar dipakai,
+    // bukan terhadap baris utuh yang di produksi tidak akan pernah dia terima.
+    const c = (this.data.certificates || []).find(x => x.id === certId);
+    if (!c) return null;
+    const d = c.details || {};
+    return {
+      id: c.id, cert_number: c.cert_number || '', cert_type: c.cert_type || '',
+      perihal: c.perihal || '', patient_name: c.patient_name || '',
+      doctor_name: c.doctor_name || '',
+      vaccine_name: c.vaccine_name || '', vaccine_brand: c.vaccine_brand || '',
+      issuer_name: (d.kop && d.kop.name) || '',
+      item_count: Array.isArray(d.items) ? d.items.length : 0,
+      approval_status: (d.approval && d.approval.status) || 'approved',
+      issued_at: c.issued_at || '',
+    };
+  }
+
   async getCertificateById(id) {
     if (!CONFIG.DEMO_MODE) {
       try {
@@ -1118,13 +1156,45 @@ class Store {
   }
 
   // Patients
+  //
+  // SATU ATURAN PENCARIAN UNTUK SEMUA HALAMAN. Sebelumnya tiap halaman punya
+  // aturannya sendiri: yang satu mencari nama+NIK+HP, yang lain menambahkan
+  // No. RM, dan formulir resep apotek hanya mencari nama. Akibatnya petugas
+  // yang terbiasa mengetik No. RM di satu halaman menemukan pasiennya, lalu
+  // di halaman lain tidak — dan menyimpulkan pasiennya belum terdaftar.
+  //
+  // NOMOR HP DISAMAKAN DULU FORMATNYA ('0812…' menemukan '+62812…'), dan No.
+  // RM dicocokkan tanpa nol di depannya, karena orang mengetik '31' untuk
+  // mencari '000031'. Keduanya cara orang benar-benar mengetik, bukan cara
+  // datanya kebetulan tersimpan.
+  patientMatches(p, query) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return true;
+    if (!p) return false;
+    if (String(p.full_name || '').toLowerCase().includes(q)) return true;
+
+    const angka = q.replace(/\D/g, '');
+    if (!angka) return false;
+
+    if (String(p.nik || '').replace(/\D/g, '').includes(angka)) return true;
+    // Nomor HP: dibandingkan setelah 0/+62 disamakan.
+    const hpCari = this.normalizePhone(q);
+    if (hpCari && this.normalizePhone(p.phone).includes(hpCari)) return true;
+    if (hpCari && this.normalizePhone(p.family_phone).includes(hpCari)) return true;
+    // No. RM: '31' harus menemukan '000031'.
+    const rm = String(p.rm_number || '').replace(/\D/g, '');
+    if (rm && (rm.includes(angka) || String(Number(rm)) === String(Number(angka)))) return true;
+    return false;
+  }
+
+  searchPatients(query, limit) {
+    const hasil = (this.data.patients || []).filter(p => this.patientMatches(p, query));
+    const max = Number(limit) || 0;
+    return max > 0 ? hasil.slice(0, max) : hasil;
+  }
+
   getPatients(search) {
-    let patients = this.data.patients;
-    if (search) {
-      const q = search.toLowerCase();
-      patients = patients.filter(p => p.full_name.toLowerCase().includes(q) || p.nik.includes(q) || p.phone.includes(q));
-    }
-    return patients;
+    return this.searchPatients(search);
   }
 
   getPatient(patientId) { return this.data.patients.find(p => p.id === patientId); }
@@ -1927,6 +1997,219 @@ class Store {
     }
 
     return { error: 'Jenis dokumen tidak dikenal.' };
+  }
+
+  // =========================================================================
+  // REKAP BULANAN
+  //
+  // Rekap umroh sudah ada, tapi belum ada gambaran keseluruhan: berapa
+  // kunjungan, resep, surat, dan vaksinasi dalam sebulan — per dokter dan per
+  // tempat praktik. Sekarang angkanya bisa dipercaya justru karena resep dan
+  // surat sudah wajib punya rekam medis: yang dihitung bukan lagi sekumpulan
+  // catatan lepas.
+  //
+  // YANG DIHITUNG HANYA YANG SAH. Resep yang menunggu ACC atau ditolak, dan
+  // surat yang belum disahkan, tidak masuk hitungan — belum menjadi tindakan
+  // apa pun. Rekap yang memasukkannya akan melaporkan pekerjaan yang tidak
+  // pernah terjadi.
+  // =========================================================================
+
+  // 'YYYY-MM' dari sebuah tanggal/timestamp, atau '' bila tidak bertanggal.
+  _bulanDari(v) {
+    const s = String(v || '').slice(0, 7);
+    return /^\d{4}-\d{2}$/.test(s) ? s : '';
+  }
+
+  // Bulan-bulan yang benar-benar ada isinya, terbaru dulu.
+  monthsWithActivity(limit) {
+    const set = new Set();
+    (this.data.medical_records || []).forEach(r => { const b = this._bulanDari(r.visit_date); if (b) set.add(b); });
+    (this.data.prescriptions || []).forEach(r => { const b = this._bulanDari(r.created_at); if (b) set.add(b); });
+    (this.data.vaccinations || []).forEach(v => { const b = this._bulanDari(v.date_given); if (b) set.add(b); });
+    const daftar = [...set].sort().reverse();
+    const max = Number(limit) || 0;
+    return max > 0 ? daftar.slice(0, max) : daftar;
+  }
+
+  monthlyRecap(bulan) {
+    const b = this._bulanDari(bulan) || this._bulanDari(todayLocal());
+    const perDokter = new Map();
+    const perTempat = new Map();
+    const ambilDokter = (id) => {
+      const k = id || '(tanpa dokter)';
+      if (!perDokter.has(k)) perDokter.set(k, { id: k, nama: (this.getDoctor(id) || {}).full_name || 'Tanpa dokter', kunjungan: 0, resep: 0, surat: 0, vaksinasi: 0 });
+      return perDokter.get(k);
+    };
+    const ambilTempat = (nama) => {
+      const k = String(nama || '').trim() || '(tidak dicatat)';
+      if (!perTempat.has(k)) perTempat.set(k, { nama: k, kunjungan: 0, vaksinasi: 0 });
+      return perTempat.get(k);
+    };
+
+    const pasien = new Set();
+    let kunjungan = 0, resep = 0, resepApotek = 0, surat = 0, vaksinasi = 0, jasaDokter = 0;
+
+    for (const r of (this.data.medical_records || [])) {
+      if (this._bulanDari(r.visit_date) !== b) continue;
+      kunjungan++;
+      if (r.patient_id) pasien.add(r.patient_id);
+      ambilDokter(r.doctor_id).kunjungan++;
+      ambilTempat(r.location).kunjungan++;
+    }
+
+    for (const rx of (this.data.prescriptions || [])) {
+      if (this._bulanDari(rx.created_at) !== b) continue;
+      if (this.rxApprovalStatus(rx) !== 'approved' || rx.status === 'cancelled') continue;
+      resep++;
+      if (rx.drafted_by_pharmacy) resepApotek++;
+      if (rx.service_fee_enabled) jasaDokter += Number(rx.service_fee) || 0;
+      if (rx.patient_id) pasien.add(rx.patient_id);
+      ambilDokter(rx.doctor_id).resep++;
+    }
+
+    for (const c of (this.data.certificates || [])) {
+      if (c.cert_type !== 'skd') continue;
+      const d = c.details || {};
+      if (this._bulanDari(d.letter_date || c.issued_at) !== b) continue;
+      if (((d.approval && d.approval.status) || 'approved') !== 'approved') continue;
+      surat++;
+      if (c.patient_id) pasien.add(c.patient_id);
+      const dok = (this.data.doctors || []).find(x => this.normalizeName(x.full_name) === this.normalizeName(c.doctor_name));
+      ambilDokter((d.approval && d.approval.doctor_id) || (dok && dok.id) || '').surat++;
+    }
+
+    for (const v of (this.data.vaccinations || [])) {
+      if (this._bulanDari(v.date_given) !== b) continue;
+      if (this.vaxApprovalStatus(v) !== 'approved') continue;
+      vaksinasi++;
+      if (v.patient_id) pasien.add(v.patient_id);
+      ambilDokter(v.administered_by).vaksinasi++;
+      ambilTempat(v.location).vaksinasi++;
+    }
+
+    const urut = (a, c) => (c.kunjungan + c.resep + c.surat + c.vaksinasi) - (a.kunjungan + a.resep + a.surat + a.vaksinasi);
+    return {
+      bulan: b,
+      kunjungan, resep, resep_apotek: resepApotek, surat, vaksinasi,
+      pasien_dilayani: pasien.size,
+      jasa_dokter: jasaDokter,
+      per_dokter: [...perDokter.values()].sort(urut),
+      per_tempat: [...perTempat.values()].sort((a, c) => (c.kunjungan + c.vaksinasi) - (a.kunjungan + a.vaksinasi)),
+    };
+  }
+
+  // =========================================================================
+  // YANG JATUH TEMPO: KONTROL ULANG & DOSIS VAKSIN BERIKUTNYA
+  //
+  // Tanggalnya sudah lama dicatat — medical_records.follow_up_date diisi
+  // dokter setiap kunjungan, dan vaccinations.next_dose_date diisi saat
+  // vaksinasi dicatat. Tapi tidak ada satu pun layar yang menjawab pertanyaan
+  // yang sebenarnya: SIAPA yang jatuh tempo minggu ini. Jadi tanggal itu cuma
+  // tersimpan, dan pasien yang tidak kembali tidak pernah ketahuan tidak
+  // kembali.
+  //
+  // Untuk vaksin berseri akibatnya paling nyata: dosis kedua yang terlewat
+  // bukan hanya jadwal yang meleset — serinya tidak selesai, dan pasiennya
+  // tetap tidak terlindungi walaupun sudah membayar dosis pertama.
+  //
+  // YANG LEWAT TETAP DITAMPILKAN, tidak dibuang begitu tanggalnya lewat.
+  // Justru yang sudah lewat itulah yang paling perlu dikejar; daftar yang
+  // hanya menampilkan "akan datang" diam-diam memaafkan semua yang telanjur
+  // terlewat.
+  // =========================================================================
+
+  // opts: { fromDate, toDate, kind: 'kontrol'|'vaksin'|'' , doctorId }
+  dueReminders(opts) {
+    const o = opts || {};
+    const hariIni = todayLocal();
+    const dari = String(o.fromDate || shiftDate(hariIni, -60)).slice(0, 10);
+    const sampai = String(o.toDate || shiftDate(hariIni, 14)).slice(0, 10);
+    const jenis = o.kind || '';
+    const hasil = [];
+
+    if (jenis !== 'vaksin') {
+      for (const r of (this.data.medical_records || [])) {
+        const tgl = String(r.follow_up_date || '').slice(0, 10);
+        if (!tgl || tgl < dari || tgl > sampai) continue;
+        if (o.doctorId && r.doctor_id !== o.doctorId) continue;
+        const p = this.getPatient(r.patient_id);
+        if (!p) continue;
+        hasil.push({
+          kind: 'kontrol', id: r.id, patient_id: p.id, patient_name: p.full_name || 'Pasien',
+          phone: p.phone || '', family_phone: p.family_phone || '', family_relation: p.family_relation || '',
+          due: tgl, days: this._selisihHari(tgl),
+          doctor_id: r.doctor_id, doctor_name: (this.getDoctor(r.doctor_id) || {}).full_name || '',
+          title: 'Kontrol ulang', detail: r.follow_up_notes || r.diagnosis || '',
+          sent_count: Number(r.wa_reminder_count) || 0, last_sent: r.wa_last_sent_at || '',
+        });
+      }
+    }
+
+    if (jenis !== 'kontrol') {
+      for (const v of (this.data.vaccinations || [])) {
+        const tgl = String(v.next_dose_date || '').slice(0, 10);
+        if (!tgl || tgl < dari || tgl > sampai) continue;
+        // Vaksinasi yang belum di-ACC dokter belum sah; mengingatkan dosis
+        // berikutnya dari catatan yang mungkin ditolak berarti memanggil
+        // pasien untuk sesuatu yang belum tentu terjadi.
+        if (this.vaxApprovalStatus(v) !== 'approved') continue;
+        if (o.doctorId && v.administered_by !== o.doctorId) continue;
+        const p = this.getPatient(v.patient_id);
+        if (!p) continue;
+        // Dosis yang sudah telanjur diberikan tidak perlu diingatkan lagi:
+        // ada baris vaksinasi lain, vaksin sama, yang diberikan PADA/SESUDAH
+        // tanggal jatuh temponya.
+        const sudahLanjut = (this.data.vaccinations || []).some(x =>
+          x.id !== v.id && x.patient_id === v.patient_id
+          && this.normalizeName(x.vaccine_name) === this.normalizeName(v.vaccine_name)
+          && String(x.date_given || '').slice(0, 10) >= tgl);
+        if (sudahLanjut) continue;
+        const berikut = v.vax_mode === 'booster'
+          ? 'Booster berikutnya'
+          : 'Dosis ke-' + ((Number(v.dose_number) || 1) + 1) + (v.total_doses ? ' dari ' + v.total_doses : '');
+        hasil.push({
+          kind: 'vaksin', id: v.id, patient_id: p.id, patient_name: p.full_name || 'Pasien',
+          phone: p.phone || '', family_phone: p.family_phone || '', family_relation: p.family_relation || '',
+          due: tgl, days: this._selisihHari(tgl),
+          doctor_id: v.administered_by, doctor_name: (this.getDoctor(v.administered_by) || {}).full_name || '',
+          title: v.vaccine_name || 'Vaksinasi', detail: berikut,
+          vaccine_name: v.vaccine_name || '',
+          sent_count: Number(v.wa_reminder_count) || 0, last_sent: v.wa_last_sent_at || '',
+        });
+      }
+    }
+
+    // Yang paling lama terlewat didahulukan; yang belum jatuh tempo di
+    // belakang. Urutan inilah daftar kerjanya.
+    return hasil.sort((a, b) => String(a.due).localeCompare(String(b.due)));
+  }
+
+  dueReminderCounts(opts) {
+    const d = this.dueReminders(opts);
+    const hariIni = todayLocal();
+    return {
+      total: d.length,
+      lewat: d.filter(x => x.due < hariIni).length,
+      hariIni: d.filter(x => x.due === hariIni).length,
+      akan: d.filter(x => x.due > hariIni).length,
+    };
+  }
+
+  // Menandai sebuah pengingat sudah dikirim. Hitungannya disimpan supaya
+  // terlihat siapa yang sudah berkali-kali diingatkan tapi tetap tidak datang
+  // — itu keadaan yang berbeda dari belum pernah dihubungi sama sekali.
+  async markReminderSent(kind, id) {
+    const tabel = kind === 'vaksin' ? 'vaccinations' : 'medical_records';
+    const daftar = kind === 'vaksin' ? this.data.vaccinations : this.data.medical_records;
+    const row = (daftar || []).find(x => x.id === id);
+    if (!row) return { error: 'Data tidak ditemukan' };
+    row.wa_reminder_count = (Number(row.wa_reminder_count) || 0) + 1;
+    row.wa_last_sent_at = new Date().toISOString();
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
+      supabase.update(tabel, id, { wa_reminder_count: row.wa_reminder_count, wa_last_sent_at: row.wa_last_sent_at }).catch(() => {});
+    }
+    return { success: true, count: row.wa_reminder_count };
   }
 
   // =========================================================================

@@ -11,10 +11,10 @@ export function verifyPage(params) {
     x-data="{ loading: true, cert: null, error: false, status: 'approved',
       async load() {
         try {
-          const result = await window.__store.getCertificateById('${params.certId}');
+          const result = await window.__store.verifyCertificate('${params.certId}');
           if (result) {
             this.cert = result;
-            this.status = (result.details && result.details.approval && result.details.approval.status) || 'approved';
+            this.status = result.approval_status || 'approved';
           } else { this.error = true; }
         } catch(e) { this.error = true; }
         this.loading = false;
@@ -26,7 +26,7 @@ export function verifyPage(params) {
           <img src="assets/logos/medconnect-logo.svg" alt="MedConnect" class="h-16 w-auto">
         </div>
         <h1 class="text-xl font-bold text-white">Verifikasi Sertifikat</h1>
-        <p class="text-teal-200/70 text-sm mt-1">Klinik Kasih Anugerah Prima &middot; Primuni.id</p>
+        <p class="text-teal-200/70 text-sm mt-1">MedConnect &middot; myprima.id</p>
       </div>
 
       <div class="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-6 shadow-2xl">
@@ -40,7 +40,7 @@ export function verifyPage(params) {
             <!-- Sah (approved / vaccine certificate) -->
             <div x-show="status === 'approved'" class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-green-500/15 border border-green-400/30">
               <div class="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0"><svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
-              <div><p class="text-green-300 font-semibold text-sm" x-text="({ skd: 'Surat Sah & Terverifikasi', resep: 'Resep Sah & Terverifikasi' })[cert.cert_type] || 'Sertifikat Sah & Terverifikasi'"></p><p class="text-green-200/70 text-xs" x-text="'Diterbitkan resmi oleh ' + ((cert.details && cert.details.kop && cert.details.kop.name) || 'fasilitas penerbitnya')"></p></div>
+              <div><p class="text-green-300 font-semibold text-sm" x-text="({ skd: 'Surat Sah & Terverifikasi', resep: 'Resep Sah & Terverifikasi' })[cert.cert_type] || 'Sertifikat Sah & Terverifikasi'"></p><p class="text-green-200/70 text-xs" x-text="'Diterbitkan resmi oleh ' + (cert.issuer_name || 'fasilitas penerbitnya')"></p></div>
             </div>
             <!-- Belum disahkan (pending ACC) -->
             <div x-show="status === 'pending'" x-cloak class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-amber-500/15 border border-amber-400/30">
@@ -58,23 +58,15 @@ export function verifyPage(params) {
               <template x-if="cert.cert_type === 'skd'">
                 <div class="space-y-3">
                   <div class="flex justify-between py-2 border-b border-white/10"><span class="text-teal-200/60">Jenis Surat</span><span class="text-white font-medium" x-text="'Surat Keterangan ' + ((cert.perihal||'').charAt(0) + (cert.perihal||'').slice(1).toLowerCase())"></span></div>
-                  <div class="flex justify-between py-2 border-b border-white/10" x-show="cert.details && cert.details.diagnosis"><span class="text-teal-200/60">Diagnosis</span><span class="text-white font-medium" x-text="cert.details && cert.details.diagnosis"></span></div>
-                  <div class="flex justify-between py-2 border-b border-white/10" x-show="cert.details && cert.details.keperluan"><span class="text-teal-200/60">Keperluan</span><span class="text-white font-medium" x-text="cert.details && cert.details.keperluan"></span></div>
                   <div class="flex justify-between py-2 border-b border-white/10" x-show="cert.doctor_name"><span class="text-teal-200/60">Dokter</span><span class="text-white font-medium" x-text="cert.doctor_name"></span></div>
                 </div>
               </template>
               <!-- Resep (kertas resep tercetak) -->
               <template x-if="cert.cert_type === 'resep'">
                 <div class="space-y-3">
-                  <div class="flex justify-between py-2 border-b border-white/10"><span class="text-teal-200/60">Jenis Dokumen</span><span class="text-white font-medium" x-text="(cert.details && cert.details.rx_target === 'luar') ? 'Resep (Luar)' : 'Resep Dokter'"></span></div>
+                  <div class="flex justify-between py-2 border-b border-white/10"><span class="text-teal-200/60">Jenis Dokumen</span><span class="text-white font-medium">Resep Dokter</span></div>
                   <div class="flex justify-between py-2 border-b border-white/10" x-show="cert.doctor_name"><span class="text-teal-200/60">Dokter</span><span class="text-white font-medium" x-text="cert.doctor_name"></span></div>
-                  <div class="py-2 border-b border-white/10">
-                    <p class="text-teal-200/60 mb-1.5">Daftar Obat</p>
-                    <template x-for="(it, ix) in ((cert.details && cert.details.items) || [])" :key="ix">
-                      <p class="text-white text-sm">R/ <span x-text="it.drug_name + (it.dosage ? ' ' + it.dosage : '')"></span><span class="text-teal-200/60" x-text="(it.quantity ? ' — No. ' + it.quantity + ' ' + (it.unit||'') : '')"></span></p>
-                    </template>
-                    <p class="text-teal-100/50 text-xs" x-show="!((cert.details && cert.details.items) || []).length">(tidak ada item obat)</p>
-                  </div>
+                  <div class="flex justify-between py-2 border-b border-white/10"><span class="text-teal-200/60">Jumlah Obat</span><span class="text-white font-medium" x-text="cert.item_count + ' item'"></span></div>
                 </div>
               </template>
               <!-- Vaccination certificate -->
@@ -93,7 +85,8 @@ export function verifyPage(params) {
           <p class="text-teal-100/60 text-sm">Dokumen ini tidak terdaftar dalam sistem kami atau ID verifikasi tidak valid.</p>
         </div>
       </div>
-      <p class="text-center text-teal-100/40 text-xs mt-6">myprima.id &middot; Verifikasi Dokumen MedConnect</p>
+      <p class="text-center text-teal-100/60 text-[11px] mt-5 leading-relaxed">Halaman ini membuktikan <b>keaslian</b> dokumen, bukan isi medisnya.<br>Diagnosis, alamat, dan rincian obat sengaja tidak ditampilkan.</p>
+      <p class="text-center text-teal-100/40 text-xs mt-3">myprima.id &middot; Verifikasi Dokumen MedConnect</p>
     </div>
   </div>`;
 }

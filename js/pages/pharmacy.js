@@ -221,10 +221,13 @@ export function pharmacyDashboard() {
       this.rxOpen = true;
     },
     rxAddItem() { this.rxForm.items.push(this.rxBlank()); },
+    // Aturan pencarian yang sama dengan halaman lain: nama, No. RM, NIK, dan
+    // nomor HP. Sebelumnya di sini hanya nama, jadi petugas yang mengetik No.
+    // RM tidak menemukan pasiennya dan menyangka belum terdaftar.
     get rxPasienTersaring() {
-      const q = (this.rxCari || '').toLowerCase();
+      const q = (this.rxCari || '').trim();
       if (!q) return this.rxPatients.slice(0, 8);
-      return this.rxPatients.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 8);
+      return window.__store.searchPatients(q, 8).map(p => ({ id: p.id, name: p.full_name, phone: p.phone || '', rm: p.rm_number || '' }));
     },
     rxPasienNama(id) { const p = this.rxPatients.find(x => x.id === id); return p ? p.name : ''; },
     async submitRx() {
@@ -475,10 +478,13 @@ export function pharmacyPrescriptions() {
       this.rxOpen = true;
     },
     rxAddItem() { this.rxForm.items.push(this.rxBlank()); },
+    // Aturan pencarian yang sama dengan halaman lain: nama, No. RM, NIK, dan
+    // nomor HP. Sebelumnya di sini hanya nama, jadi petugas yang mengetik No.
+    // RM tidak menemukan pasiennya dan menyangka belum terdaftar.
     get rxPasienTersaring() {
-      const q = (this.rxCari || '').toLowerCase();
+      const q = (this.rxCari || '').trim();
       if (!q) return this.rxPatients.slice(0, 8);
-      return this.rxPatients.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 8);
+      return window.__store.searchPatients(q, 8).map(p => ({ id: p.id, name: p.full_name, phone: p.phone || '', rm: p.rm_number || '' }));
     },
     rxPasienNama(id) { const p = this.rxPatients.find(x => x.id === id); return p ? p.name : ''; },
     async submitRx() {
@@ -869,13 +875,13 @@ export function pharmacyPrescriptions() {
                   <label class="block text-xs text-gray-600">Pasien *</label>
                   <button type="button" @click="bukaPasienBaru(rxCari)" class="text-[11px] font-semibold text-purple-700 hover:underline">+ Pasien baru</button>
                 </div>
-                <input type="text" x-model="rxCari" placeholder="Ketik nama pasien..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                <input type="text" x-model="rxCari" placeholder="Nama, No. RM, NIK, atau No. HP..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
                 <div class="mt-1 border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-40 overflow-y-auto">
                   <template x-for="p in rxPasienTersaring" :key="p.id">
                     <button type="button" @click="rxForm.patient_id = p.id; rxCari = p.name"
                       class="w-full text-left px-3 py-2 text-sm hover:bg-purple-50 transition"
                       :class="rxForm.patient_id === p.id ? 'bg-purple-50 font-semibold text-purple-800' : 'text-gray-700'">
-                      <span x-text="p.name"></span><span class="text-[11px] text-slate-400" x-text="p.phone ? ' · ' + p.phone : ''"></span>
+                      <span x-text="p.name"></span><span class="text-[11px] text-slate-400" x-text="(p.rm ? ' · RM ' + p.rm : '') + (p.phone ? ' · ' + p.phone : '')"></span>
                     </button>
                   </template>
                   <!-- Jalan buntu yang paling sering bikin resep tidak jadi
@@ -1007,9 +1013,9 @@ export function pharmacyCertificates() {
       diagnosis: '', rest_days: '', from_date: '${hariIni}', to_date: '' },
     ${pasienBaruXData("this.pasienId = p.id; this.cari = p.full_name || p.name || '';")}
     get pasienTersaring() {
-      const q = (this.cari || '').toLowerCase();
+      const q = (this.cari || '').trim();
       if (!q) return this.rxPatients.slice(0, 8);
-      return this.rxPatients.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 8);
+      return window.__store.searchPatients(q, 8).map(p => ({ id: p.id, name: p.full_name, phone: p.phone || '', rm: p.rm_number || '' }));
     },
     pasienNama(id) { const p = this.rxPatients.find(x => x.id === id); return p ? p.name : ''; },
     // Tanggal surat sakit mengikuti hari pertama sakitnya, bukan hari
@@ -1129,13 +1135,13 @@ export function pharmacyCertificates() {
                 <label class="block text-xs text-gray-600">Pasien *</label>
                 <button type="button" @click="bukaPasienBaru(cari)" class="text-[11px] font-semibold text-purple-700 hover:underline">+ Pasien baru</button>
               </div>
-              <input type="text" x-model="cari" placeholder="Ketik nama pasien..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50">
+              <input type="text" x-model="cari" placeholder="Nama, No. RM, NIK, atau No. HP..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/50">
               <div class="mt-1 border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-40 overflow-y-auto">
                 <template x-for="p in pasienTersaring" :key="p.id">
                   <button type="button" @click="pasienId = p.id; cari = p.name"
                     class="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition"
                     :class="pasienId === p.id ? 'bg-blue-50 font-semibold text-blue-800' : 'text-gray-700'">
-                    <span x-text="p.name"></span><span class="text-[11px] text-slate-400" x-text="p.phone ? ' · ' + p.phone : ''"></span>
+                    <span x-text="p.name"></span><span class="text-[11px] text-slate-400" x-text="(p.rm ? ' · RM ' + p.rm : '') + (p.phone ? ' · ' + p.phone : '')"></span>
                   </button>
                 </template>
                 <template x-if="cari && !pasienTersaring.length">

@@ -69,6 +69,60 @@ export function waPesanObatSiap(o) {
   return baris.join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// PESAN PENGINGAT: kontrol ulang & dosis vaksin berikutnya.
+//
+// Bunyinya berbeda menurut sudah lewat atau belum, karena yang diminta memang
+// berbeda: yang belum jatuh tempo diingatkan, yang sudah lewat diajak
+// menyusul. Satu kalimat untuk keduanya akan salah di salah satu sisinya —
+// "jangan lupa datang besok" untuk jadwal tiga minggu lalu terbaca seperti
+// klinik yang tidak menyimak catatannya sendiri.
+//
+// Ditulis di sini, bukan di dalam x-data: pesannya memuat baris baru, dan satu
+// baris baru di dalam atribut x-data mematikan Alpine untuk seluruh halaman.
+// ---------------------------------------------------------------------------
+export function waPesanPengingat(o) {
+  const d = o || {};
+  const pasien = String(d.patientName || '').trim() || 'Bapak/Ibu';
+  const klinik = String(d.clinicName || '').trim() || CLINIC;
+  const vaksin = d.kind === 'vaksin';
+  const hari = Number(d.days);
+  const lewat = Number.isFinite(hari) && d.due && d.dueIsPast;
+
+  const baris = [];
+  baris.push(d.toFamily ? `Halo, ini dari ${klinik}.` : `Halo, Bapak/Ibu ${pasien}.`);
+  baris.push('');
+  const milik = d.toFamily ? ` atas nama ${pasien}` : '';
+
+  if (vaksin) {
+    const apa = `*${String(d.title || 'vaksinasi').trim()}*${d.detail ? ' — ' + d.detail : ''}`;
+    baris.push(lewat
+      ? `Jadwal ${apa}${milik} sudah lewat sejak ${d.due} (${hari} hari lalu).`
+      : `Mengingatkan jadwal ${apa}${milik} pada ${d.due}.`);
+    baris.push('');
+    // Alasannya disebut, bukan hanya perintah datang. Untuk vaksin berseri,
+    // dosis yang terlewat membuat seluruh serinya tidak selesai — dan itu
+    // yang membuat orang mau menjadwalkan ulang.
+    baris.push(lewat
+      ? 'Dosis lanjutan sebaiknya tetap dilengkapi agar perlindungannya utuh. Boleh dibalas untuk mengatur jadwal menyusul ya.'
+      : 'Mohon datang sesuai jadwal agar rangkaian vaksinnya lengkap. Kalau berhalangan, boleh dibalas untuk mengatur ulang.');
+  } else {
+    baris.push(lewat
+      ? `Jadwal *kontrol ulang*${milik} sudah lewat sejak ${d.due} (${hari} hari lalu).`
+      : `Mengingatkan jadwal *kontrol ulang*${milik} pada ${d.due}.`);
+    if (d.detail) { baris.push(''); baris.push(`Keperluan: ${d.detail}`); }
+    baris.push('');
+    baris.push(lewat
+      ? 'Bila keluhannya masih ada atau obatnya sudah habis, sebaiknya segera kontrol. Boleh dibalas untuk mengatur jadwalnya ya.'
+      : 'Mohon datang sesuai jadwal. Kalau berhalangan, boleh dibalas untuk mengatur ulang.');
+  }
+
+  if (d.doctorName) { baris.push(''); baris.push(`Dokter: ${d.doctorName}`); }
+  baris.push('');
+  baris.push(`Terima kasih.\n— ${klinik}`);
+  return baris.join('\n');
+}
+
 // Encode a message for safe transport through an inline onclick / Alpine handler
 // (used by the "isi No. HP dulu" flow when a patient has no phone yet).
 export function waMsgB64(message) {
