@@ -1791,6 +1791,22 @@ export function doctorSKDApproval() {
     },
     get totalMenunggu() { return this.items.length + this.vaxItems.length + this.rxItems.length; },
     rxObat(id) { return window.__store.getPrescriptionItems(id); },
+    // Riwayat obat pasien — dasar untuk menilai PENGULANGAN, yang justru jenis
+    // resep paling sering datang lewat apotek. Resep yang sedang dinilai
+    // dikeluarkan dari riwayatnya sendiri supaya tidak terbaca sebagai
+    // 'pernah diberikan'.
+    riwayatBulan: 6,
+    rxRiwayat(rx) {
+      return window.__store.patientDrugHistory(rx.patient_id, { months: this.riwayatBulan, excludeRxId: rx.id });
+    },
+    rxTumpang(rx) {
+      return window.__store.recentDrugOverlap(rx.patient_id, this.rxObat(rx.id), { months: this.riwayatBulan, excludeRxId: rx.id });
+    },
+    riwayatRingkas(h) {
+      const isi = h.is_compound ? (h.compound_details || '').trim() : ((h.drug_name || '') + (h.dosage ? ' ' + h.dosage : ''));
+      const jml = h.quantity ? (' — ' + h.quantity + ' ' + (h.unit || '')) : '';
+      return isi + jml + (h.duration ? ' · ' + h.duration : '');
+    },
     rxPasien(rx) { return (window.__store.getPatient(rx.patient_id) || {}).full_name || 'Pasien'; },
     rxApotek(rx) { return (window.__store.getPharmacy(rx.drafted_by_pharmacy || rx.pharmacy_id) || {}).name || 'Apotek'; },
     async accRx(rx, jasa, nominal) {
@@ -1864,7 +1880,7 @@ export function doctorSKDApproval() {
             <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Resep dari Apotek <span x-text="'(' + rxItems.length + ')'"></span></h3>
             <div class="space-y-3">
               <template x-for="rx in rxItems" :key="rx.id">
-                <div class="bg-white border border-slate-100 rounded-3xl p-4" x-data="{ jasa: false, nominal: '' }">
+                <div class="bg-white border border-slate-100 rounded-3xl p-4" x-data="{ jasa: false, nominal: '', riwayatBuka: false }">
                   <div class="flex items-start justify-between gap-3 flex-wrap">
                     <div class="min-w-[220px]">
                       <div class="flex items-center gap-2 flex-wrap">
@@ -1901,6 +1917,38 @@ export function doctorSKDApproval() {
                     </template>
                   </div>
                   <p x-show="rx.notes" x-cloak class="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 whitespace-pre-line" x-text="'Catatan apotek: ' + (rx.notes || '')"></p>
+                  <!-- YANG PALING PERLU DILIHAT SEBELUM MENEKAN SETUJUI:
+                       obat pada resep ini yang ternyata baru saja diterima
+                       pasiennya. Ditaruh di atas riwayat lengkapnya, karena
+                       riwayat yang harus dibuka dulu sama saja tidak ada. -->
+                  <template x-if="rxTumpang(rx).length">
+                    <div class="mt-2 rounded-xl bg-red-50 border-2 border-red-200 p-2.5">
+                      <p class="text-[11.5px] font-bold text-red-900 mb-1">Sudah pernah diterima pasien ini belakangan:</p>
+                      <template x-for="t in rxTumpang(rx)" :key="t.nama + t.date + t.where">
+                        <p class="text-[11.5px] text-red-800" x-text="'• ' + t.nama + ' — ' + (t.hari === 0 ? 'hari ini' : t.hari + ' hari lalu') + ' (' + (t.rx_number || 'resep sebelumnya') + (t.where === 'racikan' ? ', sebagai bahan racikan' : '') + (t.lewat_apotek ? ', lewat apotek' : '') + ')'"></p>
+                      </template>
+                    </div>
+                  </template>
+
+                  <div class="mt-2 rounded-xl border border-slate-100 overflow-hidden">
+                    <button type="button" @click="riwayatBuka = !riwayatBuka" class="w-full px-2.5 py-2 bg-slate-50 hover:bg-slate-100 transition flex items-center justify-between gap-2">
+                      <span class="text-[11.5px] font-semibold text-slate-700">Riwayat obat pasien <span class="font-normal text-slate-500" x-text="'(' + riwayatBulan + ' bulan terakhir: ' + rxRiwayat(rx).length + ' obat)'"></span></span>
+                      <span class="ms text-[16px] text-slate-400" x-text="riwayatBuka ? 'expand_less' : 'expand_more'"></span>
+                    </button>
+                    <div x-show="riwayatBuka" x-cloak class="p-2.5 space-y-1.5 bg-white">
+                      <template x-if="!rxRiwayat(rx).length">
+                        <p class="text-[11.5px] text-slate-400">Belum ada resep sah untuk pasien ini dalam <span x-text="riwayatBulan"></span> bulan terakhir. Kalau ini pengulangan, resep asalnya di luar rentang itu &mdash; atau memang belum pernah ada.</p>
+                      </template>
+                      <template x-for="(h, hi) in rxRiwayat(rx)" :key="hi">
+                        <div class="text-[11.5px] leading-relaxed">
+                          <span class="text-slate-400" x-text="h.date"></span>
+                          <span x-show="h.is_compound" x-cloak class="px-1 py-0.5 rounded text-[9.5px] font-bold bg-purple-600 text-white align-middle">RACIKAN</span>
+                          <span class="text-slate-800" x-text="' ' + riwayatRingkas(h)"></span>
+                          <span class="text-slate-400" x-text="(h.rx_number ? ' · ' + h.rx_number : '') + (h.doctor_name ? ' · ' + h.doctor_name : '') + (h.from_pharmacy ? ' · lewat apotek' : '')"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
                   <!-- Jasa dokter ditentukan di sini, saat menyetujui — bukan
                        oleh apotek saat menyusun. -->
                   <div class="mt-2 rounded-xl bg-green-50/70 border border-green-100 p-2.5">
