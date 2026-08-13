@@ -226,6 +226,7 @@ export function pharmacyDashboard() {
 
 export function pharmacyPrescriptions() {
   const pharmacy = getPharmacy();
+  const user = getUser();
   window.__pharmacyId = pharmacy?.id || '';
   window.__pharmacyAllPrescriptionsInitial = store.getPrescriptionsByPharmacy(pharmacy?.id);
   window.__prescriptionStatusLabels = CONFIG.PRESCRIPTION_STATUS_LABELS;
@@ -243,6 +244,7 @@ export function pharmacyPrescriptions() {
   <div x-data="{
     sideOpen: window.innerWidth > 1024, filter: '',
     pharmacyId: '${pharmacy?.id || ''}',
+    userId: '${user?.id || ''}',
     prescriptions: window.__pharmacyAllPrescriptionsInitial || [],
     statusLabels: window.__prescriptionStatusLabels || {},
     canRx: window.__pharmacyCanRx === true,
@@ -280,6 +282,50 @@ export function pharmacyPrescriptions() {
       this.drafts = window.__store.getRxDraftedByPharmacy(this.pharmacyId);
       window.__showToast && window.__showToast('Terkirim untuk ACC',
         'Resep ' + res.rx.rx_number + ' menunggu persetujuan dokter. Resep ini belum berlaku sampai disetujui.');
+    },
+    // ---- Mendaftarkan pasien baru ----
+    // Yang paling sering terjadi: namanya sudah diketik di kotak cari, lalu
+    // ternyata belum terdaftar. Karena itu nama yang sudah diketik dibawa masuk
+    // ke formulir ini, bukan mulai dari kosong lagi.
+    npOpen: false, npSaving: false, npErr: '', npMirip: [],
+    npKosong() { return { full_name: '', nik: '', birth_date: '', gender: '', phone: '', address: '', allergies: '', family_name: '', family_phone: '', family_relation: '' }; },
+    npForm: { full_name: '', nik: '', birth_date: '', gender: '', phone: '', address: '', allergies: '', family_name: '', family_phone: '', family_relation: '' },
+    bukaPasienBaru(namaAwal) {
+      this.npErr = '';
+      this.npForm = { ...this.npKosong(), full_name: (namaAwal || '').trim() };
+      this.cekMirip();
+      this.npOpen = true;
+    },
+    // Duplikat pasien baru ketahuan saat riwayat obatnya dibutuhkan, dan saat
+    // itu sudah terlambat. Jadi calon kembarannya ditampilkan sambil diketik,
+    // sebelum ada yang tersimpan.
+    cekMirip() {
+      this.npMirip = window.__store.findSimilarPatients({ full_name: this.npForm.full_name, phone: this.npForm.phone, nik: this.npForm.nik });
+    },
+    // 'Ternyata sudah ada' — pakai yang lama, jangan buat yang kedua.
+    pakaiPasienLama(p) {
+      if (!this.rxPatients.some(x => x.id === p.id)) this.rxPatients = [{ id: p.id, name: p.full_name, phone: p.phone || '' }, ...this.rxPatients];
+      this.rxForm.patient_id = p.id; this.rxCari = p.full_name || '';
+      this.npOpen = false;
+      window.__showToast && window.__showToast('Pasien dipilih', p.full_name + ' dipakai dari data yang sudah ada.');
+    },
+    async simpanPasienBaru() {
+      if (this.npSaving) return;
+      this.npErr = '';
+      if (!(this.npForm.full_name || '').trim()) { this.npErr = 'Nama lengkap pasien wajib diisi.'; return; }
+      this.npSaving = true;
+      const res = await window.__store.createPatientByStaff(this.npForm, { byUserId: this.userId, via: 'apotek' });
+      this.npSaving = false;
+      if (!res || !res.success) { this.npErr = (res && res.error) || 'Gagal menyimpan data pasien.'; return; }
+      const p = res.patient;
+      // Dimasukkan sendiri ke daftar pilihan halaman ini (bukan memuat ulang
+      // seluruh halaman) lalu langsung terpilih, supaya resepnya bisa
+      // diteruskan tanpa mencari lagi dari awal.
+      this.rxPatients = [{ id: p.id, name: p.full_name, phone: p.phone || '' }, ...this.rxPatients];
+      this.rxForm.patient_id = p.id; this.rxCari = p.full_name;
+      this.npOpen = false;
+      window.__showToast && window.__showToast('Pasien terdaftar',
+        p.full_name + ' sudah masuk daftar pasien' + (p.rm_number ? ' dengan No. RM ' + p.rm_number : '') + '.');
     },
     // ---- Resep ulang: ambil dari resep yang pernah sah ----
     openUlang() {
@@ -356,6 +402,13 @@ export function pharmacyPrescriptions() {
         <div class="flex items-center justify-between gap-2 flex-wrap mb-4">
           <h2 class="text-xl font-bold text-gray-800">Semua E-Resep</h2>
           <div class="flex gap-2 flex-wrap">
+            <!-- Mendaftarkan pasien itu pekerjaan meja depan, bukan keputusan
+                 klinis, jadi tidak diikat izin "boleh menyusun resep": apotek
+                 yang hanya melayani resep dari luar pun tetap perlu mencatat
+                 pasien yang belum terdaftar. -->
+            <button @click="bukaPasienBaru('')" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition flex items-center gap-1.5">
+              <span class="ms text-[17px]">person_add</span>Pasien Baru
+            </button>
             <button x-show="canRx" x-cloak @click="openUlang()" class="px-4 py-2 rounded-lg text-sm font-semibold text-purple-800 bg-purple-100 hover:bg-purple-200 transition flex items-center gap-1.5">
               <span class="ms text-[17px]">history</span>Ambil Resep Sebelumnya
             </button>
@@ -537,7 +590,10 @@ export function pharmacyPrescriptions() {
 
             <div class="grid sm:grid-cols-2 gap-3 mb-3">
               <div>
-                <label class="block text-xs text-gray-600 mb-1">Pasien *</label>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block text-xs text-gray-600">Pasien *</label>
+                  <button type="button" @click="bukaPasienBaru(rxCari)" class="text-[11px] font-semibold text-purple-700 hover:underline">+ Pasien baru</button>
+                </div>
                 <input type="text" x-model="rxCari" placeholder="Ketik nama pasien..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
                 <div class="mt-1 border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-40 overflow-y-auto">
                   <template x-for="p in rxPasienTersaring" :key="p.id">
@@ -545,6 +601,14 @@ export function pharmacyPrescriptions() {
                       class="w-full text-left px-3 py-2 text-sm hover:bg-purple-50 transition"
                       :class="rxForm.patient_id === p.id ? 'bg-purple-50 font-semibold text-purple-800' : 'text-gray-700'">
                       <span x-text="p.name"></span><span class="text-[11px] text-slate-400" x-text="p.phone ? ' · ' + p.phone : ''"></span>
+                    </button>
+                  </template>
+                  <!-- Jalan buntu yang paling sering bikin resep tidak jadi
+                       ditulis: dicari, tidak ketemu, lalu tidak tahu harus apa. -->
+                  <template x-if="rxCari && !rxPasienTersaring.length">
+                    <button type="button" @click="bukaPasienBaru(rxCari)" class="w-full text-left px-3 py-2.5 text-sm text-purple-800 hover:bg-purple-50 transition">
+                      <span class="ms text-[15px] align-middle">person_add</span>
+                      <span>Belum terdaftar — daftarkan <b x-text="rxCari"></b> sebagai pasien baru</span>
                     </button>
                   </template>
                 </div>
@@ -592,6 +656,100 @@ export function pharmacyPrescriptions() {
               <button @click="rxOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
               <button @click="submitRx()" :disabled="rxSaving || !rxForm.patient_id" class="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
                 <span x-show="!rxSaving">Kirim untuk ACC Dokter</span><span x-show="rxSaving" x-cloak>Menyimpan...</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mendaftarkan pasien baru. Sengaja dipasang sebagai lapisan di ATAS
+             formulir resep (z-60), bukan menggantikannya: yang sudah diketik di
+             formulir resep tidak boleh hilang hanya karena pasiennya ternyata
+             belum terdaftar. -->
+        <div x-show="npOpen" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" @click.self="npOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-lg font-bold text-gray-800">Daftarkan Pasien Baru</h3>
+              <button @click="npOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <p class="text-[11.5px] text-gray-500 mb-4 leading-relaxed">Nomor rekam medis diberikan otomatis. Akun ini dibuat <b>tanpa login</b> &mdash; Super Admin bisa menambahkan e-mail pasien belakangan lewat Manajemen User bila pasiennya ingin memakai aplikasi.</p>
+
+            <!-- Peringatan duplikat muncul SEBELUM disimpan, bukan sesudah.
+                 Satu orang yang terdaftar dua kali membuat riwayat obatnya
+                 terbelah, dan itu baru ketahuan saat riwayatnya dibutuhkan. -->
+            <div x-show="npMirip.length" x-cloak class="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p class="text-[11.5px] font-bold text-amber-900 mb-2">Sudah ada pasien yang mirip &mdash; pastikan bukan orang yang sama:</p>
+              <div class="space-y-1.5">
+                <template x-for="m in npMirip" :key="m.id">
+                  <div class="flex items-center justify-between gap-2 bg-white rounded-lg px-2.5 py-1.5 border border-amber-100">
+                    <div class="min-w-0">
+                      <p class="text-[12.5px] font-semibold text-gray-800 truncate" x-text="m.full_name"></p>
+                      <p class="text-[11px] text-slate-500 truncate">
+                        <span x-text="m.match_reason"></span>
+                        <span x-text="m.phone ? ' · ' + m.phone : ''"></span>
+                        <span x-text="m.rm_number ? ' · RM ' + m.rm_number : ''"></span>
+                      </p>
+                    </div>
+                    <button type="button" @click="pakaiPasienLama(m)" class="shrink-0 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 transition">Pakai yang ini</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div class="sm:col-span-2">
+                <label class="block text-xs text-gray-600 mb-1">Nama Lengkap *</label>
+                <input type="text" x-model="npForm.full_name" @input.debounce.300ms="cekMirip()" placeholder="Sesuai KTP / KK" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">No. HP</label>
+                <input type="text" x-model="npForm.phone" @input.debounce.300ms="cekMirip()" placeholder="08xxxxxxxxxx" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">NIK</label>
+                <input type="text" x-model="npForm.nik" @input.debounce.300ms="cekMirip()" placeholder="16 digit (opsional)" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Tanggal Lahir</label>
+                <input type="date" x-model="npForm.birth_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Jenis Kelamin</label>
+                <select x-model="npForm.gender" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                  <option value="">-</option>
+                  <option value="Laki-laki">Laki-laki</option>
+                  <option value="Perempuan">Perempuan</option>
+                </select>
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-xs text-gray-600 mb-1">Alamat</label>
+                <input type="text" x-model="npForm.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-xs text-gray-600 mb-1">Alergi Obat</label>
+                <input type="text" x-model="npForm.allergies" placeholder="Kosongkan bila tidak ada" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                <p class="text-[11px] text-gray-400 mt-1">Ditulis di sini supaya dokter melihatnya saat meng-ACC resep.</p>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Nama Keluarga / Wali</label>
+                <input type="text" x-model="npForm.family_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">HP Keluarga</label>
+                  <input type="text" x-model="npForm.family_phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                </div>
+                <div>
+                  <label class="block text-xs text-gray-600 mb-1">Hubungan</label>
+                  <input type="text" x-model="npForm.family_relation" placeholder="Mis. Ibu" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                </div>
+              </div>
+            </div>
+
+            <p x-show="npErr" x-cloak class="text-xs text-red-600 mt-3 leading-relaxed" x-text="npErr"></p>
+            <div class="flex gap-2 justify-end mt-4">
+              <button @click="npOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="simpanPasienBaru()" :disabled="npSaving || !npForm.full_name.trim()" class="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
+                <span x-show="!npSaving">Simpan Pasien</span><span x-show="npSaving" x-cloak>Menyimpan...</span>
               </button>
             </div>
           </div>
