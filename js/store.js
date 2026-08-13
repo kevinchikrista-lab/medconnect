@@ -1294,6 +1294,18 @@ class Store {
     return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
 
+  // Daftar alergi pasien, dipecah jadi kata kunci yang bisa dicocokkan dengan
+  // nama obat. Ditaruh di store (bukan di dalam x-data) karena pemisahnya
+  // memuat baris baru: satu karakter baris baru di dalam atribut x-data
+  // memutus string JS-nya dan mematikan Alpine untuk seluruh halaman.
+  patientAllergyTerms(patientId) {
+    const p = this.getPatient(patientId) || {};
+    return String(p.allergies || '')
+      .split(/[,;/\n]+/)
+      .map(s => s.trim().toLowerCase())
+      .filter(s => s && s !== '-');
+  }
+
   // Pasien yang MUNGKIN orang yang sama. Ini peringatan, bukan penghalang:
   // nama yang sama persis itu lumrah di Indonesia, jadi yang memutuskan tetap
   // petugasnya. Yang benar-benar ditolak (NIK sama) diurus createPatientByStaff.
@@ -1396,6 +1408,108 @@ class Store {
   }
 
   // =========================================================================
+  // APOTEK MEMBUAT SURAT KETERANGAN DOKTER (SKD)
+  //
+  // Surat keterangan dibuat atas nama seorang dokter dan ditandatanganinya.
+  // Karena itu apotek hanya boleh membuatkannya untuk DOKTER YANG BERPRAKTIK
+  // DI TEMPAT ITU — bukan dokter mana pun yang kebetulan terdaftar di sistem.
+  // Surat atas nama dokter yang tidak pernah berpraktik di sana adalah surat
+  // yang tidak bisa dipertanggungjawabkan siapa pun.
+  //
+  // Yang menghubungkan keduanya adalah TEMPAT PRAKTIK:
+  //
+  //   pharmacies.location_id  →  practice_locations.id  ←  doctors.practice_places[].location_id
+  //
+  // Apotek mitra memang sudah didaftarkan sebagai tempat praktik di halaman
+  // "Tempat Praktik & Kop" (lengkap dengan alamat dan kop-nya), jadi tidak ada
+  // daftar tempat kedua yang harus dijaga tetap sama.
+  //
+  // Suratnya TETAP menunggu ACC dokter, persis seperti surat yang dibuat admin
+  // klinik. Yang berubah hanya siapa yang boleh menyusun draftnya.
+  // Lihat supabase-pharmacy-skd.sql.
+  // =========================================================================
+
+  // Tempat praktik yang mewakili sebuah apotek. Bila belum ditetapkan, dicoba
+  // dicocokkan lewat namanya — apotek biasanya didaftarkan sebagai tempat
+  // praktik dengan nama yang sama persis, jadi ini menyelamatkan data yang
+  // sudah ada tanpa memaksa siapa pun mengisi ulang. Cocok-nama hanya cadangan;
+  // begitu location_id diisi, itulah yang berlaku.
+  pharmacyLocationId(pharmacyId) {
+    const ph = (this.data.pharmacies || []).find(p => p.id === pharmacyId);
+    if (!ph) return '';
+    if (ph.location_id) return ph.location_id;
+    const nama = this.normalizeName(ph.name);
+    if (!nama) return '';
+    const l = (this.data.practice_locations || []).find(x => this.normalizeName(x.name) === nama);
+    return (l && l.id) || '';
+  }
+
+  async setPharmacyLocation(pharmacyId, locationId) {
+    const ph = (this.data.pharmacies || []).find(p => p.id === pharmacyId);
+    if (!ph) return { error: 'Apotek tidak ditemukan' };
+    const id = locationId || null;
+    if (id && !(this.data.practice_locations || []).some(l => l.id === id)) {
+      return { error: 'Tempat praktik tidak ditemukan' };
+    }
+    ph.location_id = id;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(pharmacyId).startsWith('id_')) {
+      supabase.update('pharmacies', pharmacyId, { location_id: id }).catch(() => {});
+    }
+    return { success: true, location_id: id };
+  }
+
+  // Dokter yang berpraktik di sebuah tempat. Sengaja TIDAK ada cadangan
+  // "kalau kosong, kembalikan semua dokter": daftar kosong di sini artinya
+  // memang belum ada dokter yang terdaftar praktik di situ, dan jawaban yang
+  // benar adalah mengatakannya — bukan menawarkan dokter yang tidak berhak.
+  doctorsAtLocation(locationId) {
+    if (!locationId) return [];
+    return (this.data.doctors || []).filter(d => this.doctorPracticeLocationIds(d.id).includes(locationId));
+  }
+
+  // Dokter yang boleh dijadikan penanggung jawab surat oleh sebuah apotek.
+  doctorsForPharmacySKD(pharmacyId) {
+    return this.doctorsAtLocation(this.pharmacyLocationId(pharmacyId));
+  }
+
+  // Gerbangnya. Dipanggil UI sebelum menyusun surat, DAN dipanggil ulang di
+  // js/skd.js saat surat benar-benar dibuat — supaya pilihan dokter yang
+  // sudah telanjur tersimpan di layar (mis. tempat praktiknya baru saja
+  // diubah Super Admin) tidak bisa lolos hanya karena halamannya belum dimuat
+  // ulang.
+  canPharmacyIssueSKDFor(pharmacyId, doctorId) {
+    const ph = (this.data.pharmacies || []).find(p => p.id === pharmacyId);
+    if (!ph) return { ok: false, error: 'Apotek tidak dikenali.' };
+    const locId = this.pharmacyLocationId(pharmacyId);
+    if (!locId) {
+      return { ok: false, error: 'Apotek ini belum ditautkan ke tempat praktik mana pun. Minta Super Admin menautkannya lewat Manajemen User.' };
+    }
+    if (!doctorId) return { ok: false, error: 'Pilih dokter penanggung jawab surat terlebih dahulu.' };
+    const dokter = this.getDoctor(doctorId);
+    if (!dokter) return { ok: false, error: 'Dokter tidak ditemukan.' };
+    if (!this.doctorPracticeLocationIds(doctorId).includes(locId)) {
+      const tempat = (this.data.practice_locations || []).find(l => l.id === locId);
+      return { ok: false, error: (dokter.full_name || 'Dokter ini') + ' tidak terdaftar berpraktik di ' + ((tempat && tempat.name) || 'tempat ini') + '. Surat keterangan hanya boleh atas nama dokter yang berpraktik di sini.' };
+    }
+    return { ok: true, location_id: locId };
+  }
+
+  // Surat yang disusun oleh seorang pengguna (dipakai halaman apotek untuk
+  // menampilkan surat buatannya sendiri beserta statusnya).
+  async getSKDCreatedBy(userId) {
+    if (!userId) return [];
+    let certs = [];
+    if (!CONFIG.DEMO_MODE) {
+      try { certs = await supabase.select('certificates', { eq: { cert_type: 'skd' }, order: 'issued_at.desc' }) || []; } catch (e) { certs = []; }
+    }
+    if (!certs.length) certs = (this.data.certificates || []).filter(c => c.cert_type === 'skd');
+    return certs
+      .filter(c => c.details && c.details.approval && c.details.approval.created_by === userId)
+      .sort((a, b) => String(b.issued_at || '').localeCompare(String(a.issued_at || '')));
+  }
+
+  // =========================================================================
   // APOTEK MENULIS RESEP → WAJIB DI-ACC DOKTER
   //
   // Izinnya per apotek dan MATI secara bawaan. Resep yang lahir dari apotek
@@ -1453,6 +1567,16 @@ class Store {
     if (!rx.patient_id) return { success: false, error: 'Pilih pasiennya terlebih dahulu.' };
     const bersih = (items || []).filter(i => String((i && i.drug_name) || '').trim());
     if (!bersih.length) return { success: false, error: 'Isi minimal satu obat.' };
+
+    // RACIKAN TANPA KOMPOSISI TIDAK ADA ARTINYA. Yang tercetak sebagai isi
+    // resep racikan adalah komposisinya (lihat js/resep.js), dan yang harus
+    // dinilai dokter saat meng-ACC juga komposisinya — bukan nama tampilnya.
+    // Racikan berisi nama saja berarti dokter meng-ACC sesuatu yang tidak bisa
+    // dia baca, dan apoteker meracik dari tebakan.
+    const racikanKosong = bersih.findIndex(i => i.is_compound && !String(i.compound_details || '').trim());
+    if (racikanKosong !== -1) {
+      return { success: false, error: 'Racikan R/' + (racikanKosong + 1) + ' (' + String(bersih[racikanKosong].drug_name || '').trim() + ') belum diisi komposisinya. Komposisi inilah yang dibaca dokter saat meng-ACC dan yang tercetak di resep.' };
+    }
 
     const res = await this.createPrescription({
       ...rx,
@@ -1577,10 +1701,16 @@ class Store {
         id: rx.id, rx_number: rx.rx_number || '', created_at: rx.created_at || '',
         patient_id: rx.patient_id, patient_name: (pasien && pasien.full_name) || 'Pasien',
         doctor_id: rx.doctor_id, doctor_name: (this.getDoctor(rx.doctor_id) || {}).full_name || '',
+        // Racikan ikut dibawa utuh. Kalau tidak, "Sunting dulu" pada resep
+        // ulang akan menyalin racikan menjadi obat biasa bernama sama —
+        // komposisinya hilang diam-diam, dan yang tercetak nanti tinggal
+        // namanya saja.
         items: items.map(i => ({
           drug_name: i.drug_name || '', dosage: i.dosage || '', frequency: i.frequency || '',
           time: i.time || '', quantity: i.quantity || '', unit: i.unit || '',
-          instructions: i.instructions || '',
+          duration: i.duration || '', instructions: i.instructions || '',
+          is_compound: !!i.is_compound, compound_details: i.compound_details || '',
+          display_name: i.display_name || '',
         })),
       });
       if (hasil.length >= max) break;
@@ -1598,7 +1728,7 @@ class Store {
     }
     const items = this.getPrescriptionItems(sourceRxId).map(i => ({
       drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time,
-      quantity: i.quantity, unit: i.unit, instructions: i.instructions,
+      quantity: i.quantity, unit: i.unit, duration: i.duration, instructions: i.instructions,
       is_compound: i.is_compound, display_name: i.display_name, compound_details: i.compound_details,
     }));
     if (!items.length) return { success: false, error: 'Resep sumber tidak punya obat untuk diulang.' };

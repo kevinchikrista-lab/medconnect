@@ -47,6 +47,14 @@ function approvalStatus(cert) {
 export async function createSKD(opts) {
   const patient = store.getPatient(opts.patientId);
   if (!patient) { alert('Pasien tidak ditemukan'); return null; }
+  // Surat yang disusun apotek hanya boleh atas nama dokter yang berpraktik di
+  // apotek itu. Diperiksa DI SINI, bukan hanya saat dropdown-nya dibangun:
+  // halaman bisa sudah lama terbuka dan tempat praktik dokternya berubah di
+  // sela-sela itu. Halaman yang tidak menyebut byPharmacyId tidak terpengaruh.
+  if (opts.byPharmacyId) {
+    const gerbang = store.canPharmacyIssueSKDFor(opts.byPharmacyId, opts.approvalDoctorId);
+    if (!gerbang.ok) { alert(gerbang.error); return null; }
+  }
   // Signing/ACC doctor: an explicit one (admin picks the responsible doctor)
   // takes precedence over the logged-in doctor's own profile.
   const doctor = (opts.doctor && opts.doctor.full_name) ? opts.doctor : (JSON.parse(sessionStorage.getItem('medconnect_profile') || 'null') || {});
@@ -99,7 +107,7 @@ export async function createSKD(opts) {
     rest_days: isSehat ? '' : (opts.rest_days || ''),
     from_date: isSehat ? '' : (opts.from_date || ''),
     to_date: isSehat ? '' : (opts.to_date || ''),
-    approval: { status: opts.status || 'approved', doctor_id: opts.approvalDoctorId || '', reject_reason: '', created_by: opts.createdBy || '' },
+    approval: { status: opts.status || 'approved', doctor_id: opts.approvalDoctorId || '', reject_reason: '', created_by: opts.createdBy || '', by_pharmacy: opts.byPharmacyId || '' },
   };
 
   // certificates.patient_id is a UUID column, so never send a client

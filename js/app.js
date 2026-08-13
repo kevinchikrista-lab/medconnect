@@ -7,7 +7,7 @@ import { notesPage } from './pages/notes.js';
 import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh } from './pages/admin.js';
 import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
-import { pharmacyDashboard, pharmacyPrescriptions, pharmacyInventory } from './pages/pharmacy.js';
+import { pharmacyDashboard, pharmacyPrescriptions, pharmacyCertificates, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
 import { verifyPage } from './pages/verify.js';
 import { konfirmasiPage } from './pages/konfirmasi.js';
@@ -319,6 +319,7 @@ router.add('/patient/notifications', () => render(notificationsPage));
 // Pharmacy
 router.add('/pharmacy/dashboard', () => render(pharmacyDashboard));
 router.add('/pharmacy/prescriptions', () => render(pharmacyPrescriptions));
+router.add('/pharmacy/certificates', () => render(pharmacyCertificates));
 router.add('/pharmacy/inventory', () => render(pharmacyInventory));
 router.add('/pharmacy/notifications', () => render(notificationsPage));
 
