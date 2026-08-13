@@ -20,6 +20,55 @@ export function waHref(phone, message) {
   return 'https://wa.me/' + p + '?text=' + encodeURIComponent(message || '');
 }
 
+// ---------------------------------------------------------------------------
+// PESAN "OBAT SIAP" UNTUK SEBUAH E-RESEP.
+//
+// Bunyinya mengikuti CARA SERAHNYA, karena yang diminta dari penerimanya
+// memang berbeda: yang mengambil sendiri perlu tahu ke mana datang, sedangkan
+// yang dikirim perlu STANDBY HP atau memastikan ada orang di rumah — kurir
+// yang sampai ke rumah kosong berarti obatnya pulang lagi. Pesan yang salah
+// arah membuat orang menunggu di tempat yang keliru.
+//
+// Ditulis di sini, bukan di dalam x-data halaman apotek: pesannya memuat
+// baris baru, dan satu baris baru di dalam atribut x-data memutus string
+// JS-nya sehingga Alpine mati untuk seluruh halaman.
+// ---------------------------------------------------------------------------
+export function waPesanObatSiap(o) {
+  const d = o || {};
+  const pasien = String(d.patientName || '').trim() || 'Bapak/Ibu';
+  const apotek = String(d.pharmacyName || '').trim() || CLINIC;
+  const nomor = String(d.rxNumber || '').trim();
+  const dikirim = d.deliveryMethod === 'delivery';
+  const alamat = String(d.deliveryAddress || '').trim();
+  const jasa = Number(d.serviceFee || 0) > 0 ? Number(d.serviceFee) : 0;
+
+  const baris = [];
+  // Kalau yang dihubungi keluarga/wali, pasiennya disebut sebagai orang
+  // ketiga — menyapa wali dengan nama pasien membuat pesannya salah alamat.
+  baris.push(d.toFamily
+    ? `Halo, ini dari ${apotek}.`
+    : `Halo, Bapak/Ibu ${pasien}.`);
+  baris.push('');
+  const milik = d.toFamily ? ` atas nama ${pasien}` : '';
+  if (dikirim) {
+    baris.push(`Obat dari resep ${nomor}${milik} sudah siap dan akan segera kami *kirim* (Maxim).`);
+    if (alamat) { baris.push(''); baris.push(`Alamat kirim:`); baris.push(alamat); }
+    baris.push('');
+    baris.push('Mohon *standby HP*, atau pastikan ada orang di rumah yang bisa menerima ya. Kurir akan menghubungi saat sampai.');
+  } else {
+    baris.push(`Obat dari resep ${nomor}${milik} sudah *siap diambil* di ${apotek}.`);
+    baris.push('');
+    baris.push('Mohon datang pada jam buka apotek dengan membawa identitas.');
+  }
+  if (jasa > 0) {
+    baris.push('');
+    baris.push(`Mohon disiapkan jasa dokter Rp${jasa.toLocaleString('id-ID')}${dikirim ? ' untuk dibayarkan ke kurir.' : '.'}`);
+  }
+  baris.push('');
+  baris.push(`Terima kasih.\n— ${apotek}`);
+  return baris.join('\n');
+}
+
 // Encode a message for safe transport through an inline onclick / Alpine handler
 // (used by the "isi No. HP dulu" flow when a patient has no phone yet).
 export function waMsgB64(message) {

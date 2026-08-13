@@ -1251,75 +1251,25 @@ export function doctorPrescriptions() {
   // ATAS riwayat karena ini pekerjaan yang menunggu keputusan, bukan arsip —
   // dan selama belum diputuskan, resepnya tidak berlaku bagi siapa pun.
   const pending = store.getPendingRxForDoctor(doc?.id);
-  window.__rxAccDoctorId = doc?.id || '';
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, accDoctorId: window.__rxAccDoctorId || '',
-    async accRx(id, nomor, fee) {
-      const nominal = Math.max(0, Math.round(Number(fee) || 0));
-      const kalimatJasa = nominal > 0 ? ' Jasa dokter Rp' + nominal.toLocaleString('id-ID') + ' akan ditarik apotek dari pasien.' : '';
-      if (!confirm('Setujui resep ' + nomor + '? Setelah di-ACC, resep ini berlaku dan masuk antrean apotek.' + kalimatJasa)) return;
-      const r = await window.__store.approvePrescription(id, this.accDoctorId, '', { service_fee_enabled: nominal > 0, service_fee: nominal });
-      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
-      window.__showToast && window.__showToast('Disetujui', 'Resep ' + nomor + ' kini berlaku.');
-      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
-    },
-    async tolakRx(id, nomor) {
-      const alasan = window.prompt('Alasan menolak resep ' + nomor + ' (wajib diisi, akan dikirim ke apotek):', '');
-      if (alasan === null) return;
-      const r = await window.__store.rejectPrescription(id, this.accDoctorId, alasan);
-      if (r && r.error) { window.__showToast && window.__showToast('Belum bisa ditolak', r.error); return; }
-      window.__showToast && window.__showToast('Ditolak', 'Apotek diberi tahu beserta alasannya.');
-      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
-    } }" class="min-h-screen bg-wash">
+  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-wash">
     ${doctorSidebar('prescriptions')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
+        <!-- Kotak "menunggu ACC" pindah ke halaman Menunggu ACC, supaya semua
+             yang menunggu keputusan dokter ada di SATU tempat beserta
+             angkanya. Yang tertinggal di sini hanya penunjuk arah, karena
+             dokter yang sedang membuka halaman resep juga harus tahu. -->
         ${pending.length ? `
-        <div class="mb-6 bg-white border-2 border-amber-300 rounded-3xl overflow-hidden">
-          <div class="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
-            <span class="ms text-[20px] text-amber-700">pending_actions</span>
-            <p class="font-bold text-amber-900">Resep Menunggu ACC Anda</p>
-            <span class="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[11px] font-bold">${pending.length}</span>
-          </div>
-          <div class="divide-y divide-slate-50">${pending.map(rx => {
-            const pat = store.getPatient(rx.patient_id);
-            const ph = store.getPharmacy(rx.drafted_by_pharmacy || rx.pharmacy_id);
-            const its = store.getPrescriptionItems(rx.id);
-            const asal = rx.repeat_of ? store.data.prescriptions.find(x => x.id === rx.repeat_of) : null;
-            return `<div class="p-4" x-data="{ jasa: false, nominal: '' }">
-              <div class="flex items-start justify-between gap-3 flex-wrap">
-                <div class="flex-1 min-w-[220px]">
-                  <p class="font-semibold text-gray-800 text-sm">${escHtml(rx.rx_number)} &mdash; ${escHtml(pat?.full_name || 'Pasien')}${asal ? ` <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 align-middle">RESEP ULANG</span>` : ''}</p>
-                  <p class="text-xs text-gray-500 mt-0.5">Disusun ${escHtml(ph?.name || 'apotek')} &middot; ${formatDate((rx.created_at || '').split('T')[0])}${asal ? ` &middot; mengulang ${escHtml(asal.rx_number || '')} (${formatDate((asal.created_at || '').split('T')[0])})` : ''}</p>
-                  ${rx.notes ? `<p class="text-xs text-gray-600 mt-1"><b>Catatan apotek:</b> ${escHtml(rx.notes)}</p>` : ''}
-                </div>
-                <div class="flex gap-2">
-                  <button @click="accRx('${rx.id}', '${escHtml(rx.rx_number)}', jasa ? nominal : 0)" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-600 hover:bg-green-500 transition flex items-center gap-1"><span class="ms text-[15px]">check</span>ACC Resep</button>
-                  <button @click="tolakRx('${rx.id}', '${escHtml(rx.rx_number)}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 transition">Tolak</button>
-                </div>
-              </div>
-              <!-- Jasa dokter ditentukan di sini, saat menyetujui — bukan oleh
-                   apotek saat menyusun. -->
-              <div class="mt-2 rounded-xl bg-green-50/70 border border-green-100 p-2.5">
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" x-model="jasa" class="rounded border-green-300">
-                  <span class="text-xs font-semibold text-green-900">Cantumkan jasa dokter pada resep ini</span>
-                </label>
-                <div x-show="jasa" x-cloak class="mt-2 flex items-center gap-2 flex-wrap">
-                  <span class="text-xs text-green-800">Rp</span>
-                  <input type="number" min="0" step="5000" x-model="nominal" placeholder="0" class="w-32 px-2 py-1 border border-green-200 rounded-lg text-sm text-right bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50">
-                  <span class="text-[11px] text-green-700">Ditarik apotek dari pasien saat pengambilan obat.</span>
-                </div>
-              </div>
-              <div class="mt-2 rounded-xl bg-slate-50 border border-slate-100 p-2.5 space-y-1">
-                ${its.map(i => `<p class="text-xs text-gray-700">&bull; <b>${escHtml(i.drug_name || '')}</b> ${escHtml(i.dosage || '')} &mdash; ${escHtml(i.frequency || '')} ${escHtml(i.time || '')} (${escHtml(String(i.quantity || '-'))} ${escHtml(i.unit || '')})${i.instructions ? ' &middot; ' + escHtml(i.instructions) : ''}</p>`).join('') || '<p class="text-xs text-gray-400">Tidak ada obat tercatat</p>'}
-              </div>
-            </div>`;
-          }).join('')}</div>
-          <p class="px-4 py-2 bg-slate-50 text-[11px] text-slate-500 border-t border-slate-100">Resep ini <b>belum berlaku</b> dan tidak muncul di antrean apotek mana pun sampai Anda menyetujuinya. Setelah di-ACC, resep menjadi tanggung jawab Anda.</p>
-        </div>` : ''}
-
+        <a href="#/doctor/skd-approval" class="flex items-center gap-3 mb-5 px-4 py-3 rounded-2xl bg-amber-50 border-2 border-amber-200 hover:bg-amber-100 transition">
+          <span class="ms text-[22px] text-amber-700">assignment_late</span>
+          <span class="flex-1">
+            <span class="block text-sm font-bold text-amber-900">${pending.length} resep dari apotek menunggu ACC Anda</span>
+            <span class="block text-[11.5px] text-amber-800">Selama belum Anda setujui, resepnya tidak berlaku dan apotek tidak boleh melayaninya. Buka halaman <b>Menunggu ACC</b> untuk memutuskan.</span>
+          </span>
+          <span class="ms text-[20px] text-amber-600">chevron_right</span>
+        </a>` : ''}
         <h2 class="text-xl font-bold text-gray-800 mb-6">Riwayat E-Resep</h2>
         <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           ${prescriptions.length === 0 ? '<p class="p-8 text-center text-gray-400">Belum ada resep</p>' : `
@@ -1808,12 +1758,38 @@ export function doctorEMREdit(params) {
 export function doctorSKDApproval() {
   const doc = getDoctor();
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, items: [], vaxItems: [],
+  <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, items: [], vaxItems: [], rxItems: [],
+    docId: '${doc?.id || ''}',
     async load() {
       this.loading = true;
-      try { this.items = await window.__store.getPendingSKDForDoctor('${doc?.id}'); } catch(e) { this.items = []; }
-      try { this.vaxItems = await window.__store.getPendingVaccinationsForDoctor('${doc?.id}'); } catch(e) { this.vaxItems = []; }
+      try { this.items = await window.__store.getPendingSKDForDoctor(this.docId); } catch(e) { this.items = []; }
+      try { this.vaxItems = await window.__store.getPendingVaccinationsForDoctor(this.docId); } catch(e) { this.vaxItems = []; }
+      // Resep yang disusun apotek ikut di sini, bukan hanya di halaman
+      // E-Resep. Selama tersebar di dua tempat, yang terlewat di salah satunya
+      // menahan apotek dan pasien tanpa ada yang tahu di mana tertahannya.
+      try { this.rxItems = window.__store.getPendingRxForDoctor(this.docId); } catch(e) { this.rxItems = []; }
       this.loading = false;
+    },
+    get totalMenunggu() { return this.items.length + this.vaxItems.length + this.rxItems.length; },
+    rxObat(id) { return window.__store.getPrescriptionItems(id); },
+    rxPasien(rx) { return (window.__store.getPatient(rx.patient_id) || {}).full_name || 'Pasien'; },
+    rxApotek(rx) { return (window.__store.getPharmacy(rx.drafted_by_pharmacy || rx.pharmacy_id) || {}).name || 'Apotek'; },
+    async accRx(rx, jasa, nominal) {
+      const nilai = jasa ? Math.max(0, Math.round(Number(nominal) || 0)) : 0;
+      const kalimatJasa = nilai > 0 ? ' Jasa dokter Rp' + nilai.toLocaleString('id-ID') + ' akan ditarik apotek dari pasien.' : '';
+      if (!confirm('Setujui resep ' + rx.rx_number + '? Setelah di-ACC, resep ini berlaku dan masuk antrean apotek.' + kalimatJasa)) return;
+      const r = await window.__store.approvePrescription(rx.id, this.docId, '', { service_fee_enabled: nilai > 0, service_fee: nilai });
+      if (r && r.error) { alert(r.error); return; }
+      window.__showToast && window.__showToast('Disetujui', 'Resep ' + rx.rx_number + ' kini berlaku.');
+      this.load();
+    },
+    async tolakRx(rx) {
+      const alasan = prompt('Alasan menolak resep ' + rx.rx_number + ' (wajib diisi, dikirim ke apotek):', '');
+      if (alasan === null) return;
+      const r = await window.__store.rejectPrescription(rx.id, this.docId, alasan);
+      if (r && r.error) { alert(r.error); return; }
+      window.__showToast && window.__showToast('Ditolak', 'Apotek diberi tahu beserta alasannya.');
+      this.load();
     },
     patientName(id) { return (window.__store.getPatient(id) || {}).full_name || 'Pasien'; },
     vaxDose(v) { return v.vax_mode === 'booster' ? ('Booster ke-' + (v.dose_number || 1)) : ('Dosis ' + (v.dose_number || 1) + '/' + (v.total_doses || 1)); },
@@ -1854,9 +1830,76 @@ export function doctorSKDApproval() {
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-4xl mx-auto">
-        <h2 class="text-xl font-bold text-gray-800 mb-1">Menunggu ACC</h2>
-        <p class="text-sm text-gray-500 mb-6">Surat keterangan &amp; catatan vaksinasi yang dibuat oleh admin dan menunggu persetujuan Anda. Setelah disetujui, dokumennya menjadi sah dan QR-nya valid.</p>
+        <div class="flex items-center gap-2 mb-1 flex-wrap">
+          <h2 class="text-xl font-bold text-gray-800">Menunggu ACC</h2>
+          <span x-show="!loading && totalMenunggu > 0" x-cloak class="px-2 py-0.5 rounded-full bg-[#ff5436] text-white text-xs font-bold" x-text="totalMenunggu"></span>
+        </div>
+        <p class="text-sm text-gray-500 mb-6">Semua yang menunggu keputusan Anda dikumpulkan di sini: <b>resep yang disusun apotek</b>, surat keterangan, dan catatan vaksinasi. Selama belum Anda setujui, tidak satu pun dari ini berlaku.</p>
         <div x-show="loading" class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Memuat...</div>
+
+        <!-- Resep yang disusun apotek. Ditaruh paling atas karena inilah yang
+             paling menahan orang lain: selama belum diputuskan, apoteknya
+             tidak boleh melayani dan pasiennya tidak dapat obat. -->
+        <template x-if="!loading && rxItems.length > 0">
+          <div class="mb-6">
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Resep dari Apotek <span x-text="'(' + rxItems.length + ')'"></span></h3>
+            <div class="space-y-3">
+              <template x-for="rx in rxItems" :key="rx.id">
+                <div class="bg-white border border-slate-100 rounded-3xl p-4" x-data="{ jasa: false, nominal: '' }">
+                  <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div class="min-w-[220px]">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">Resep</span>
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">Menunggu ACC</span>
+                      </div>
+                      <p class="font-semibold text-gray-800 mt-2" x-text="rxPasien(rx)"></p>
+                      <p class="text-xs text-gray-500" x-text="rx.rx_number + ' · disusun ' + rxApotek(rx)"></p>
+                      <p class="text-xs text-gray-500" x-show="rx.repeat_of" x-cloak>Resep ulang dari resep sebelumnya</p>
+                    </div>
+                    <div class="flex gap-2 flex-wrap">
+                      <button @click="tolakRx(rx)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Tolak</button>
+                      <button @click="accRx(rx, jasa, nominal)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">Setujui &amp; Berlakukan</button>
+                    </div>
+                  </div>
+                  <div class="mt-2 rounded-xl bg-slate-50 border border-slate-100 p-2.5 space-y-1.5">
+                    <template x-for="(it, ix) in rxObat(rx.id)" :key="ix">
+                      <div>
+                        <template x-if="it.is_compound">
+                          <div class="rounded-lg border border-purple-200 bg-purple-50/60 p-2">
+                            <div class="flex items-center gap-2 mb-1">
+                              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white tracking-wide">RACIKAN</span>
+                              <span class="text-xs font-semibold text-gray-800" x-text="it.drug_name"></span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-0.5">Komposisi:</p>
+                            <p class="text-xs text-gray-800 whitespace-pre-line leading-relaxed bg-white rounded border border-purple-100 p-1.5" x-text="(it.compound_details || '-').trim()"></p>
+                            <p class="text-[11px] text-gray-500 mt-1" x-text="(it.frequency||'') + ' ' + (it.time||'') + ' — ' + (it.quantity||'-') + ' ' + (it.unit||'') + (it.duration ? ' · ' + it.duration : '')"></p>
+                          </div>
+                        </template>
+                        <template x-if="!it.is_compound">
+                          <p class="text-xs text-gray-700">&bull; <b x-text="it.drug_name"></b> <span x-text="(it.dosage||'') + ' — ' + (it.frequency||'') + ' ' + (it.time||'') + ' (' + (it.quantity||'-') + ' ' + (it.unit||'') + ')' + (it.instructions ? ' · ' + it.instructions : '')"></span></p>
+                        </template>
+                      </div>
+                    </template>
+                  </div>
+                  <p x-show="rx.notes" x-cloak class="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2 whitespace-pre-line" x-text="'Catatan apotek: ' + (rx.notes || '')"></p>
+                  <!-- Jasa dokter ditentukan di sini, saat menyetujui — bukan
+                       oleh apotek saat menyusun. -->
+                  <div class="mt-2 rounded-xl bg-green-50/70 border border-green-100 p-2.5">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" x-model="jasa" class="rounded border-green-300">
+                      <span class="text-xs font-semibold text-green-900">Cantumkan jasa dokter pada resep ini</span>
+                    </label>
+                    <div x-show="jasa" x-cloak class="mt-2 flex items-center gap-2 flex-wrap">
+                      <span class="text-xs text-green-800">Rp</span>
+                      <input type="number" min="0" step="5000" x-model="nominal" placeholder="0" class="w-32 px-2 py-1 border border-green-200 rounded-lg text-sm text-right bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50">
+                      <span class="text-[11px] text-green-700">Ditarik apotek dari pasien saat pengambilan obat.</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
 
         <!-- Vaksinasi yang diinput admin -->
         <template x-if="!loading && vaxItems.length > 0">
@@ -1889,7 +1932,7 @@ export function doctorSKDApproval() {
           </div>
         </template>
 
-        <template x-if="!loading && items.length === 0 && vaxItems.length === 0">
+        <template x-if="!loading && totalMenunggu === 0">
           <div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Tidak ada dokumen yang menunggu persetujuan.</div>
         </template>
         <template x-if="!loading && items.length > 0">
@@ -2143,12 +2186,17 @@ function doctorSidebar(active) {
   const doc = getDoctor();
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const unreadChat = doc ? store.getConsultationsForDoctor(doc.id).reduce((s, c) => s + (c.unread_count || 0), 0) : 0;
+  // Angka pada "Menunggu ACC": resep + surat + vaksinasi yang menunggu
+  // keputusan dokter ini. Tanpa angka, satu-satunya cara mengetahuinya adalah
+  // membuka halamannya — dan yang tidak dibuka menahan apotek serta pasien.
+  let accMenunggu = 0;
+  try { accMenunggu = doc ? store.pendingAccCounts(doc.id).total : 0; } catch (e) { accMenunggu = 0; }
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view', href: '#/doctor/dashboard' },
     { id: 'patients', label: 'Pasien', icon: 'groups', href: '#/doctor/patients' },
     { id: 'emr', label: 'Rekam Medis', icon: 'clinical_notes', href: '#/doctor/records' },
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/doctor/prescriptions' },
-    { id: 'skd-approval', label: 'Menunggu ACC', icon: 'assignment_turned_in', href: '#/doctor/skd-approval' },
+    { id: 'skd-approval', label: 'Menunggu ACC', icon: 'assignment_turned_in', href: '#/doctor/skd-approval', badge: accMenunggu },
     { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/doctor/crm' },
     { id: 'chat', label: 'Pesan', icon: 'forum', href: '#/doctor/chat', badge: unreadChat },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/doctor/homecare/history' },

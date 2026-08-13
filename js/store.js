@@ -1800,6 +1800,30 @@ class Store {
     }, items, { pharmacyId: o.pharmacyId, doctorId: o.doctorId });
   }
 
+  // ---- SATU HITUNGAN UNTUK SEMUA YANG MENUNGGU KEPUTUSAN DOKTER ----------
+  //
+  // Yang butuh ACC dokter datang dari tiga arah sekaligus: resep yang disusun
+  // apotek, surat keterangan yang disusun admin/apotek, dan catatan vaksinasi
+  // yang diinput admin. Tanpa satu angka yang menjumlahkannya, dokter harus
+  // INGAT untuk memeriksa — dan yang tidak diperiksa menahan apoteknya
+  // sekaligus pasiennya, tanpa ada yang tahu di mana tertahannya.
+  //
+  // Sengaja MEMBACA DATA LOKAL, bukan memanggil server: menu digambar
+  // serentak dan tidak bisa menunggu jaringan. Data lokal disegarkan
+  // loadFromSupabase, jadi angkanya ikut segar tanpa permintaan tambahan.
+  pendingAccCounts(doctorId) {
+    const kosong = { rx: 0, skd: 0, vax: 0, total: 0 };
+    if (!doctorId) return kosong;
+    const rx = this.getPendingRxForDoctor(doctorId).length;
+    const skd = (this.data.certificates || []).filter(c =>
+      c.cert_type === 'skd' && c.details && c.details.approval
+      && c.details.approval.status === 'pending'
+      && c.details.approval.doctor_id === doctorId).length;
+    const vax = (this.data.vaccinations || []).filter(v =>
+      this.vaxApprovalStatus(v) === 'pending' && v.approval_doctor_id === doctorId).length;
+    return { rx, skd, vax, total: rx + skd + vax };
+  }
+
   // Antrean ACC seorang dokter.
   getPendingRxForDoctor(doctorId) {
     if (!doctorId) return [];
@@ -1917,12 +1941,19 @@ class Store {
     // when a prescription actually finished, not just its status — it used
     // to count every 'completed' prescription ever, regardless of date.
     if (status === 'completed') { rx.completed_at = new Date().toISOString(); updates.completed_at = rx.completed_at; }
+    // Obatnya keluar dari rak saat resepnya selesai dilayani, jadi di sinilah
+    // stok berkurang — bukan saat resep diterima (belum tentu jadi ditebus)
+    // dan bukan saat disiapkan (bisa dibatalkan). Lihat
+    // deductStockForPrescription: aman diulang dan tidak pernah memblokir.
+    let stok = null;
+    if (status === 'completed') { try { stok = this.deductStockForPrescription(rxId); } catch (e) { console.warn('Gagal mengurangi stok:', e); } }
     const patient = this.getPatient(rx.patient_id);
     const statusLabel = CONFIG.PRESCRIPTION_STATUS_LABELS[status] || status;
     const msg = status === 'rejected' && reason ? `Resep ${rx.rx_number} ditolak apotek. Alasan: ${reason}` : `Resep ${rx.rx_number} status: ${statusLabel}.`;
     if (patient) this.addNotification(patient.user_id, `Resep ${statusLabel}`, msg, 'prescription');
     this._save();
     if (!CONFIG.DEMO_MODE) supabase.update('prescriptions', rxId, updates).catch(e => console.warn('Gagal update status resep:', e));
+    return { success: true, stok };
   }
 
   async updatePrescription(rxId, updates) {
@@ -3446,7 +3477,125 @@ class Store {
 
   updateStock(invId, newStock) {
     const item = this.data.inventory.find(i => i.id === invId);
-    if (item) { item.stock = newStock; this._save(); }
+    if (item) {
+      item.stock = newStock;
+      this._save();
+      if (!CONFIG.DEMO_MODE && !String(invId).startsWith('id_')) {
+        supabase.update('inventory', invId, { stock: newStock }).catch(() => {});
+      }
+    }
+  }
+
+  // =========================================================================
+  // STOK BERKURANG SAAT RESEP SELESAI DILAYANI
+  //
+  // Sebelumnya angka pada halaman Inventaris tidak pernah berubah oleh
+  // pelayanan resep — jadi angka itu hanya hiasan, dan apotek tetap menghitung
+  // stoknya di tempat lain.
+  //
+  // TIGA HAL YANG SENGAJA DIPUTUSKAN BEGINI:
+  //
+  // 1. TIDAK PERNAH MEMBLOKIR PELAYANAN. Obatnya sudah diserahkan ke pasien
+  //    saat resep ditandai selesai; menolak mencatatnya karena angka di sistem
+  //    kurang hanya membuat catatannya makin jauh dari kenyataan.
+  //
+  // 2. TIDAK MENEBAK. Kalau nama obat resep tidak cocok persis dengan satu
+  //    baris inventaris — tidak ketemu, atau justru cocok ke beberapa baris
+  //    (mis. dua kekuatan berbeda) — barisnya DILEWATI dan dilaporkan.
+  //    Mengurangi stok yang salah lebih buruk daripada tidak mengurangi:
+  //    yang salah tidak terlihat, sedangkan yang dilewati dilaporkan.
+  //
+  // 3. RACIKAN SELALU DILEWATI. Komposisinya teks bebas ('Codein 10mg + GG
+  //    100mg'), bukan tautan ke baris inventaris. Menguraikannya berarti
+  //    menebak, dan menebak bahan racikan adalah tebakan yang paling mahal.
+  //
+  // Stok boleh jadi MINUS dan tidak dipotong di nol. Angka minus berteriak
+  // "hitungan ini salah, perlu opname"; angka yang dipotong diam-diam
+  // berpura-pura semuanya beres.
+  // =========================================================================
+
+  // Nama obat di inventaris memuat kekuatannya ('Amoxicillin 500mg'),
+  // sedangkan di resep terpisah (drug_name 'Amoxicillin' + dosage '500 mg').
+  // Spasi & tanda baca dibuang supaya keduanya bisa dibandingkan.
+  _namaObatKunci(v) { return String(v || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+  // Baris inventaris yang cocok untuk sebuah item resep.
+  // Mengembalikan { item, kandidat, alasan } — kandidat > 1 berarti ambigu.
+  findInventoryFor(pharmacyId, rxItem) {
+    const it = rxItem || {};
+    const stok = this.getInventory(pharmacyId);
+    const nama = this._namaObatKunci(it.drug_name);
+    if (!nama) return { item: null, kandidat: [], alasan: 'nama obat kosong' };
+    const lengkap = this._namaObatKunci(String(it.drug_name || '') + String(it.dosage || ''));
+    // Paling meyakinkan dulu: nama+dosis persis, lalu nama persis.
+    let cocok = stok.filter(s => this._namaObatKunci(s.drug_name) === lengkap);
+    if (!cocok.length) cocok = stok.filter(s => this._namaObatKunci(s.drug_name) === nama);
+    // Terakhir baru "diawali nama itu" — di sinilah ambiguitas biasanya muncul
+    // (Amoxicillin 250mg & 500mg untuk resep yang tidak menyebut dosis).
+    if (!cocok.length) cocok = stok.filter(s => this._namaObatKunci(s.drug_name).startsWith(nama));
+    if (!cocok.length) return { item: null, kandidat: [], alasan: 'tidak ada di inventaris apotek ini' };
+    if (cocok.length > 1) return { item: null, kandidat: cocok, alasan: cocok.length + ' baris inventaris cocok, tidak bisa dipastikan yang mana' };
+    return { item: cocok[0], kandidat: cocok, alasan: '' };
+  }
+
+  // Keterangan stok untuk ditampilkan saat apotek menyusun resep.
+  stockInfoFor(pharmacyId, rxItem) {
+    if ((rxItem || {}).is_compound) return { status: 'racikan', label: '' };
+    const c = this.findInventoryFor(pharmacyId, rxItem);
+    if (!c.item) return { status: 'tidak-dikenal', label: c.alasan, stock: null };
+    const perlu = Math.max(0, Math.round(Number((rxItem || {}).quantity) || 0));
+    const sisa = Number(c.item.stock) || 0;
+    const min = Number(c.item.min_stock) || 0;
+    let status = 'cukup';
+    if (sisa <= 0) status = 'habis';
+    else if (perlu && sisa < perlu) status = 'kurang';
+    else if (sisa <= min) status = 'menipis';
+    return { status, stock: sisa, unit: c.item.unit || '', min, perlu, label: '' };
+  }
+
+  // Kurangi stok untuk seluruh obat pada sebuah resep. Aman diulang: sekali
+  // sebuah resep ditandai sudah dikurangi, panggilan berikutnya tidak
+  // mengurangi lagi. Tanpa penjagaan ini, menekan "Selesai" dua kali (atau
+  // status yang diperbarui ulang oleh polling) menghabiskan stok dua kali.
+  deductStockForPrescription(rxId) {
+    const rx = (this.data.prescriptions || []).find(r => r.id === rxId);
+    if (!rx) return { error: 'Resep tidak ditemukan' };
+    if (rx.stock_deducted) return { success: true, sudah: true, dikurangi: [], dilewati: [], minus: [] };
+    const pharmacyId = rx.pharmacy_id;
+    if (!pharmacyId) return { success: true, sudah: false, dikurangi: [], dilewati: [], minus: [] };
+
+    const dikurangi = [], dilewati = [], minus = [];
+    for (const it of this.getPrescriptionItems(rxId)) {
+      const nama = String(it.drug_name || '').trim() || '(tanpa nama)';
+      if (it.is_compound) { dilewati.push({ nama, alasan: 'racikan — komposisinya tidak terhubung ke inventaris' }); continue; }
+      const perlu = Math.round(Number(it.quantity) || 0);
+      if (perlu <= 0) { dilewati.push({ nama, alasan: 'jumlahnya tidak diisi' }); continue; }
+      const c = this.findInventoryFor(pharmacyId, it);
+      if (!c.item) { dilewati.push({ nama, alasan: c.alasan }); continue; }
+      const sebelum = Number(c.item.stock) || 0;
+      const sesudah = sebelum - perlu;
+      this.updateStock(c.item.id, sesudah);
+      dikurangi.push({ nama: c.item.drug_name, jumlah: perlu, unit: c.item.unit || '', sebelum, sesudah });
+      if (sesudah < 0) minus.push({ nama: c.item.drug_name, sesudah });
+    }
+
+    rx.stock_deducted = true;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(rxId).startsWith('id_')) {
+      supabase.update('prescriptions', rxId, { stock_deducted: true }).catch(() => {});
+    }
+    // Apoteknya diberi tahu apa yang TIDAK terpotong. Pengurangan yang diam
+    // pada sebagian obat saja adalah cara paling halus membuat stok melenceng
+    // tanpa ada yang menyadarinya.
+    const ph = (this.data.pharmacies || []).find(p => p.id === pharmacyId);
+    if (ph && ph.user_id && (dilewati.length || minus.length)) {
+      const bagian = [];
+      if (dilewati.length) bagian.push('Tidak terpotong otomatis: ' + dilewati.map(d => d.nama + ' (' + d.alasan + ')').join('; ') + '.');
+      if (minus.length) bagian.push('Stok jadi minus: ' + minus.map(m => m.nama + ' (' + m.sesudah + ')').join('; ') + ' — perlu opname.');
+      this.addNotification(ph.user_id, 'Stok Perlu Diperiksa',
+        'Resep ' + (rx.rx_number || '') + ' selesai dilayani. ' + bagian.join(' '), 'system');
+    }
+    return { success: true, sudah: false, dikurangi, dilewati, minus };
   }
 
   // Notifications

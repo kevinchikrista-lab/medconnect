@@ -15,7 +15,7 @@ import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pa
 import { issueSKD, printSKDById, renderSKDInto, SKD_LOADING_DOC } from './skd.js';
 import { editSKD } from './skdedit.js';
 import { printResepById } from './resep.js';
-import { waHref, waProspekMsg } from './wa.js';
+import { waHref, waProspekMsg, waPesanObatSiap } from './wa.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
@@ -45,6 +45,9 @@ window.__hapusRekam = (recordId, tanggal) => {
 };
 window.__waHref = waHref;
 window.__crmWaMsg = waProspekMsg;
+// Dipakai halaman apotek untuk menyusun pesan "obat siap" (lihat js/wa.js:
+// pesannya memuat baris baru, jadi tidak boleh dirakit di dalam x-data).
+window.__waPesanObatSiap = waPesanObatSiap;
 
 // Load the SheetJS (xlsx) reader on demand from the same CDN Alpine uses, so the
 // stock-upload page can parse Excel without bundling anything.
