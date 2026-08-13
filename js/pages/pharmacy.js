@@ -771,7 +771,7 @@ export function pharmacyPrescriptions() {
         <!-- Ambil resep sebelumnya. Yang disalin hanya daftar obatnya; resep
              ulangnya tetap resep baru yang menunggu ACC dokter. -->
         <div x-show="ulangOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="ulangOpen=false">
-          <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] flex flex-col">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-5xl p-6 h-[92vh] flex flex-col">
             <div class="flex items-center justify-between mb-1">
               <h3 class="text-lg font-bold text-gray-800">Ambil Resep Sebelumnya</h3>
               <button @click="ulangOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
@@ -787,12 +787,12 @@ export function pharmacyPrescriptions() {
                 <p class="text-[11px] font-bold text-slate-600 uppercase tracking-wide">Cari resep lama</p>
                 <button type="button" x-show="ulangAdaSaringan" x-cloak @click="resetSaringan()" class="text-[11px] font-semibold text-slate-500 hover:text-slate-700">Bersihkan saringan</button>
               </div>
-              <div class="grid sm:grid-cols-2 gap-2.5">
-                <div class="sm:col-span-2">
-                  <label class="block text-[11px] text-gray-600 mb-1">Kata kunci</label>
-                  <input type="text" x-model="ulangCari" @input.debounce.250ms="cariUlang()" placeholder="Nama pasien, no. resep, nama obat, atau kandungan racikan..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-                  <p class="text-[10.5px] text-slate-400 mt-1">Kandungan racikan ikut dicari &mdash; mis. ketik <b>Codein</b> untuk menemukan racikan yang memuatnya.</p>
-                </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Kata kunci</label>
+                <input type="text" x-model="ulangCari" @input.debounce.250ms="cariUlang()" placeholder="Nama pasien, no. resep, nama obat, atau kandungan racikan..." class="w-full px-4 py-3 border border-gray-200 rounded-xl text-base bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                <p class="text-[11px] text-slate-400 mt-1">Kandungan racikan ikut dicari &mdash; mis. ketik <b>Codein</b> untuk menemukan racikan yang memuatnya.</p>
+              </div>
+              <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5 mt-2.5">
                 <div>
                   <label class="block text-[11px] text-gray-600 mb-1">Dokter penulis resep</label>
                   <select x-model="ulangFDokter" @change="cariUlang()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
@@ -800,25 +800,23 @@ export function pharmacyPrescriptions() {
                     <template x-for="d in ulangDokterPilihan" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
                   </select>
                 </div>
-                <div class="grid grid-cols-2 gap-2">
-                  <div>
-                    <label class="block text-[11px] text-gray-600 mb-1">Dari tanggal</label>
-                    <input type="date" x-model="ulangFDari" @change="cariUlang()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-                  </div>
-                  <div>
-                    <label class="block text-[11px] text-gray-600 mb-1">Sampai</label>
-                    <input type="date" x-model="ulangFSampai" @change="cariUlang()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-                  </div>
+                <div>
+                  <label class="block text-[11px] text-gray-600 mb-1">Dari tanggal</label>
+                  <input type="date" x-model="ulangFDari" @change="cariUlang()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                </div>
+                <div>
+                  <label class="block text-[11px] text-gray-600 mb-1">Sampai</label>
+                  <input type="date" x-model="ulangFSampai" @change="cariUlang()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
                 </div>
               </div>
             </div>
 
-            <div class="mb-3">
-              <label class="block text-xs text-gray-600 mb-1">Dokter yang meng-ACC resep ulangnya *</label>
-              <select x-model="ulangDokter" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+            <div class="mb-3 flex items-center gap-3 flex-wrap">
+              <label class="text-xs text-gray-600 shrink-0">Dokter yang meng-ACC resep ulangnya *</label>
+              <select x-model="ulangDokter" class="flex-1 min-w-[220px] px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
                 <template x-for="d in rxDoctors" :key="d.id"><option :value="d.id" x-text="d.name + (d.sip ? ' — SIP ' + d.sip : '')"></option></template>
               </select>
-              <p class="text-[10.5px] text-slate-400 mt-1">Berbeda dengan saringan di atas: ini dokter yang akan menilai resep ulangnya sekarang, bukan dokter yang dulu menulisnya.</p>
+              <p class="text-[10.5px] text-slate-400 basis-full">Berbeda dengan saringan di atas: ini dokter yang akan menilai resep ulangnya sekarang, bukan dokter yang dulu menulisnya.</p>
             </div>
 
             <p x-show="ulangErr" x-cloak class="text-xs text-red-600 mb-2" x-text="ulangErr"></p>
