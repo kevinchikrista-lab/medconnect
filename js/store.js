@@ -1679,25 +1679,55 @@ class Store {
   //
   // Yang bisa dicari hanya resep yang SUDAH SAH. Resep yang masih menunggu
   // ACC atau pernah ditolak sengaja tidak bisa dijadikan sumber pengulangan.
-  searchPrescriptionsForRepeat(query, limit) {
+  //
+  // filter (opsional): { doctorId, fromDate, toDate }
+  //
+  // KANDUNGAN RACIKAN IKUT DICARI. Apoteker sering mencari dari isinya, bukan
+  // dari nama tampilnya — "resep yang ada Codein-nya" tidak bisa ditemukan
+  // lewat nama 'Obat Batuk Pilek'. Hasilnya menandai di mana kata itu ketemu
+  // (match_in), supaya baris yang muncul karena kandungannya tidak terlihat
+  // seperti hasil yang salah.
+  searchPrescriptionsForRepeat(query, limit, filter) {
     const q = String(query || '').trim().toLowerCase();
     const max = Number(limit) || 25;
+    const f = filter || {};
+    const dokterId = f.doctorId || '';
+    const dari = String(f.fromDate || '').slice(0, 10);
+    const sampai = String(f.toDate || '').slice(0, 10);
     const hasil = [];
     const semua = (this.data.prescriptions || [])
       .filter(rx => this.rxApprovalStatus(rx) === 'approved' && rx.status !== 'cancelled')
       .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
     for (const rx of semua) {
+      if (dokterId && rx.doctor_id !== dokterId) continue;
+      if (dari || sampai) {
+        const tgl = String(rx.created_at || '').slice(0, 10);
+        // Resep tanpa tanggal tidak bisa dibuktikan berada di dalam rentang
+        // yang diminta, jadi tidak diikutkan. Rentang yang diam-diam
+        // memasukkan baris tak bertanggal bukan rentang.
+        if (!tgl) continue;
+        if (dari && tgl < dari) continue;
+        if (sampai && tgl > sampai) continue;
+      }
       const pasien = this.getPatient(rx.patient_id);
       const items = this.getPrescriptionItems(rx.id);
       if (!items.length) continue;
+      const cocokDi = [];
       if (q) {
-        const jerami = [
-          (pasien && pasien.full_name) || '', rx.rx_number || '',
-          items.map(i => i.drug_name || '').join(' '),
-        ].join(' ').toLowerCase();
-        if (!jerami.includes(q)) continue;
+        const cek = (teks) => String(teks || '').toLowerCase().includes(q);
+        if (cek((pasien && pasien.full_name) || '')) cocokDi.push('pasien');
+        if (cek(rx.rx_number)) cocokDi.push('no. resep');
+        if (items.some(i => cek(i.drug_name))) cocokDi.push('nama obat');
+        if (items.some(i => cek(i.compound_details))) cocokDi.push('kandungan');
+        if (!cocokDi.length) continue;
       }
       hasil.push({
+        match_in: cocokDi,
+        // Potongan kandungan yang cocok — supaya terlihat KENAPA baris ini
+        // muncul tanpa harus membuka resepnya satu per satu.
+        match_kandungan: q
+          ? (items.find(i => String(i.compound_details || '').toLowerCase().includes(q)) || {}).compound_details || ''
+          : '',
         id: rx.id, rx_number: rx.rx_number || '', created_at: rx.created_at || '',
         patient_id: rx.patient_id, patient_name: (pasien && pasien.full_name) || 'Pasien',
         doctor_id: rx.doctor_id, doctor_name: (this.getDoctor(rx.doctor_id) || {}).full_name || '',
@@ -1716,6 +1746,33 @@ class Store {
       if (hasil.length >= max) break;
     }
     return hasil;
+  }
+
+  // Dokter yang benar-benar punya resep sah untuk diulang. Dipakai mengisi
+  // saringan "Dokter" — daftar dokter lengkap akan memuat banyak nama yang
+  // dipilih pun hasilnya nol, dan hasil nol itu terbaca seperti kesalahan.
+  // Rentang tanggalnya ikut diperhitungkan supaya pilihannya tetap jujur
+  // setelah rentangnya dipersempit.
+  repeatSourceDoctors(filter) {
+    const f = filter || {};
+    const dari = String(f.fromDate || '').slice(0, 10);
+    const sampai = String(f.toDate || '').slice(0, 10);
+    const terlihat = new Map();
+    for (const rx of (this.data.prescriptions || [])) {
+      if (this.rxApprovalStatus(rx) !== 'approved' || rx.status === 'cancelled') continue;
+      if (!rx.doctor_id || terlihat.has(rx.doctor_id)) continue;
+      if (dari || sampai) {
+        const tgl = String(rx.created_at || '').slice(0, 10);
+        if (!tgl) continue;
+        if (dari && tgl < dari) continue;
+        if (sampai && tgl > sampai) continue;
+      }
+      if (!this.getPrescriptionItems(rx.id).length) continue;
+      terlihat.set(rx.doctor_id, (this.getDoctor(rx.doctor_id) || {}).full_name || 'Dokter');
+    }
+    return [...terlihat.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // Buat resep ulang dari sebuah resep lama. Selalu menunggu ACC.
