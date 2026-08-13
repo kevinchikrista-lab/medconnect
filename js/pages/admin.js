@@ -1545,16 +1545,28 @@ export function adminLocations() {
   const card = (l) => {
     const used = store.countLocationUsage(l.name);
     const off = l.is_active === false;
+    // Siapa yang memakai tempat ini sebagai kop — supaya terlihat sebelum
+    // sesuatu diubah atau dihapus.
+    const dokterKop = store.getDoctors().filter(d =>
+      d.kop_location_id === l.id || store.doctorPracticeLocationIds(d.id).indexOf(l.id) !== -1);
+    const punyaKop = !!String(l.kop_name || '').trim();
     return `<div class="bg-white border border-slate-100 rounded-2xl p-4 flex items-start gap-3 ${off ? 'opacity-60' : ''}">
-      <span class="w-10 h-10 rounded-xl bg-[#2b7ee0]/10 flex items-center justify-center shrink-0"><span class="ms text-[20px] text-brand-dark">location_on</span></span>
+      ${l.kop_logo_url
+        ? `<img src="${escHtml(l.kop_logo_url)}" alt="Logo ${escHtml(l.name)}" class="w-10 h-10 rounded-xl object-contain bg-white border border-slate-100 shrink-0">`
+        : `<span class="w-10 h-10 rounded-xl bg-[#2b7ee0]/10 flex items-center justify-center shrink-0"><span class="ms text-[20px] text-brand-dark">location_on</span></span>`}
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
           <h4 class="font-semibold text-gray-800 text-sm">${escHtml(l.name)}</h4>
           <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${off ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'}">${off ? 'Nonaktif' : 'Aktif'}</span>
           ${used ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700">Dipakai ${used}x</span>` : ''}
+          ${punyaKop
+            ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-800">Punya kop sendiri</span>`
+            : `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">Kop: Klinik Prima</span>`}
         </div>
         <p class="text-xs text-gray-500 mt-1">${l.address ? escHtml(l.address) : '<span class="text-gray-300">Belum ada alamat &mdash; kop resep memakai alamat klinik</span>'}</p>
         ${l.phone ? `<p class="text-xs text-gray-400 mt-0.5">Telp: ${escHtml(l.phone)}</p>` : ''}
+        ${punyaKop ? `<p class="text-[11px] text-indigo-700 mt-1 font-semibold">Kop: ${escHtml(l.kop_name)}${l.kop_sub ? ' ' + escHtml(l.kop_sub) : ''}${l.kop_email ? ' &middot; ' + escHtml(l.kop_email) : ''}</p>` : ''}
+        ${dokterKop.length ? `<p class="text-[11px] text-slate-500 mt-1"><span class="ms text-[12px] align-middle">stethoscope</span> Dipakai ${dokterKop.map(d => escHtml(d.full_name || 'Dokter')).join(', ')}</p>` : ''}
         ${l.notes ? `<p class="text-xs text-gray-400 mt-0.5 italic">${escHtml(l.notes)}</p>` : ''}
         <div class="flex gap-1.5 mt-3 flex-wrap">
           <button onclick="window.__locEdit(${jsStr(l.id)},${jsStr(l.name)},${jsStr(l.address)},${jsStr(l.phone)},${jsStr(l.notes)},${Number(l.sort_order) || 100},${jsStr(l.kop_name)},${jsStr(l.kop_sub)},${jsStr(l.kop_email)},${jsStr(l.kop_logo_url)})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit</button>
@@ -1616,8 +1628,11 @@ export function adminLocations() {
       ${adminHeader()}
       <main class="p-4 lg:p-6 max-w-5xl mx-auto">
         <div class="flex items-center justify-between mb-2">
-          <h2 class="text-xl font-bold text-gray-800">Lokasi / Tempat Praktik</h2>
-          <button @click="openNew()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Tambah Tempat</button>
+          <div>
+            <h2 class="text-xl font-bold text-gray-800">Tempat Praktik &amp; Kop Resep</h2>
+            <p class="text-sm text-gray-500 mt-0.5">Daftarkan klinik maupun apotek tempat dokter berpraktik &mdash; beserta identitas kop resepnya.</p>
+          </div>
+          <button @click="openNew()" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Tambah Tempat</button>
         </div>
         <p class="text-sm text-gray-500 mb-6">Daftar ini yang muncul di pilihan <b>Lokasi / Tempat</b> pada rekam medis &amp; vaksinasi, dan yang tercetak sebagai <b>Tempat Praktik</b> di kertas resep. Bila sebuah tempat diisi alamatnya, alamat itulah yang dipakai di kop kertas resep &mdash; kalau dikosongkan, dipakai alamat klinik utama.</p>
 
@@ -1662,6 +1677,24 @@ export function adminLocations() {
                     </div>
                   </div>
                 </div>
+                <!-- Pratinjau kop. Menyusun kop tanpa melihat hasilnya berarti
+                     baru ketahuan salah setelah selembar resep tercetak. -->
+                <div class="mt-3 rounded-xl bg-white border border-indigo-200 p-3">
+                  <p class="text-[10.5px] uppercase tracking-wide font-bold text-slate-400 mb-2">Pratinjau kop resep</p>
+                  <div class="flex items-center gap-3 pb-2" style="border-bottom:3px double #1c3980">
+                    <img :src="form.kop_logo_url" x-show="form.kop_logo_url" x-cloak alt="" class="h-10 w-auto max-w-[70px] object-contain shrink-0">
+                    <div class="flex-1 text-center min-w-0">
+                      <p class="font-extrabold text-[13px] leading-tight" style="color:#1c3980"
+                        x-text="form.kop_name || 'KLINIK KASIH ANUGERAH PRIMA'"></p>
+                      <p class="text-[10px] font-semibold text-slate-500" x-text="form.kop_sub || (form.kop_name ? '' : '(PRIMA KLINIK)')"></p>
+                      <p class="text-[9.5px] text-slate-600 mt-0.5 leading-snug">
+                        <span x-text="form.address || 'Alamat belum diisi'"></span><br>
+                        No. HP / WA : <span x-text="form.phone || '-'"></span><span x-show="form.kop_email" x-cloak> &nbsp;|&nbsp; email: <span x-text="form.kop_email"></span></span>
+                      </p>
+                    </div>
+                  </div>
+                  <p class="text-[10.5px] text-slate-400 mt-2">Beginilah kop akan tercetak di kertas resep. Bagian yang dikosongkan memakai identitas Klinik Prima.</p>
+                </div>
               </div>
             </div>
             <div class="flex gap-2 justify-end mt-5">
@@ -1703,7 +1736,7 @@ function adminSidebar(active) {
     { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/admin/crm' },
     { id: 'umroh', label: 'Umroh &amp; Haji', icon: 'travel_explore', href: '#/admin/umroh' },
     { id: 'stock', label: 'Stok Opening', icon: 'inventory_2', href: '#/admin/stock' },
-    { id: 'locations', label: 'Lokasi Praktik', icon: 'location_on', href: '#/admin/locations' },
+    { id: 'locations', label: 'Tempat Praktik & Kop', icon: 'location_on', href: '#/admin/locations' },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/admin/homecare/history' },
     { id: 'bugs', label: 'Laporan Bug', icon: 'bug_report', href: '#/admin/bugs' },
   ].map(i => ({ ...i, href: i.href || `#/admin/${i.id === 'dashboard' ? 'dashboard' : i.id}` }));
