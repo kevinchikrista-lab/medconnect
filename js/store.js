@@ -1929,6 +1929,101 @@ class Store {
     return { error: 'Jenis dokumen tidak dikenal.' };
   }
 
+  // =========================================================================
+  // RIWAYAT OBAT PASIEN
+  //
+  // Dokter yang meng-ACC resep dari apotek hanya melihat resep yang sedang
+  // dinilai. Padahal yang paling sering datang lewat apotek justru
+  // PENGULANGAN — dan pengulangan tidak bisa dinilai tanpa tahu apa yang
+  // sudah diterima pasiennya, kapan, dan berapa kali. Menyetujui antibiotik
+  // yang baru seminggu lalu dihabiskan bukan keputusan yang sama dengan
+  // menyetujui antibiotik untuk keluhan baru, tapi di layar keduanya terlihat
+  // persis sama.
+  //
+  // YANG DIHITUNG HANYA RESEP YANG SAH. Resep yang masih menunggu ACC atau
+  // yang ditolak belum pernah sampai ke pasien; memasukkannya ke riwayat
+  // berarti mengaku pasien menerima obat yang tidak pernah dia terima — dan
+  // dokter akan menolak pengulangan karena obat yang sebenarnya tidak ada.
+  // =========================================================================
+
+  patientDrugHistory(patientId, opts) {
+    if (!patientId) return [];
+    const o = opts || {};
+    const bulan = Number(o.months) > 0 ? Number(o.months) : 6;
+    const kini = new Date();
+    const b = new Date(kini.getFullYear(), kini.getMonth() - bulan, kini.getDate());
+    const batas = b.getFullYear() + '-' + String(b.getMonth() + 1).padStart(2, '0') + '-' + String(b.getDate()).padStart(2, '0');
+
+    const hasil = [];
+    for (const rx of (this.data.prescriptions || [])) {
+      if (rx.patient_id !== patientId) continue;
+      if (o.excludeRxId && rx.id === o.excludeRxId) continue;
+      if (this.rxApprovalStatus(rx) !== 'approved') continue;
+      if (rx.status === 'cancelled') continue;
+      const tgl = String(rx.created_at || '').slice(0, 10);
+      // Resep tanpa tanggal tidak bisa dibuktikan berada di dalam rentangnya.
+      if (!tgl || tgl < batas) continue;
+      const dokter = (this.getDoctor(rx.doctor_id) || {}).full_name || '';
+      for (const it of this.getPrescriptionItems(rx.id)) {
+        if (!String(it.drug_name || '').trim()) continue;
+        hasil.push({
+          date: tgl, rx_number: rx.rx_number || '', doctor_name: dokter,
+          drug_name: it.drug_name || '', dosage: it.dosage || '',
+          quantity: it.quantity || '', unit: it.unit || '', duration: it.duration || '',
+          is_compound: !!it.is_compound, compound_details: it.compound_details || '',
+          from_pharmacy: !!rx.drafted_by_pharmacy,
+        });
+      }
+    }
+    return hasil.sort((a, b2) => String(b2.date).localeCompare(String(a.date)));
+  }
+
+  _selisihHari(tglAwal) {
+    const [y, m, d] = String(tglAwal || '').split('-').map(Number);
+    if (!y || !m || !d) return null;
+    const kini = new Date();
+    const a = new Date(y, m - 1, d);
+    const b = new Date(kini.getFullYear(), kini.getMonth(), kini.getDate());
+    return Math.max(0, Math.round((b - a) / 86400000));
+  }
+
+  // Obat pada resep yang sedang dinilai yang TERNYATA SUDAH PERNAH DITERIMA
+  // pasien belakangan ini. Inilah yang paling perlu dilihat dokter sebelum
+  // menekan Setujui.
+  recentDrugOverlap(patientId, items, opts) {
+    const riwayat = this.patientDrugHistory(patientId, opts);
+    if (!riwayat.length) return [];
+    const hasil = [];
+    for (const it of (items || [])) {
+      const nama = this.normalizeName(it.drug_name);
+      // Nama terlalu pendek terlalu mudah cocok ke mana-mana; peringatan palsu
+      // yang sering muncul justru membuat peringatan yang benar ikut diabaikan.
+      if (nama.length < 3) continue;
+      let cocok = riwayat.find(h => !h.is_compound && this.normalizeName(h.drug_name) === nama);
+      let dimana = 'obat';
+      if (!cocok) {
+        cocok = riwayat.find(h => this.normalizeName(h.drug_name) === nama);
+        if (cocok) dimana = 'obat';
+      }
+      if (!cocok) {
+        // Yang paling mudah terlewat: obat yang sama sudah diterima sebagai
+        // BAHAN di dalam racikan, jadi namanya tidak muncul sebagai nama obat.
+        // Dibandingkan sebagai kata utuh — 'gg' tidak boleh cocok ke 'logging'.
+        cocok = riwayat.find(h => h.is_compound
+          && (' ' + this.normalizeName(h.compound_details) + ' ').includes(' ' + nama + ' '));
+        if (cocok) dimana = 'racikan';
+      }
+      if (!cocok) continue;
+      hasil.push({
+        nama: String(it.drug_name || '').trim(),
+        date: cocok.date, hari: this._selisihHari(cocok.date),
+        where: dimana, rx_number: cocok.rx_number,
+        lewat_apotek: cocok.from_pharmacy,
+      });
+    }
+    return hasil;
+  }
+
   // ---- SATU HITUNGAN UNTUK SEMUA YANG MENUNGGU KEPUTUSAN DOKTER ----------
   //
   // Yang butuh ACC dokter datang dari tiga arah sekaligus: resep yang disusun
