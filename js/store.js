@@ -409,6 +409,44 @@ class Store {
     return record;
   }
 
+  // Jalur PUBLIK untuk halaman verifikasi QR — dipakai orang yang tidak punya
+  // akun. Sengaja terpisah dari getCertificateById: yang ini hanya boleh
+  // mengembalikan secukupnya untuk membuktikan keaslian dokumen, TANPA
+  // diagnosis, keperluan, alamat, tanggal lahir, No. RM, maupun daftar obat.
+  // Yang perlu dibuktikan orang HRD atau sekolah adalah suratnya asli dan
+  // berlaku — bukan sakit apa pasiennya.
+  //
+  // Di server, batas itu ditegakkan fungsi verify_certificate() yang hanya
+  // menerima SATU id; tabelnya sendiri sudah tertutup. Lihat
+  // supabase-certificate-privacy.sql.
+  async verifyCertificate(certId) {
+    if (!certId) return null;
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const hasil = await supabase.rpc('verify_certificate', { p_id: certId });
+        const row = Array.isArray(hasil) ? hasil[0] : hasil;
+        if (row && row.id) return row;
+        return null;
+      } catch (e) { console.warn('Gagal memverifikasi dokumen:', e); return null; }
+    }
+    // Mode demo: bentuk yang sama persis, disusun dari data lokal — supaya
+    // halaman verifikasinya diuji terhadap bentuk yang benar-benar dipakai,
+    // bukan terhadap baris utuh yang di produksi tidak akan pernah dia terima.
+    const c = (this.data.certificates || []).find(x => x.id === certId);
+    if (!c) return null;
+    const d = c.details || {};
+    return {
+      id: c.id, cert_number: c.cert_number || '', cert_type: c.cert_type || '',
+      perihal: c.perihal || '', patient_name: c.patient_name || '',
+      doctor_name: c.doctor_name || '',
+      vaccine_name: c.vaccine_name || '', vaccine_brand: c.vaccine_brand || '',
+      issuer_name: (d.kop && d.kop.name) || '',
+      item_count: Array.isArray(d.items) ? d.items.length : 0,
+      approval_status: (d.approval && d.approval.status) || 'approved',
+      issued_at: c.issued_at || '',
+    };
+  }
+
   async getCertificateById(id) {
     if (!CONFIG.DEMO_MODE) {
       try {
