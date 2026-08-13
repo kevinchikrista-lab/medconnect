@@ -5,7 +5,7 @@ import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from '
 import { tasksPage } from './pages/tasks.js';
 import { notesPage } from './pages/notes.js';
 import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh } from './pages/admin.js';
-import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorCrm } from './pages/doctor.js';
+import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorRmDebt, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyCertificates, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
@@ -15,7 +15,7 @@ import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pa
 import { issueSKD, printSKDById, renderSKDInto, SKD_LOADING_DOC } from './skd.js';
 import { editSKD } from './skdedit.js';
 import { printResepById } from './resep.js';
-import { waHref, waProspekMsg } from './wa.js';
+import { waHref, waProspekMsg, waPesanObatSiap } from './wa.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
@@ -45,6 +45,9 @@ window.__hapusRekam = (recordId, tanggal) => {
 };
 window.__waHref = waHref;
 window.__crmWaMsg = waProspekMsg;
+// Dipakai halaman apotek untuk menyusun pesan "obat siap" (lihat js/wa.js:
+// pesannya memuat baris baru, jadi tidak boleh dirakit di dalam x-data).
+window.__waPesanObatSiap = waPesanObatSiap;
 
 // Load the SheetJS (xlsx) reader on demand from the same CDN Alpine uses, so the
 // stock-upload page can parse Excel without bundling anything.
@@ -286,9 +289,12 @@ router.add('/doctor/dashboard', () => render(doctorDashboard));
 router.add('/doctor/patients', () => render(doctorPatients));
 router.add('/doctor/records', () => render(doctorRecords));
 router.add('/doctor/skd-approval', () => render(doctorSKDApproval));
+router.add('/doctor/rm-debt', () => render(doctorRmDebt));
 router.add('/doctor/crm', () => render(doctorCrm));
 router.add('/doctor/emr/:patientId', (p) => render(doctorEMR, p));
 router.add('/doctor/emr/:patientId/new', (p) => render(doctorEMRNew, p));
+// Membuat rekam medis sambil melunasi kewajiban sebuah resep / surat.
+router.add('/doctor/emr/:patientId/new/:debtKind/:debtId', (p) => render(doctorEMRNew, p));
 router.add('/doctor/prescriptions', () => render(doctorPrescriptions));
 router.add('/doctor/prescriptions/new/:recordId', (p) => render(doctorPrescriptionNew, p));
 router.add('/doctor/prescriptions/edit/:rxId', (p) => render(doctorPrescriptionEdit, p));
@@ -586,7 +592,7 @@ window.__generateVaxCert = async function(patientId, vaccineName, opts) {
           <div class="verify-title">${isDraft ? 'Belum Disahkan' : 'Verifikasi Keaslian Dokumen'}</div>
           <div class="verify-desc">${isDraft
             ? 'Ini pratinjau untuk pemeriksaan dokter. Nomor sertifikat dan QR verifikasi baru diterbitkan setelah dokter menekan Setujui &amp; Sahkan.'
-            : 'Pindai kode QR untuk memverifikasi keabsahan sertifikat ini secara online melalui sistem Klinik Prima.'}</div>
+            : 'Pindai kode QR untuk memverifikasi keabsahan sertifikat ini secara online melalui MedConnect.'}</div>
         </div>
         <div class="stamp">
           <div class="stamp-ring">
@@ -599,7 +605,7 @@ window.__generateVaxCert = async function(patientId, vaccineName, opts) {
 
       <div class="footer">
         <div class="footer-id">${isDraft ? 'Nomor sertifikat belum diterbitkan' : `No. Sertifikat: ${certNum} &nbsp;|&nbsp; Diterbitkan: ${certDate}`}</div>
-        <div class="footer-note">${isDraft ? 'Pratinjau internal &mdash; belum sah dan tidak untuk diserahkan ke pasien.' : 'Dokumen ini diterbitkan secara digital oleh Klinik Prima melalui platform Primuni.id'}</div>
+        <div class="footer-note">${isDraft ? 'Pratinjau internal &mdash; belum sah dan tidak untuk diserahkan ke pasien.' : 'Dokumen ini diterbitkan secara digital melalui platform MedConnect (myprima.id)'}</div>
       </div>
     </div>
   </div>

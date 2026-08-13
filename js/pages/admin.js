@@ -418,6 +418,13 @@ export function adminUsersData() {
             await supabase.insert('patients', { profile_id: profileId, full_name: this.newUser.full_name, nik: this.newUser.nik || '', birth_date: this.newUser.birth_date || null, gender: this.newUser.gender || '', phone: this.newUser.phone || '', address: this.newUser.address || '', allergies: '-', emergency_contact: '', family_name: this.newUser.family_name || '', family_phone: this.newUser.family_phone || '', family_relation: this.newUser.family_relation || '' });
           } else if (this.newUser.role === 'pharmacy') {
             await supabase.insert('pharmacies', { profile_id: profileId, name: this.newUser.full_name, phone: this.newUser.phone || '', address: this.newUser.address || '', license_no: this.newUser.license_no || '', operating_hours: '' });
+            // Fasilitas berakun HARUS punya tempat praktik. Dimuat ulang dulu
+            // supaya baris apoteknya sudah ada di data lokal, lalu dibuatkan
+            // tempatnya — bukan diserahkan sebagai pekerjaan susulan yang
+            // mudah terlupa.
+            await window.__store.loadFromSupabase();
+            const phBaru = (window.__store.data.pharmacies || []).find(x => x.user_id === profileId);
+            if (phBaru) await window.__store.ensureLocationForPharmacy(phBaru.id);
           }
           await window.__store.loadFromSupabase();
           this.createMsg = hasEmail ? 'User berhasil dibuat! (tersimpan di cloud)' : 'Akun dibuat tanpa email — belum bisa login. Tambahkan email lewat tombol "Email" pada baris user untuk mengaktifkan login.';
@@ -1612,6 +1619,10 @@ export function adminLocations() {
     const dokterKop = store.getDoctors().filter(d =>
       d.kop_location_id === l.id || store.doctorPracticeLocationIds(d.id).indexOf(l.id) !== -1);
     const punyaKop = !!String(l.kop_name || '').trim();
+    // Home Care & Telemedicine bukan tempat berakun — tidak punya kop sendiri
+    // dan tidak boleh ikut ditagih kelengkapannya.
+    const layananSaja = store.isServiceLocation(l);
+    const akun = layananSaja ? null : (store.data.pharmacies || []).find(p => store.pharmacyLocationId(p.id) === l.id);
     return `<div class="bg-white border border-slate-100 rounded-2xl p-4 flex items-start gap-3 ${off ? 'opacity-60' : ''}">
       ${l.kop_logo_url
         ? `<img src="${escHtml(l.kop_logo_url)}" alt="Logo ${escHtml(l.name)}" class="w-10 h-10 rounded-xl object-contain bg-white border border-slate-100 shrink-0">`
@@ -1621,11 +1632,15 @@ export function adminLocations() {
           <h4 class="font-semibold text-gray-800 text-sm">${escHtml(l.name)}</h4>
           <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold ${off ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'}">${off ? 'Nonaktif' : 'Aktif'}</span>
           ${used ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700">Dipakai ${used}x</span>` : ''}
-          ${punyaKop
-            ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-800">Punya kop sendiri</span>`
-            : `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">Kop: Klinik Prima</span>`}
+          ${layananSaja
+            ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">Cara layanan &mdash; tanpa kop</span>`
+            : punyaKop
+              ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-800">Punya kop sendiri</span>`
+              : `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">Kop belum diisi</span>`}
+          ${akun ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-50 text-teal-700">Akun: ${escHtml(akun.name || '')}</span>` : ''}
         </div>
         <p class="text-xs text-gray-500 mt-1">${l.address ? escHtml(l.address) : '<span class="text-gray-300">Belum ada alamat &mdash; kop resep memakai alamat klinik</span>'}</p>
+        ${(!layananSaja && !punyaKop) ? `<p class="text-[11px] text-red-700 mt-1 font-semibold">Resep &amp; surat dari sini akan tercetak memakai identitas Klinik Prima. Isi kop-nya agar tercetak sebagai ${escHtml(l.name)}.</p>` : ''}
         ${l.phone ? `<p class="text-xs text-gray-400 mt-0.5">Telp: ${escHtml(l.phone)}</p>` : ''}
         ${punyaKop ? `<p class="text-[11px] text-indigo-700 mt-1 font-semibold">Kop: ${escHtml(l.kop_name)}${l.kop_sub ? ' ' + escHtml(l.kop_sub) : ''}${l.kop_email ? ' &middot; ' + escHtml(l.kop_email) : ''}</p>` : ''}
         ${dokterKop.length ? `<p class="text-[11px] text-slate-500 mt-1"><span class="ms text-[12px] align-middle">stethoscope</span> Dipakai ${dokterKop.map(d => escHtml(d.full_name || 'Dokter')).join(', ')}</p>` : ''}
@@ -1644,6 +1659,27 @@ export function adminLocations() {
     sideOpen: window.innerWidth > 1024,
     showForm: false, editing: null, msg: '', saving: false,
     form: { name:'', address:'', phone:'', notes:'', sort_order:100 },
+    // Melengkapi yang kurang: tempat praktik untuk akun yang belum punya.
+    sibukBuat: false,
+    async buatkanTempat(pharmacyId) {
+      if (this.sibukBuat) return;
+      this.sibukBuat = true;
+      const r = await window.__store.ensureLocationForPharmacy(pharmacyId);
+      this.sibukBuat = false;
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      window.__showToast && window.__showToast('Dibuat', 'Tempat praktiknya sudah ada. Isi kop-nya supaya dokumen dari sana tidak berkop klinik lain.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 300);
+    },
+    async buatkanSemua() {
+      if (this.sibukBuat) return;
+      this.sibukBuat = true;
+      for (const ph of window.__store.pharmaciesWithoutLocation()) {
+        await window.__store.ensureLocationForPharmacy(ph.id);
+      }
+      this.sibukBuat = false;
+      window.__showToast && window.__showToast('Selesai', 'Semua akun kini punya tempat praktik. Kop-nya masih perlu diisi satu per satu.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 300);
+    },
     openNew() { this.editing = null; this.form = { name:'', address:'', phone:'', notes:'', sort_order:100, kop_name:'', kop_sub:'', kop_email:'', kop_logo_url:'' }; this.msg = ''; this.showForm = true; },
     logoBusy: false, logoErr: '',
     async unggahLogo(ev) {
@@ -1696,7 +1732,35 @@ export function adminLocations() {
           </div>
           <button @click="openNew()" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Tambah Tempat</button>
         </div>
-        <p class="text-sm text-gray-500 mb-6">Daftar ini yang muncul di pilihan <b>Lokasi / Tempat</b> pada rekam medis &amp; vaksinasi, dan yang tercetak sebagai <b>Tempat Praktik</b> di kertas resep. Bila sebuah tempat diisi alamatnya, alamat itulah yang dipakai di kop kertas resep &mdash; kalau dikosongkan, dipakai alamat klinik utama.</p>
+        <p class="text-sm text-gray-500 mb-4">Daftar ini yang muncul di pilihan <b>Lokasi / Tempat</b> pada rekam medis &amp; vaksinasi, dan yang tercetak sebagai <b>kop</b> di kertas resep &amp; surat keterangan. <b>Setiap akun apotek / klinik harus punya satu tempat di sini beserta kop-nya</b> &mdash; kalau tidak, dokumen dari sana tercetak memakai identitas klinik lain. Home Care dan Telemedicine dikecualikan: itu cara layanan, bukan tempat berakun.</p>
+
+        <!-- Daftar kerja, bukan sekadar tampilan. Selama ada akun fasilitas
+             tanpa tempat praktik atau tanpa kop, ada dokumen medis yang salah
+             penerbitnya — dan itu tidak boleh cuma bisa ketahuan kalau
+             seseorang kebetulan menelusuri satu per satu. -->
+        ${(() => {
+          const masalah = store.locationIssues();
+          if (!masalah.length) {
+            return `<div class="mb-6 px-4 py-3 rounded-2xl bg-green-50 border border-green-200">
+              <p class="text-[12.5px] font-semibold text-green-800">Semua akun apotek / klinik sudah punya tempat praktik beserta kop-nya.</p>
+            </div>`;
+          }
+          const tanpaTempat = masalah.filter(m => m.jenis === 'tanpa-tempat');
+          const tanpaKop = masalah.filter(m => m.jenis === 'tanpa-kop');
+          return `<div class="mb-6 px-4 py-3 rounded-2xl bg-amber-50 border-2 border-amber-200">
+            <p class="text-sm font-bold text-amber-900 mb-1">${masalah.length} hal yang belum lengkap</p>
+            ${tanpaTempat.length ? `
+            <div class="mt-2">
+              <p class="text-[12px] text-amber-900"><b>Akun tanpa tempat praktik</b> &mdash; belum bisa membuat surat keterangan, dan resepnya berkop klinik lain:</p>
+              <div class="flex flex-wrap gap-1.5 mt-1.5">
+                ${tanpaTempat.map(m => `<button @click="buatkanTempat('${m.pharmacy_id}')" class="px-2.5 py-1 rounded-lg text-[11.5px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 transition">Buatkan untuk ${escHtml(m.nama)}</button>`).join('')}
+              </div>
+              <button @click="buatkanSemua()" class="mt-2 px-2.5 py-1 rounded-lg text-[11.5px] font-bold text-white bg-amber-600 hover:bg-amber-700 transition">Buatkan semuanya sekaligus</button>
+            </div>` : ''}
+            ${tanpaKop.length ? `
+            <p class="text-[12px] text-amber-900 mt-3"><b>Tempat yang kop-nya belum diisi</b> &mdash; dokumennya masih tercetak sebagai Klinik Prima: ${tanpaKop.map(m => escHtml(m.nama)).join(', ')}.</p>` : ''}
+          </div>`;
+        })()}
 
         <!-- Modal tambah / edit -->
         <div x-show="showForm" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showForm=false">
@@ -1804,7 +1868,7 @@ function adminSidebar(active) {
   ].map(i => ({ ...i, href: i.href || `#/admin/${i.id === 'dashboard' ? 'dashboard' : i.id}` }));
   return `
   <aside class="fixed top-0 left-0 h-full w-[236px] bg-night z-40 transform transition-transform duration-300 flex flex-col" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
-    <div class="p-4 border-b border-white/10 flex items-center justify-between" style="flex-shrink:0"><div class="flex items-center gap-2"><img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto"><div><span class="font-extrabold text-[13.5px] text-white block leading-none">Klinik Prima</span><span class="block text-[10.5px] text-[#7b8ba8] font-semibold mt-0.5">Admin Console</span></div></div><button @click="sideOpen=false" class="lg:hidden text-[#7b8ba8] hover:text-white"><span class="ms text-[20px]">close</span></button></div>
+    <div class="p-4 border-b border-white/10 flex items-center justify-between" style="flex-shrink:0"><div class="flex items-center gap-2"><img src="assets/logos/medconnect-logo.svg" alt="MedConnect" class="h-7 w-auto"><div><span class="font-extrabold text-[13.5px] text-white block leading-none">MedConnect</span><span class="block text-[10.5px] text-[#7b8ba8] font-semibold mt-0.5">Admin Console</span></div></div><button @click="sideOpen=false" class="lg:hidden text-[#7b8ba8] hover:text-white"><span class="ms text-[20px]">close</span></button></div>
     <nav class="p-3 space-y-1 flex-1 min-h-0 overflow-y-auto overscroll-contain side-scroll">${items.map(i=>`<a href="${i.href}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] transition ${active===i.id ? 'bg-[#2b7ee0]/[.22] text-white font-bold' : 'text-[#aab6cc] font-semibold hover:bg-white/5'}"><span class="ms ${active===i.id ? 'ms-fill text-[#7db4f5]' : 'text-[#7b8ba8]'} text-[20px]">${i.icon}</span>${i.label}</a>`).join('')}</nav>
     ${user?.role === 'owner' ? `<div class="p-3 border-t border-white/10" style="flex-shrink:0"><a href="#/doctor/dashboard" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-semibold text-[#7db4f5] hover:bg-white/5 transition w-full"><span class="ms text-[20px]">stethoscope</span>Lihat sebagai Dokter</a></div>` : ''}
     <div class="px-3 pt-3" style="flex-shrink:0"><button onclick="window.__laporBug&&window.__laporBug()" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-semibold text-[#aab6cc] hover:bg-white/5 hover:text-white transition w-full"><span class="ms text-[20px] text-[#7b8ba8]">bug_report</span>Lapor Bug</button></div>

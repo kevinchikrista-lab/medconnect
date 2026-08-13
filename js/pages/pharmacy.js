@@ -208,6 +208,27 @@ export function pharmacyDashboard() {
     // memang ditanyakan saat mendaftarkannya. Komposisi racikan ikut diperiksa:
     // obat yang memicu alergi paling sering justru sembunyi di dalam racikan,
     // bukan di nama tampilnya.
+    // Stok obat yang sedang diketik. Ditampilkan saat MENYUSUN, bukan saat
+    // menyerahkan: apotek yang baru tahu obatnya habis setelah resepnya
+    // di-ACC dokter harus mengulang semuanya dari awal.
+    rxStok(item) { return window.__store.stockInfoFor(this.pharmacyId, item); },
+    rxStokTeks(item) {
+      const s = this.rxStok(item);
+      if (s.status === 'racikan') return '';
+      if (s.status === 'tidak-dikenal') return 'Tidak terdaftar di inventaris — stok tidak terpantau';
+      const sisa = s.stock + ' ' + (s.unit || '');
+      if (s.status === 'habis') return 'STOK HABIS (' + sisa + ')';
+      if (s.status === 'kurang') return 'Stok kurang: tersisa ' + sisa + ', diminta ' + s.perlu;
+      if (s.status === 'menipis') return 'Stok menipis: tersisa ' + sisa;
+      return 'Stok: ' + sisa;
+    },
+    rxStokWarna(item) {
+      const st = this.rxStok(item).status;
+      if (st === 'habis' || st === 'kurang') return 'text-red-600 font-semibold';
+      if (st === 'menipis') return 'text-amber-700 font-medium';
+      if (st === 'tidak-dikenal') return 'text-slate-400';
+      return 'text-slate-500';
+    },
     rxAlergiHit(item) {
       const hay = ((item.drug_name || '') + ' ' + (item.compound_details || '')).toLowerCase();
       return (window.__store.patientAllergyTerms(this.rxForm.patient_id) || []).find(t => hay.includes(t)) || '';
@@ -423,6 +444,7 @@ export function pharmacyPrescriptions() {
   const pharmacy = getPharmacy();
   const user = getUser();
   window.__pharmacyId = pharmacy?.id || '';
+  window.__pharmacyName = pharmacy?.name || '';
   window.__pharmacyAllPrescriptionsInitial = store.getPrescriptionsByPharmacy(pharmacy?.id);
   window.__prescriptionStatusLabels = CONFIG.PRESCRIPTION_STATUS_LABELS;
   // Izin menyusun resep diberikan per apotek dari Manajemen User. Kalau tidak
@@ -440,6 +462,7 @@ export function pharmacyPrescriptions() {
     sideOpen: window.innerWidth > 1024, filter: '',
     pharmacyId: '${pharmacy?.id || ''}',
     userId: '${user?.id || ''}',
+    pharmacyName: window.__pharmacyName || '',
     prescriptions: window.__pharmacyAllPrescriptionsInitial || [],
     statusLabels: window.__prescriptionStatusLabels || {},
     canRx: window.__pharmacyCanRx === true,
@@ -460,6 +483,27 @@ export function pharmacyPrescriptions() {
     // memang ditanyakan saat mendaftarkannya. Komposisi racikan ikut diperiksa:
     // obat yang memicu alergi paling sering justru sembunyi di dalam racikan,
     // bukan di nama tampilnya.
+    // Stok obat yang sedang diketik. Ditampilkan saat MENYUSUN, bukan saat
+    // menyerahkan: apotek yang baru tahu obatnya habis setelah resepnya
+    // di-ACC dokter harus mengulang semuanya dari awal.
+    rxStok(item) { return window.__store.stockInfoFor(this.pharmacyId, item); },
+    rxStokTeks(item) {
+      const s = this.rxStok(item);
+      if (s.status === 'racikan') return '';
+      if (s.status === 'tidak-dikenal') return 'Tidak terdaftar di inventaris — stok tidak terpantau';
+      const sisa = s.stock + ' ' + (s.unit || '');
+      if (s.status === 'habis') return 'STOK HABIS (' + sisa + ')';
+      if (s.status === 'kurang') return 'Stok kurang: tersisa ' + sisa + ', diminta ' + s.perlu;
+      if (s.status === 'menipis') return 'Stok menipis: tersisa ' + sisa;
+      return 'Stok: ' + sisa;
+    },
+    rxStokWarna(item) {
+      const st = this.rxStok(item).status;
+      if (st === 'habis' || st === 'kurang') return 'text-red-600 font-semibold';
+      if (st === 'menipis') return 'text-amber-700 font-medium';
+      if (st === 'tidak-dikenal') return 'text-slate-400';
+      return 'text-slate-500';
+    },
     rxAlergiHit(item) {
       const hay = ((item.drug_name || '') + ' ' + (item.compound_details || '')).toLowerCase();
       return (window.__store.patientAllergyTerms(this.rxForm.patient_id) || []).find(t => hay.includes(t)) || '';
@@ -568,6 +612,26 @@ export function pharmacyPrescriptions() {
       const p = window.__store.getPatient(id) || {};
       return { phone: p.phone || '', famName: p.family_name || '', famPhone: p.family_phone || '', famRel: p.family_relation || '' };
     },
+    // ---- Kabari pasien lewat WhatsApp ----
+    // Hanya saat obatnya memang sudah siap. Tombol yang selalu bisa ditekan
+    // cepat atau lambat mengirim 'obat siap diambil' untuk obat yang masih
+    // diracik — dan pasiennya datang ke apotek untuk pulang dengan tangan
+    // kosong.
+    bolehKabari(rx) { return rx.status === 'ready' || rx.status === 'delivering'; },
+    waPesan(rx, keKeluarga) {
+      return window.__waPesanObatSiap({
+        rxNumber: rx.rx_number, patientName: this.patientName(rx.patient_id),
+        pharmacyName: this.pharmacyName,
+        deliveryMethod: rx.delivery_method, deliveryAddress: rx.delivery_address,
+        serviceFee: rx.service_fee_enabled ? rx.service_fee : 0,
+        toFamily: !!keKeluarga,
+      });
+    },
+    waTautan(rx, keKeluarga) {
+      const k = this.patientContact(rx.patient_id);
+      const nomor = keKeluarga ? k.famPhone : k.phone;
+      return nomor ? window.__waHref(nomor, this.waPesan(rx, keKeluarga)) : '';
+    },
     formatDate(d) { if (!d) return '-'; return new Date(d).toLocaleDateString('id-ID', { day:'numeric', month:'short', year:'numeric' }); },
     init() {
       if (window.__pagePollInterval) clearInterval(window.__pagePollInterval);
@@ -668,6 +732,26 @@ export function pharmacyPrescriptions() {
                         </p>
                       </template>
                     </div>
+                    <!-- Kabari lewat WhatsApp. Muncul hanya saat obatnya sudah
+                         siap / sedang dikirim; isi pesannya mengikuti cara
+                         serahnya, karena yang diminta dari penerimanya berbeda
+                         (datang mengambil vs standby menerima kurir). -->
+                    <template x-if="bolehKabari(rx)">
+                      <div class="mt-2 pt-2 border-t border-slate-200">
+                        <p class="text-[11px] text-slate-500 mb-1.5" x-text="rx.delivery_method === 'delivery' ? 'Kabari bahwa obat akan dikirim — pesannya meminta penerimanya standby HP / ada orang di rumah.' : 'Kabari bahwa obat sudah siap diambil.'"></p>
+                        <div class="flex gap-1.5 flex-wrap">
+                          <template x-if="waTautan(rx, false)">
+                            <a :href="waTautan(rx, false)" target="_blank" rel="noopener" @click.stop class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition">WhatsApp Pasien</a>
+                          </template>
+                          <template x-if="!waTautan(rx, false)">
+                            <span class="inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 bg-slate-100">Pasien belum punya No. HP</span>
+                          </template>
+                          <template x-if="waTautan(rx, true)">
+                            <a :href="waTautan(rx, true)" target="_blank" rel="noopener" @click.stop class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#0b6b34] bg-[#d6f5e3] hover:brightness-95 transition" x-text="'WhatsApp ' + (patientContact(rx.patient_id).famRel || 'Keluarga')"></a>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
                   </div>
                   <div class="space-y-2">
                     <template x-for="(item, idx) in itemsFor(rx.id)" :key="item.id">
@@ -892,6 +976,7 @@ export function pharmacyPrescriptions() {
                       <input type="text" x-model="it.instructions" placeholder="Aturan tambahan (opsional)" class="col-span-8 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white">
                     </div>
                     <p x-show="rxAlergiHit(it)" x-cloak class="text-[11px] text-red-600 font-medium mt-1.5" x-text="'⚠️ Cocok alergi pasien: ' + rxAlergiHit(it)"></p>
+                    <p x-show="it.drug_name && !it.is_compound" x-cloak class="text-[11px] mt-1" :class="rxStokWarna(it)" x-text="rxStokTeks(it)"></p>
                     <!-- Komposisi WAJIB untuk racikan: inilah yang dibaca dokter
                          saat meng-ACC dan yang tercetak sebagai isi resepnya. -->
                     <div x-show="it.is_compound" x-cloak class="mt-2 p-2 rounded-lg bg-purple-50 border border-purple-200">
@@ -1175,6 +1260,11 @@ export function pharmacyInventory() {
         <div class="flex items-center justify-between mb-6"><h2 class="text-xl font-bold text-gray-800">Inventaris Obat</h2>
           <div class="relative"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari obat..."></div>
         </div>
+        ${inventory.some(i => i.stock < 0) ? `
+        <div class="mb-4 px-4 py-3 rounded-2xl bg-red-50 border-2 border-red-200">
+          <p class="text-sm font-bold text-red-900">${inventory.filter(i => i.stock < 0).length} obat stoknya minus</p>
+          <p class="text-[12px] text-red-800 leading-relaxed mt-0.5">Artinya yang dilayani lebih banyak daripada yang tercatat masuk &mdash; hampir selalu karena ada pemasukan barang yang belum dicatat. Perlu opname: ${escHtml(inventory.filter(i => i.stock < 0).map(i => i.drug_name).join(', '))}.</p>
+        </div>` : ''}
         <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           <div class="overflow-x-auto"><table class="w-full"><thead><tr class="bg-gray-50 border-b border-gray-100"><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Nama Obat</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Stok</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden sm:table-cell">Min. Stok</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden md:table-cell">Kadaluarsa</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Status</th></tr></thead>
           <tbody class="divide-y divide-gray-50">
@@ -1182,10 +1272,17 @@ export function pharmacyInventory() {
             <template x-if="!search || '${i.drug_name.toLowerCase()}'.includes(search.toLowerCase())">
               <tr class="hover:bg-gray-50 transition">
                 <td class="px-4 py-3 text-sm font-medium text-gray-800">${escHtml(i.drug_name)}</td>
-                <td class="px-4 py-3 text-sm text-gray-600">${i.stock} ${i.unit}</td>
-                <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${i.min_stock} ${i.unit}</td>
+                <td class="px-4 py-3 text-sm ${i.stock < 0 ? 'text-red-700 font-bold' : 'text-gray-600'}">${i.stock} ${escHtml(i.unit)}</td>
+                <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${i.min_stock} ${escHtml(i.unit)}</td>
                 <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${formatDate(i.expiry_date)}</td>
-                <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-medium ${i.stock <= i.min_stock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${i.stock <= i.min_stock ? 'Rendah' : 'Cukup'}</span></td>
+                <td class="px-4 py-3">${
+                  // Stok minus sengaja tidak dipotong di nol saat resep
+                  // dilayani: angka minus berteriak "hitungan ini salah, perlu
+                  // opname", sedangkan angka yang dipotong berpura-pura beres.
+                  i.stock < 0
+                    ? '<span class="px-2 py-1 rounded-full text-xs font-bold bg-red-600 text-white" title="Terpakai melebihi catatan — perlu opname">Minus &middot; perlu opname</span>'
+                    : `<span class="px-2 py-1 rounded-full text-xs font-medium ${i.stock <= i.min_stock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${i.stock <= i.min_stock ? 'Rendah' : 'Cukup'}</span>`
+                }</td>
               </tr>
             </template>`).join('')}
           </tbody></table></div>
@@ -1209,7 +1306,7 @@ function pharmacySidebar(active) {
   ];
   return `
   <aside class="fixed top-0 left-0 h-full w-[236px] bg-white border-r border-slate-100 z-40 transform transition-transform duration-300 flex flex-col" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
-    <div class="p-4 border-b border-slate-100 flex items-center justify-between" style="flex-shrink:0"><div class="flex items-center gap-2"><img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto"><div><span class="font-extrabold text-[13.5px] leading-none block">Klinik Prima</span><span class="block text-[10.5px] text-faint font-semibold mt-0.5">Apotek Mitra</span></div></div><button @click="sideOpen=false" class="lg:hidden text-faint hover:text-ink"><span class="ms text-[20px]">close</span></button></div>
+    <div class="p-4 border-b border-slate-100 flex items-center justify-between" style="flex-shrink:0"><div class="flex items-center gap-2"><img src="assets/logos/medconnect-logo.svg" alt="MedConnect" class="h-7 w-auto"><div><span class="font-extrabold text-[13.5px] leading-none block">MedConnect</span><span class="block text-[10.5px] text-faint font-semibold mt-0.5">Ruang Apotek</span></div></div><button @click="sideOpen=false" class="lg:hidden text-faint hover:text-ink"><span class="ms text-[20px]">close</span></button></div>
     <nav class="p-3 space-y-1 flex-1 min-h-0 overflow-y-auto overscroll-contain side-scroll">${items.map(i=>`<a href="${i.href}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] transition ${active===i.id ? 'bg-[#e9f7f1] text-green font-bold' : 'text-muted font-semibold hover:bg-slate-50'}"><span class="ms ${active===i.id ? 'ms-fill' : ''} text-[20px] ${active===i.id ? 'text-green' : 'text-faint'}">${i.icon}</span><span class="flex-1">${i.label}</span>${i.badge ? `<span class="w-5 h-5 rounded-full bg-[#ff5436] text-white text-[10.5px] font-bold flex items-center justify-center">${i.badge}</span>` : ''}</a>`).join('')}</nav>
     <div class="p-3 border-t border-slate-100" style="flex-shrink:0"><button onclick="sessionStorage.clear();window.location.hash='/login';window.dispatchEvent(new CustomEvent('auth-changed'))" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] font-semibold text-muted hover:bg-slate-50 hover:text-ink transition w-full"><span class="ms text-[20px] text-faint">logout</span>Keluar</button></div>
   </aside>`;

@@ -46,8 +46,8 @@ export function patientDashboard() {
         <div class="absolute -right-10 -top-5 w-40 h-40 rounded-full bg-white/[.07]"></div>
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-8 w-auto bg-white/90 rounded-lg p-1">
-            <div><div class="text-xs text-white/70 font-semibold leading-none">Klinik Prima</div><div class="text-[14.5px] text-white font-extrabold leading-relaxed mt-0.5">Halo, ${patient?.full_name?.split(' ')[0] || 'Pasien'}</div></div>
+            <img src="assets/logos/medconnect-logo.svg" alt="MedConnect" class="h-8 w-auto rounded-lg">
+            <div><div class="text-xs text-white/70 font-semibold leading-none">MedConnect</div><div class="text-[14.5px] text-white font-extrabold leading-relaxed mt-0.5">Halo, ${patient?.full_name?.split(' ')[0] || 'Pasien'}</div></div>
           </div>
           <a href="#/patient/notifications" class="relative w-10 h-10 rounded-xl bg-white/[.16] flex items-center justify-center"><span class="ms text-[21px] text-white">notifications</span><span data-notif-count class="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#ff5436] text-white text-[10px] font-bold flex items-center justify-center border-2 border-brand-dark" style="${unread > 0 ? '' : 'display:none'}">${unread > 99 ? '99+' : unread}</span></a>
         </div>
@@ -551,7 +551,7 @@ function patientSidebar(active) {
   return `
   <aside class="fixed top-0 left-0 h-full w-[236px] bg-white border-r border-slate-100 z-40 transform transition-transform duration-300 flex flex-col" :class="sideOpen ? 'translate-x-0' : '-translate-x-full'">
     <div class="p-4 border-b border-slate-100 flex items-center justify-between" style="flex-shrink:0">
-      <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto">
+      <img src="assets/logos/medconnect-logo.svg" alt="MedConnect" class="h-7 w-auto">
       <button @click="sideOpen=false" class="lg:hidden text-faint hover:text-ink"><span class="ms text-[20px]">close</span></button>
     </div>
     <nav class="p-3 space-y-1 flex-1 min-h-0 overflow-y-auto overscroll-contain side-scroll">${items.map(i => `<a href="${i.href}" class="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13.5px] transition ${active === i.id ? 'bg-tint text-brand font-bold' : 'text-muted font-semibold hover:bg-slate-50'}"><span class="ms ${active === i.id ? 'ms-fill' : ''} text-[20px] ${active === i.id ? 'text-brand' : 'text-faint'}">${i.icon}</span><span class="flex-1">${i.label}</span>${i.badge ? `<span class="w-5 h-5 rounded-full bg-[#ff5436] text-white text-[10.5px] font-bold flex items-center justify-center">${i.badge}</span>` : ''}</a>`).join('')}</nav>
@@ -564,7 +564,7 @@ function patientHeader(patient, unread = 0) {
   return `<header class="sticky top-0 z-30 h-[66px] bg-white border-b border-slate-100 px-4 flex items-center justify-between">
     <div class="flex items-center gap-3">
       <button @click="sideOpen=!sideOpen" class="lg:hidden p-2 rounded-xl hover:bg-wash transition"><span class="ms text-[21px] text-muted">menu</span></button>
-      <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-7 w-auto lg:hidden">
+      <img src="assets/logos/medconnect-logo.svg" alt="MedConnect" class="h-7 w-auto lg:hidden">
     </div>
     <a href="#/patient/notifications" class="relative w-10 h-10 rounded-xl bg-wash flex items-center justify-center hover:bg-slate-100 transition"><span class="ms text-[21px] text-slate-600">notifications</span><span data-notif-count class="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#ff5436] text-white text-[10px] font-bold flex items-center justify-center border-2 border-white" style="${unread > 0 ? '' : 'display:none'}">${unread > 99 ? '99+' : unread}</span></a>
   </header>`;
