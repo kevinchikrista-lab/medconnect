@@ -196,6 +196,10 @@ export function pharmacyDashboard() {
     rxUnits: window.__rxUnits || [], rxSigna: window.__rxSigna || [], rxSignaTime: window.__rxSignaTime || [],
     rxOpen: false, rxSaving: false, rxErr: '', rxCari: '',
     ulangOpen: false, ulangCari: '', ulangHasil: [], ulangBusy: false, ulangErr: '', ulangDokter: '', ulangPilih: '',
+    // ulangDokter = dokter yang akan meng-ACC resep ULANGNYA (wajib).
+    // ulangFDokter = SARINGAN dokter penulis resep lamanya (opsional).
+    // Dua hal berbeda yang gampang tertukar, jadi namanya dibedakan tegas.
+    ulangFDokter: '', ulangFDari: '', ulangFSampai: '', ulangDokterPilihan: [],
     rxForm: { patient_id: '', doctor_id: '', notes: '', items: [] },
     // ---- Menyusun resep (wajib ACC dokter) ----
     rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), duration: '', instructions: '', is_compound: false, compound_details: '', display_name: '' }; },
@@ -241,11 +245,29 @@ export function pharmacyDashboard() {
     // ---- Resep ulang: ambil dari resep yang pernah sah ----
     openUlang() {
       this.ulangOpen = true; this.ulangErr = ''; this.ulangPilih = '';
-      this.ulangCari = '';
+      this.ulangCari = ''; this.ulangFDokter = ''; this.ulangFDari = ''; this.ulangFSampai = '';
       this.ulangDokter = (this.rxDoctors[0] && this.rxDoctors[0].id) || '';
       this.cariUlang();
     },
-    cariUlang() { this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, 25); },
+    get ulangSaringan() { return { doctorId: this.ulangFDokter, fromDate: this.ulangFDari, toDate: this.ulangFSampai }; },
+    cariUlang() {
+      this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, this.ulangBatas, this.ulangSaringan);
+      // Pilihan dokter ikut menyempit bersama rentang tanggalnya: dokter yang
+      // tidak punya resep di rentang itu kalau dipilih hasilnya nol, dan nol
+      // itu terbaca seperti kesalahan sistem.
+      this.ulangDokterPilihan = window.__store.repeatSourceDoctors({ fromDate: this.ulangFDari, toDate: this.ulangFSampai });
+      if (this.ulangFDokter && !this.ulangDokterPilihan.some(d => d.id === this.ulangFDokter)) {
+        this.ulangFDokter = '';
+        this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, this.ulangBatas, this.ulangSaringan);
+      }
+    },
+    ulangBatas: 25,
+    // Kalau hasilnya pas sebanyak batas, kemungkinan besar ada yang terpotong.
+    // Dikatakan, bukan didiamkan — daftar yang terpotong diam-diam terbaca
+    // sebagai 'cuma segini yang ada'.
+    get ulangTerpotong() { return this.ulangHasil.length >= this.ulangBatas; },
+    get ulangAdaSaringan() { return !!(this.ulangCari || this.ulangFDokter || this.ulangFDari || this.ulangFSampai); },
+    resetSaringan() { this.ulangCari = ''; this.ulangFDokter = ''; this.ulangFDari = ''; this.ulangFSampai = ''; this.cariUlang(); },
     ulangRingkas(r) {
       // Racikan ditandai di ringkasannya: dua resep bisa punya nama tampil yang
       // sama persis padahal isinya berbeda, jadi tanpa penanda ini yang dipilih
@@ -426,6 +448,10 @@ export function pharmacyPrescriptions() {
     rxUnits: window.__rxUnits || [], rxSigna: window.__rxSigna || [], rxSignaTime: window.__rxSignaTime || [],
     rxOpen: false, rxSaving: false, rxErr: '', rxCari: '',
     ulangOpen: false, ulangCari: '', ulangHasil: [], ulangBusy: false, ulangErr: '', ulangDokter: '', ulangPilih: '',
+    // ulangDokter = dokter yang akan meng-ACC resep ULANGNYA (wajib).
+    // ulangFDokter = SARINGAN dokter penulis resep lamanya (opsional).
+    // Dua hal berbeda yang gampang tertukar, jadi namanya dibedakan tegas.
+    ulangFDokter: '', ulangFDari: '', ulangFSampai: '', ulangDokterPilihan: [],
     rxForm: { patient_id: '', doctor_id: '', notes: '', items: [] },
     // ---- Menyusun resep (wajib ACC dokter) ----
     rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), duration: '', instructions: '', is_compound: false, compound_details: '', display_name: '' }; },
@@ -472,11 +498,29 @@ export function pharmacyPrescriptions() {
     // ---- Resep ulang: ambil dari resep yang pernah sah ----
     openUlang() {
       this.ulangOpen = true; this.ulangErr = ''; this.ulangPilih = '';
-      this.ulangCari = '';
+      this.ulangCari = ''; this.ulangFDokter = ''; this.ulangFDari = ''; this.ulangFSampai = '';
       this.ulangDokter = (this.rxDoctors[0] && this.rxDoctors[0].id) || '';
       this.cariUlang();
     },
-    cariUlang() { this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, 25); },
+    get ulangSaringan() { return { doctorId: this.ulangFDokter, fromDate: this.ulangFDari, toDate: this.ulangFSampai }; },
+    cariUlang() {
+      this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, this.ulangBatas, this.ulangSaringan);
+      // Pilihan dokter ikut menyempit bersama rentang tanggalnya: dokter yang
+      // tidak punya resep di rentang itu kalau dipilih hasilnya nol, dan nol
+      // itu terbaca seperti kesalahan sistem.
+      this.ulangDokterPilihan = window.__store.repeatSourceDoctors({ fromDate: this.ulangFDari, toDate: this.ulangFSampai });
+      if (this.ulangFDokter && !this.ulangDokterPilihan.some(d => d.id === this.ulangFDokter)) {
+        this.ulangFDokter = '';
+        this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, this.ulangBatas, this.ulangSaringan);
+      }
+    },
+    ulangBatas: 25,
+    // Kalau hasilnya pas sebanyak batas, kemungkinan besar ada yang terpotong.
+    // Dikatakan, bukan didiamkan — daftar yang terpotong diam-diam terbaca
+    // sebagai 'cuma segini yang ada'.
+    get ulangTerpotong() { return this.ulangHasil.length >= this.ulangBatas; },
+    get ulangAdaSaringan() { return !!(this.ulangCari || this.ulangFDokter || this.ulangFDari || this.ulangFSampai); },
+    resetSaringan() { this.ulangCari = ''; this.ulangFDokter = ''; this.ulangFDari = ''; this.ulangFSampai = ''; this.cariUlang(); },
     ulangRingkas(r) {
       // Racikan ditandai di ringkasannya: dua resep bisa punya nama tampil yang
       // sama persis padahal isinya berbeda, jadi tanpa penanda ini yang dipilih
@@ -687,19 +731,53 @@ export function pharmacyPrescriptions() {
             <div class="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
               <p class="text-[11.5px] text-amber-900 leading-relaxed">Resep ulang <b>tetap menunggu ACC dokter</b>. Yang menjadikan sebuah resep sah adalah keputusan dokter hari ini &mdash; kondisi pasien bisa sudah berbeda dari resep sebelumnya.</p>
             </div>
-            <div class="grid sm:grid-cols-2 gap-3 mb-3">
-              <div>
-                <label class="block text-xs text-gray-600 mb-1">Cari resep</label>
-                <input type="text" x-model="ulangCari" @input="cariUlang()" placeholder="Nama pasien, no. resep, atau nama obat..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+            <!-- SARINGAN. Kata kuncinya juga menelusuri KANDUNGAN racikan:
+                 "resep yang ada Codein-nya" tidak akan ketemu lewat nama
+                 tampilnya ('Obat Batuk Pilek'). -->
+            <div class="rounded-xl border border-slate-100 bg-slate-50/60 p-3 mb-3">
+              <div class="flex items-center justify-between mb-2">
+                <p class="text-[11px] font-bold text-slate-600 uppercase tracking-wide">Cari resep lama</p>
+                <button type="button" x-show="ulangAdaSaringan" x-cloak @click="resetSaringan()" class="text-[11px] font-semibold text-slate-500 hover:text-slate-700">Bersihkan saringan</button>
               </div>
-              <div>
-                <label class="block text-xs text-gray-600 mb-1">Dokter yang meng-ACC *</label>
-                <select x-model="ulangDokter" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
-                  <template x-for="d in rxDoctors" :key="d.id"><option :value="d.id" x-text="d.name + (d.sip ? ' — SIP ' + d.sip : '')"></option></template>
-                </select>
+              <div class="grid sm:grid-cols-2 gap-2.5">
+                <div class="sm:col-span-2">
+                  <label class="block text-[11px] text-gray-600 mb-1">Kata kunci</label>
+                  <input type="text" x-model="ulangCari" @input.debounce.250ms="cariUlang()" placeholder="Nama pasien, no. resep, nama obat, atau kandungan racikan..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                  <p class="text-[10.5px] text-slate-400 mt-1">Kandungan racikan ikut dicari &mdash; mis. ketik <b>Codein</b> untuk menemukan racikan yang memuatnya.</p>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-gray-600 mb-1">Dokter penulis resep</label>
+                  <select x-model="ulangFDokter" @change="cariUlang()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                    <option value="">Semua dokter</option>
+                    <template x-for="d in ulangDokterPilihan" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+                  </select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[11px] text-gray-600 mb-1">Dari tanggal</label>
+                    <input type="date" x-model="ulangFDari" @change="cariUlang()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                  </div>
+                  <div>
+                    <label class="block text-[11px] text-gray-600 mb-1">Sampai</label>
+                    <input type="date" x-model="ulangFSampai" @change="cariUlang()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                  </div>
+                </div>
               </div>
             </div>
+
+            <div class="mb-3">
+              <label class="block text-xs text-gray-600 mb-1">Dokter yang meng-ACC resep ulangnya *</label>
+              <select x-model="ulangDokter" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                <template x-for="d in rxDoctors" :key="d.id"><option :value="d.id" x-text="d.name + (d.sip ? ' — SIP ' + d.sip : '')"></option></template>
+              </select>
+              <p class="text-[10.5px] text-slate-400 mt-1">Berbeda dengan saringan di atas: ini dokter yang akan menilai resep ulangnya sekarang, bukan dokter yang dulu menulisnya.</p>
+            </div>
+
             <p x-show="ulangErr" x-cloak class="text-xs text-red-600 mb-2" x-text="ulangErr"></p>
+            <div class="flex items-center justify-between mb-1.5">
+              <p class="text-[11px] text-slate-500"><span x-text="ulangHasil.length"></span> resep ditemukan</p>
+              <p x-show="ulangTerpotong" x-cloak class="text-[11px] text-amber-700 font-medium">Hanya <span x-text="ulangBatas"></span> teratas ditampilkan &mdash; persempit dengan dokter atau tanggal.</p>
+            </div>
             <div class="flex-1 min-h-0 overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-50">
               <template x-for="r in ulangHasil" :key="r.id">
                 <div class="p-3">
@@ -708,6 +786,11 @@ export function pharmacyPrescriptions() {
                       <p class="text-sm font-semibold text-gray-800"><span x-text="r.rx_number"></span> &middot; <span x-text="r.patient_name"></span></p>
                       <p class="text-[11px] text-slate-500" x-text="(r.created_at || '').slice(0,10) + (r.doctor_name ? ' · ' + r.doctor_name : '')"></p>
                       <p class="text-xs text-gray-700 mt-1" x-text="ulangRingkas(r)"></p>
+                      <!-- Kenapa baris ini muncul. Tanpa ini, hasil yang cocok
+                           lewat kandungan terlihat seperti hasil yang salah. -->
+                      <p x-show="(r.match_in || []).includes('kandungan')" x-cloak class="text-[11px] text-purple-700 bg-purple-50 border border-purple-100 rounded px-1.5 py-1 mt-1">
+                        Cocok pada kandungan: <span class="font-medium" x-text="(r.match_kandungan || '').trim()"></span>
+                      </p>
                     </div>
                     <div class="flex gap-1.5">
                       <button @click="kirimUlang(r)" :disabled="ulangBusy" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 transition disabled:opacity-50">Ulangi &amp; Kirim ACC</button>
@@ -716,7 +799,10 @@ export function pharmacyPrescriptions() {
                   </div>
                 </div>
               </template>
-              <div x-show="!ulangHasil.length" x-cloak class="p-8 text-center text-sm text-gray-400">Tidak ada resep yang cocok.</div>
+              <div x-show="!ulangHasil.length" x-cloak class="p-8 text-center text-sm text-gray-400">
+                <span x-show="!ulangAdaSaringan">Belum ada resep sah yang bisa diulang.</span>
+                <span x-show="ulangAdaSaringan" x-cloak>Tidak ada resep yang cocok dengan saringan ini.</span>
+              </div>
             </div>
             <div class="flex justify-end mt-4">
               <button @click="ulangOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Tutup</button>
