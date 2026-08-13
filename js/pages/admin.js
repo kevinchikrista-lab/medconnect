@@ -1141,7 +1141,7 @@ export function adminPatients() {
             <thead><tr class="bg-gray-50 border-b border-gray-100"><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Nama</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden sm:table-cell">No. RM</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden md:table-cell">NIK</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden lg:table-cell">Telepon</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Aksi</th></tr></thead>
             <tbody class="divide-y divide-gray-50">
               ${patients.length === 0 ? '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-400 text-sm">Belum ada pasien</td></tr>' : patients.map(p => `
-              <template x-if="!search || '${q(p.full_name).toLowerCase()}'.includes(search.toLowerCase()) || '${q(p.nik||'')}'.includes(search) || '${q(p.rm_number||'')}'.includes(search) || '${q(p.phone||'')}'.includes(search)">
+              <template x-if="!search || window.__store.patientMatches(window.__store.getPatient('${p.id}'), search)">
                 <tr class="hover:bg-gray-50 transition">
                   <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${(p.full_name||'?').split(' ').map(n=>n[0]).join('').slice(0,2)}</div><p class="font-medium text-gray-800 text-sm">${p.full_name||'-'}</p></div></td>
                   <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${p.rm_number || '-'}</td>
@@ -1608,6 +1608,299 @@ function jsStr(s) {
 // Master data Lokasi / Tempat Praktik. Nama tempat di sini yang muncul di
 // dropdown "Lokasi / Tempat" pada rekam medis & vaksinasi, dan yang tercetak
 // sebagai "Tempat Praktik" di kertas resep (alamatnya ikut ke kop surat).
+// ===========================================================================
+// PENGINGAT: KONTROL ULANG & DOSIS VAKSIN BERIKUTNYA.
+//
+// Tanggalnya sudah lama dicatat di rekam medis dan catatan vaksinasi, tapi
+// tidak ada layar yang menjawab pertanyaan yang sebenarnya: siapa yang jatuh
+// tempo minggu ini. Jadi tanggal itu cuma tersimpan, dan pasien yang tidak
+// kembali tidak pernah ketahuan tidak kembali.
+//
+// YANG SUDAH LEWAT DITARUH PALING ATAS, bukan dibuang. Justru itulah yang
+// paling perlu dikejar — daftar yang hanya menampilkan "akan datang" diam-diam
+// memaafkan semua yang telanjur terlewat.
+// ===========================================================================
+export function adminReminders() {
+  const hariIni = todayLocal();
+  return `
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024,
+    dari: '', sampai: '', jenis: '', dokter: '',
+    daftar: [], hitung: { total: 0, lewat: 0, hariIni: 0, akan: 0 },
+    hariIni: '${hariIni}',
+    dokters: window.__store.getDoctors().map(d => ({ id: d.id, name: d.full_name || 'Dokter' })),
+    muat() {
+      const o = { kind: this.jenis, doctorId: this.dokter };
+      if (this.dari) o.fromDate = this.dari;
+      if (this.sampai) o.toDate = this.sampai;
+      this.daftar = window.__store.dueReminders(o);
+      this.hitung = window.__store.dueReminderCounts(o);
+    },
+    reset() { this.dari = ''; this.sampai = ''; this.jenis = ''; this.dokter = ''; this.muat(); },
+    statusTeks(x) {
+      if (x.due < this.hariIni) return 'Terlewat ' + x.days + ' hari';
+      if (x.due === this.hariIni) return 'Jatuh tempo hari ini';
+      return 'Dalam ' + Math.abs(x.days) + ' hari';
+    },
+    statusWarna(x) {
+      if (x.due < this.hariIni) return 'bg-red-100 text-red-700';
+      if (x.due === this.hariIni) return 'bg-amber-100 text-amber-800';
+      return 'bg-slate-100 text-slate-600';
+    },
+    pesan(x, keKeluarga) {
+      return window.__waPesanPengingat({
+        kind: x.kind, patientName: x.patient_name, title: x.title, detail: x.detail,
+        due: x.due, days: x.days, dueIsPast: x.due < this.hariIni,
+        doctorName: x.doctor_name, toFamily: !!keKeluarga,
+      });
+    },
+    tautan(x, keKeluarga) {
+      const nomor = keKeluarga ? x.family_phone : x.phone;
+      return nomor ? window.__waHref(nomor, this.pesan(x, keKeluarga)) : '';
+    },
+    async tandai(x) {
+      await window.__store.markReminderSent(x.kind, x.id);
+      this.muat();
+    }
+  }" x-init="muat()" class="min-h-screen bg-wash">
+    ${adminSidebar('reminders')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+        <h2 class="text-xl font-bold text-gray-800 mb-1">Pengingat Kontrol &amp; Vaksin</h2>
+        <p class="text-sm text-gray-500 mb-5">Pasien yang jadwal <b>kontrol ulang</b> atau <b>dosis vaksin berikutnya</b> sudah dekat &mdash; atau sudah terlewat. Bawaannya menampilkan 60 hari ke belakang sampai 14 hari ke depan.</p>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-5">
+          <div class="bg-white rounded-2xl border border-slate-100 p-3">
+            <p class="text-2xl font-bold text-red-600" x-text="hitung.lewat"></p>
+            <p class="text-[11px] text-slate-500 font-semibold">Sudah terlewat</p>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-100 p-3">
+            <p class="text-2xl font-bold text-amber-600" x-text="hitung.hariIni"></p>
+            <p class="text-[11px] text-slate-500 font-semibold">Hari ini</p>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-100 p-3">
+            <p class="text-2xl font-bold text-slate-700" x-text="hitung.akan"></p>
+            <p class="text-[11px] text-slate-500 font-semibold">Akan datang</p>
+          </div>
+          <div class="bg-white rounded-2xl border border-slate-100 p-3">
+            <p class="text-2xl font-bold text-brand-dark" x-text="hitung.total"></p>
+            <p class="text-[11px] text-slate-500 font-semibold">Total</p>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-100 bg-white p-3 mb-4">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-[11px] font-bold text-slate-600 uppercase tracking-wide">Saring</p>
+            <button type="button" @click="reset()" class="text-[11px] font-semibold text-slate-500 hover:text-slate-700">Bersihkan</button>
+          </div>
+          <div class="grid sm:grid-cols-4 gap-2.5">
+            <div>
+              <label class="block text-[11px] text-gray-600 mb-1">Jenis</label>
+              <select x-model="jenis" @change="muat()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="">Semua</option>
+                <option value="kontrol">Kontrol ulang</option>
+                <option value="vaksin">Dosis vaksin</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] text-gray-600 mb-1">Dokter</label>
+              <select x-model="dokter" @change="muat()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="">Semua dokter</option>
+                <template x-for="d in dokters" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] text-gray-600 mb-1">Dari tanggal</label>
+              <input type="date" x-model="dari" @change="muat()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+            </div>
+            <div>
+              <label class="block text-[11px] text-gray-600 mb-1">Sampai</label>
+              <input type="date" x-model="sampai" @change="muat()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+            </div>
+          </div>
+        </div>
+
+        <template x-if="!daftar.length">
+          <div class="bg-white rounded-3xl border border-slate-100 p-8 text-center">
+            <p class="text-sm font-semibold text-green-700">Tidak ada yang perlu diingatkan pada rentang ini.</p>
+            <p class="text-xs text-gray-400 mt-1">Coba perlebar rentang tanggalnya bila sedang mencari yang lebih lama.</p>
+          </div>
+        </template>
+
+        <div class="space-y-2.5">
+          <template x-for="x in daftar" :key="x.kind + ':' + x.id">
+            <div class="bg-white border border-slate-100 rounded-2xl p-3.5">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div class="min-w-[200px]">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="px-2 py-0.5 rounded-full text-[11px] font-medium" :class="x.kind === 'vaksin' ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'" x-text="x.kind === 'vaksin' ? 'Vaksin' : 'Kontrol'"></span>
+                    <span class="px-2 py-0.5 rounded-full text-[11px] font-bold" :class="statusWarna(x)" x-text="statusTeks(x)"></span>
+                    <!-- Sudah berapa kali diingatkan: yang sudah tiga kali
+                         dihubungi tapi tetap tidak datang keadaannya berbeda
+                         dari yang belum pernah dihubungi sama sekali. -->
+                    <span x-show="x.sent_count" x-cloak class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500" x-text="'sudah di-WA ' + x.sent_count + 'x'"></span>
+                  </div>
+                  <p class="font-semibold text-gray-800 mt-1.5" x-text="x.patient_name"></p>
+                  <p class="text-xs text-gray-600" x-text="x.title + (x.detail ? ' — ' + x.detail : '')"></p>
+                  <p class="text-[11px] text-gray-400" x-text="'Jadwal ' + x.due + (x.doctor_name ? ' · ' + x.doctor_name : '')"></p>
+                </div>
+                <div class="flex gap-1.5 flex-wrap shrink-0">
+                  <template x-if="tautan(x, false)">
+                    <a :href="tautan(x, false)" target="_blank" rel="noopener" @click="tandai(x)" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#25D366] hover:brightness-95 transition">WA Pasien</a>
+                  </template>
+                  <template x-if="!tautan(x, false)">
+                    <span class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 bg-slate-100">Tanpa No. HP</span>
+                  </template>
+                  <template x-if="tautan(x, true)">
+                    <a :href="tautan(x, true)" target="_blank" rel="noopener" @click="tandai(x)" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-[#0b6b34] bg-[#d6f5e3] hover:brightness-95 transition" x-text="'WA ' + (x.family_relation || 'Keluarga')"></a>
+                  </template>
+                  <a :href="'#/admin/patients/' + x.patient_id" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition">Rekam Medis</a>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
+// ===========================================================================
+// REKAP BULANAN untuk pemilik & Super Admin.
+//
+// Rekap umroh sudah ada, tapi belum ada gambaran keseluruhan. Sekarang
+// angkanya bisa dipercaya justru karena resep dan surat sudah wajib punya
+// rekam medis — yang dihitung bukan lagi sekumpulan catatan lepas.
+//
+// YANG DIHITUNG HANYA YANG SAH: resep yang menunggu ACC atau ditolak, dan
+// surat yang belum disahkan, tidak masuk. Rekap yang memasukkannya akan
+// melaporkan pekerjaan yang tidak pernah terjadi.
+// ===========================================================================
+export function adminRecap() {
+  const bulanAda = store.monthsWithActivity(24);
+  const bulanAwal = bulanAda[0] || todayLocal().slice(0, 7);
+  window.__rekapBulanAda = bulanAda;
+  return `
+  <div x-data="{
+    sideOpen: window.innerWidth > 1024,
+    bulanAda: window.__rekapBulanAda || [],
+    bulan: '${bulanAwal}',
+    r: null,
+    muat() { this.r = window.__store.monthlyRecap(this.bulan); },
+    rupiah(n) { return 'Rp' + (Number(n) || 0).toLocaleString('id-ID'); },
+    namaBulan(b) {
+      if (!b) return '-';
+      const [y, m] = b.split('-').map(Number);
+      const nama = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+      return (nama[(m || 1) - 1] || '') + ' ' + y;
+    }
+  }" x-init="muat()" class="min-h-screen bg-wash">
+    ${adminSidebar('recap')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+        <div class="flex items-end justify-between gap-3 flex-wrap mb-1">
+          <div>
+            <h2 class="text-xl font-bold text-gray-800">Rekap Bulanan</h2>
+            <p class="text-sm text-gray-500 mt-0.5" x-text="namaBulan(bulan)"></p>
+          </div>
+          <div>
+            <label class="block text-[11px] text-gray-600 mb-1">Bulan</label>
+            <select x-model="bulan" @change="muat()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+              <template x-for="b in bulanAda" :key="b"><option :value="b" x-text="namaBulan(b)"></option></template>
+            </select>
+          </div>
+        </div>
+        <p class="text-[11.5px] text-gray-400 mb-5">Hanya menghitung yang <b>sudah sah</b>: resep yang menunggu ACC atau ditolak, dan surat yang belum disahkan, tidak ikut.</p>
+
+        <template x-if="!bulanAda.length">
+          <div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Belum ada kegiatan yang bisa direkap.</div>
+        </template>
+
+        <template x-if="r">
+          <div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-5">
+              <div class="bg-white rounded-2xl border border-slate-100 p-3.5">
+                <p class="text-2xl font-bold text-brand-dark" x-text="r.kunjungan"></p>
+                <p class="text-[11px] text-slate-500 font-semibold">Kunjungan</p>
+              </div>
+              <div class="bg-white rounded-2xl border border-slate-100 p-3.5">
+                <p class="text-2xl font-bold text-purple-700" x-text="r.resep"></p>
+                <p class="text-[11px] text-slate-500 font-semibold">Resep sah</p>
+                <p class="text-[10.5px] text-slate-400 mt-0.5" x-show="r.resep_apotek" x-cloak x-text="r.resep_apotek + ' disusun apotek'"></p>
+              </div>
+              <div class="bg-white rounded-2xl border border-slate-100 p-3.5">
+                <p class="text-2xl font-bold text-teal-700" x-text="r.vaksinasi"></p>
+                <p class="text-[11px] text-slate-500 font-semibold">Vaksinasi</p>
+              </div>
+              <div class="bg-white rounded-2xl border border-slate-100 p-3.5">
+                <p class="text-2xl font-bold text-amber-700" x-text="r.surat"></p>
+                <p class="text-[11px] text-slate-500 font-semibold">Surat keterangan</p>
+              </div>
+              <div class="bg-white rounded-2xl border border-slate-100 p-3.5">
+                <p class="text-2xl font-bold text-slate-700" x-text="r.pasien_dilayani"></p>
+                <p class="text-[11px] text-slate-500 font-semibold">Pasien dilayani</p>
+                <p class="text-[10.5px] text-slate-400 mt-0.5">orang, bukan kunjungan</p>
+              </div>
+              <div class="bg-white rounded-2xl border border-slate-100 p-3.5">
+                <p class="text-2xl font-bold text-green-700" x-text="rupiah(r.jasa_dokter)"></p>
+                <p class="text-[11px] text-slate-500 font-semibold">Jasa dokter pada resep</p>
+              </div>
+            </div>
+
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-2">Per Dokter</h3>
+            <div class="bg-white border border-slate-100 rounded-2xl overflow-hidden mb-5">
+              <div class="overflow-x-auto"><table class="w-full text-sm">
+                <thead><tr class="bg-gray-50 border-b border-gray-100 text-left text-xs text-gray-500 uppercase">
+                  <th class="px-4 py-2.5 font-semibold">Dokter</th>
+                  <th class="px-3 py-2.5 font-semibold">Kunjungan</th>
+                  <th class="px-3 py-2.5 font-semibold">Resep</th>
+                  <th class="px-3 py-2.5 font-semibold">Surat</th>
+                  <th class="px-3 py-2.5 font-semibold">Vaksinasi</th>
+                </tr></thead>
+                <tbody class="divide-y divide-gray-50">
+                  <template x-for="d in r.per_dokter" :key="d.id">
+                    <tr>
+                      <td class="px-4 py-2.5 font-medium text-gray-800" x-text="d.nama"></td>
+                      <td class="px-3 py-2.5 text-gray-600" x-text="d.kunjungan"></td>
+                      <td class="px-3 py-2.5 text-gray-600" x-text="d.resep"></td>
+                      <td class="px-3 py-2.5 text-gray-600" x-text="d.surat"></td>
+                      <td class="px-3 py-2.5 text-gray-600" x-text="d.vaksinasi"></td>
+                    </tr>
+                  </template>
+                  <template x-if="!r.per_dokter.length"><tr><td colspan="5" class="px-4 py-6 text-center text-gray-400 text-sm">Tidak ada kegiatan bulan ini.</td></tr></template>
+                </tbody>
+              </table></div>
+            </div>
+
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-2">Per Tempat</h3>
+            <div class="bg-white border border-slate-100 rounded-2xl overflow-hidden">
+              <div class="overflow-x-auto"><table class="w-full text-sm">
+                <thead><tr class="bg-gray-50 border-b border-gray-100 text-left text-xs text-gray-500 uppercase">
+                  <th class="px-4 py-2.5 font-semibold">Tempat</th>
+                  <th class="px-3 py-2.5 font-semibold">Kunjungan</th>
+                  <th class="px-3 py-2.5 font-semibold">Vaksinasi</th>
+                </tr></thead>
+                <tbody class="divide-y divide-gray-50">
+                  <template x-for="t in r.per_tempat" :key="t.nama">
+                    <tr>
+                      <td class="px-4 py-2.5 font-medium text-gray-800" x-text="t.nama"></td>
+                      <td class="px-3 py-2.5 text-gray-600" x-text="t.kunjungan"></td>
+                      <td class="px-3 py-2.5 text-gray-600" x-text="t.vaksinasi"></td>
+                    </tr>
+                  </template>
+                  <template x-if="!r.per_tempat.length"><tr><td colspan="3" class="px-4 py-6 text-center text-gray-400 text-sm">Tidak ada kegiatan bulan ini.</td></tr></template>
+                </tbody>
+              </table></div>
+            </div>
+          </div>
+        </template>
+      </main>
+    </div>
+  </div>`;
+}
+
 export function adminLocations() {
   const rows = store.getAllLocations();
   const fallback = CONFIG.LOCATIONS || [];
@@ -1854,6 +2147,8 @@ function adminSidebar(active) {
     ...((store.canManageNotes(user) || store.canViewSharedNotes(user)) ? [{ id: 'catatan', label: 'Catatan Bisnis', icon: 'menu_book', href: '#/catatan' }] : []),
     { id: 'users', label: 'Manajemen User', icon: 'group' },
     { id: 'patients', label: 'Rekam Medis Pasien', icon: 'clinical_notes', href: '#/admin/patients' },
+    { id: 'reminders', label: 'Pengingat Kontrol', icon: 'notifications_active', href: '#/admin/reminders' },
+    { id: 'recap', label: 'Rekap Bulanan', icon: 'insights', href: '#/admin/recap' },
     { id: 'services', label: 'Layanan', icon: 'medical_services' },
     { id: 'articles', label: 'Artikel', icon: 'article' },
     { id: 'bookings', label: 'Pendaftaran', icon: 'calendar_month' },

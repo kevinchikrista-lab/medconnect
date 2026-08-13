@@ -140,10 +140,37 @@ export function patientHistory() {
   <div x-data="{
     sideOpen: window.innerWidth > 1024, tab: 'visits',
     patientId: '${patient?.id || ''}',
+    // ---- Hasil lab & radiologi milik pasien ini ----
+    // Selama ini hanya dokter yang bisa membukanya, jadi hasilnya dikirim
+    // manual satu per satu. Pasien berhak membaca hasil pemeriksaannya
+    // sendiri, dan RLS memang sudah mengizinkannya (lab_results:
+    // patient_read_own) — yang belum ada cuma layarnya.
+    labList: [], labLoading: true,
+    async loadLab() {
+      if (!this.patientId) { this.labLoading = false; return; }
+      try { this.labList = await window.__store.getLabResults(this.patientId); } catch (e) { this.labList = []; }
+      this.labLoading = false;
+    },
+    // Berkasnya dibuka DI DALAM halaman, bukan lewat jendela baru: tautan yang
+    // dibuka sesudah menunggu jaringan hampir selalu diblokir peramban ponsel,
+    // dan pasien hanya melihat tombol yang tidak melakukan apa-apa.
+    labViewOpen: false, labViewUrl: '', labViewName: '', labViewErr: '', labViewLoading: false,
+    labIsImage(nama) { return /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(String(nama || '')); },
+    async bukaLab(item) {
+      this.labViewOpen = true; this.labViewLoading = true; this.labViewErr = ''; this.labViewUrl = '';
+      this.labViewName = (item && (item.file_name || item.test_name)) || 'Berkas';
+      try {
+        const url = await window.__store.getLabFileUrl(item && item.file_path);
+        if (url) this.labViewUrl = url;
+        else this.labViewErr = 'Berkas belum bisa dibuka. Silakan hubungi klinik.';
+      } catch (e) { this.labViewErr = 'Berkas belum bisa dibuka. Silakan hubungi klinik.'; }
+      this.labViewLoading = false;
+    },
     bookings: window.__patientBookingsInitial || [],
     statusLabels: { pending:'Menunggu Konfirmasi', confirmed:'Dikonfirmasi', completed:'Selesai', cancelled:'Ditolak' },
     statusColors: { pending:'bg-amber-100 text-amber-700', confirmed:'bg-blue-100 text-blue-700', completed:'bg-green-100 text-green-700', cancelled:'bg-red-100 text-red-700' },
     init() {
+      this.loadLab();
       if (!this.patientId) return;
       if (window.__pagePollInterval) clearInterval(window.__pagePollInterval);
       window.__pagePollInterval = setInterval(() => this.poll(), 8000);
@@ -165,6 +192,7 @@ export function patientHistory() {
         <button @click="tab='visits'" :class="tab==='visits' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Kunjungan (${records.length})</button>
         <button @click="tab='vaccines'" :class="tab==='vaccines' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Vaksinasi (${vaccinations.length})</button>
         <button @click="tab='bookings'" :class="tab==='bookings' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Pendaftaran (<span x-text="bookings.length"></span>)</button>
+        <button @click="tab='lab'" :class="tab==='lab' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Hasil Lab (<span x-text="labList.length"></span>)</button>
       </div>
       <div x-show="tab==='bookings'" x-cloak>
         <template x-if="bookings.length === 0"><div class="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Belum ada pendaftaran layanan</div></template>
@@ -192,6 +220,70 @@ export function patientHistory() {
           </div>
         </template>
       </div>
+      <!-- Hasil lab & radiologi. Pasien berhak membaca hasil pemeriksaannya
+           sendiri; selama ini hanya dokter yang bisa membukanya sehingga
+           hasilnya dikirim manual satu per satu. -->
+      <div x-show="tab==='lab'" x-cloak>
+        <div x-show="labLoading" class="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Memuat hasil pemeriksaan...</div>
+        <template x-if="!labLoading && labList.length === 0">
+          <div class="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Belum ada hasil lab atau radiologi.</div>
+        </template>
+        <div class="space-y-3">
+          <template x-for="item in labList" :key="item.id">
+            <div class="bg-white rounded-xl border border-slate-100 p-4">
+              <div class="flex items-start justify-between gap-2 flex-wrap">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="item.category==='radiologi' ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-teal-700'" x-text="item.category==='radiologi' ? 'Radiologi' : 'Laboratorium'"></span>
+                    <span class="font-semibold text-gray-800" x-text="item.test_name"></span>
+                  </div>
+                  <p class="text-xs text-gray-500 mt-0.5" x-text="item.result_date || ''"></p>
+                </div>
+                <button x-show="item.file_path" x-cloak @click="bukaLab(item)" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 transition flex items-center gap-1 shrink-0"><span class="ms text-[14px]">description</span>Baca Berkas</button>
+              </div>
+              <div x-show="item.parameters && item.parameters.length" x-cloak class="mt-3 overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead><tr class="text-xs text-gray-400 text-left"><th class="py-1 pr-3 font-medium">Pemeriksaan</th><th class="py-1 pr-3 font-medium">Hasil</th><th class="py-1 pr-3 font-medium">Satuan</th><th class="py-1 font-medium">Rujukan</th></tr></thead>
+                  <tbody>
+                    <template x-for="(p, pi) in (item.parameters || [])" :key="pi">
+                      <tr class="border-t border-gray-50"><td class="py-1 pr-3 text-gray-700" x-text="p.name"></td><td class="py-1 pr-3 font-semibold text-gray-800" x-text="p.value"></td><td class="py-1 pr-3 text-gray-500" x-text="p.unit"></td><td class="py-1 text-gray-500" x-text="p.ref"></td></tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+              <p x-show="item.notes" x-cloak class="mt-2 text-xs text-gray-600 whitespace-pre-line" x-text="'Catatan: ' + (item.notes || '')"></p>
+            </div>
+          </template>
+        </div>
+        <!-- ANGKA HASIL LAB TIDAK MENJELASKAN DIRINYA SENDIRI. Nilai di luar
+             rentang rujukan belum tentu berarti sakit, dan pasien yang membaca
+             sendirian mudah menyimpulkan yang keliru — ke arah panik maupun
+             ke arah menganggap enteng. -->
+        <div x-show="!labLoading && labList.length" x-cloak class="mt-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-100">
+          <p class="text-[11.5px] text-amber-900 leading-relaxed">Hasil ini <b>perlu dibaca bersama dokter</b>. Nilai di luar rentang rujukan tidak selalu berarti ada penyakit &mdash; maknanya bergantung pada keluhan dan riwayat Anda.</p>
+        </div>
+      </div>
+
+      <!-- Penampil berkas di dalam halaman. -->
+      <div x-show="labViewOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" @click.self="labViewOpen=false">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl h-[85vh] flex flex-col overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <p class="text-sm font-semibold text-gray-800 truncate" x-text="labViewName"></p>
+            <button @click="labViewOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none shrink-0 ml-3">&times;</button>
+          </div>
+          <div class="flex-1 min-h-0 bg-slate-50">
+            <div x-show="labViewLoading" class="h-full flex items-center justify-center text-sm text-gray-400">Membuka berkas...</div>
+            <div x-show="labViewErr" x-cloak class="h-full flex items-center justify-center p-6 text-center text-sm text-red-600" x-text="labViewErr"></div>
+            <template x-if="labViewUrl && labIsImage(labViewName)">
+              <div class="h-full overflow-auto p-3 flex items-start justify-center"><img :src="labViewUrl" :alt="labViewName" class="max-w-full"></div>
+            </template>
+            <template x-if="labViewUrl && !labIsImage(labViewName)">
+              <iframe :src="labViewUrl" class="w-full h-full border-0"></iframe>
+            </template>
+          </div>
+        </div>
+      </div>
+
       <div x-show="tab==='visits'">
         ${records.length === 0 ? '<div class="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Belum ada riwayat kunjungan</div>' :
         records.map(r => {

@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
 import { tasksPage } from './pages/tasks.js';
 import { notesPage } from './pages/notes.js';
-import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh } from './pages/admin.js';
+import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminRecap, adminReminders, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh } from './pages/admin.js';
 import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorRmDebt, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyCertificates, pharmacyInventory } from './pages/pharmacy.js';
@@ -15,7 +15,7 @@ import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pa
 import { issueSKD, printSKDById, renderSKDInto, SKD_LOADING_DOC } from './skd.js';
 import { editSKD } from './skdedit.js';
 import { printResepById } from './resep.js';
-import { waHref, waProspekMsg, waPesanObatSiap } from './wa.js';
+import { waHref, waProspekMsg, waPesanObatSiap, waPesanPengingat } from './wa.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
@@ -48,6 +48,7 @@ window.__crmWaMsg = waProspekMsg;
 // Dipakai halaman apotek untuk menyusun pesan "obat siap" (lihat js/wa.js:
 // pesannya memuat baris baru, jadi tidak boleh dirakit di dalam x-data).
 window.__waPesanObatSiap = waPesanObatSiap;
+window.__waPesanPengingat = waPesanPengingat;
 
 // Load the SheetJS (xlsx) reader on demand from the same CDN Alpine uses, so the
 // stock-upload page can parse Excel without bundling anything.
@@ -264,6 +265,8 @@ router.add('/konfirmasi/:apptId', (p) => render(konfirmasiPage, p));
 router.add('/admin/dashboard', () => render(adminDashboard));
 router.add('/admin/users', () => render(adminUsers));
 router.add('/admin/patients', () => render(adminPatients));
+router.add('/admin/reminders', () => render(adminReminders));
+router.add('/admin/recap', () => render(adminRecap));
 router.add('/admin/bugs', () => render(adminBugs));
 router.add('/admin/crm', () => render(adminCrm));
 router.add('/admin/stock', () => render(adminStock));
