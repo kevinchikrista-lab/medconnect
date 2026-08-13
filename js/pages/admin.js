@@ -7,6 +7,7 @@ import { crmSetup, crmXData, crmBody } from './crm.js';
 import { stockXData, stockBody } from './stock.js';
 import { tasksSetup, tasksXData, tasksBody, calendarTasksSetup, calendarTasksXData, calendarTasksBlock } from './tasks.js';
 import { umrohSetup, umrohXData, umrohBody } from './umroh.js';
+import { vaxAnakXData, vaxAnakBody, vaxScheduleXData, vaxScheduleBody } from './vaksin.js';
 
 function formatDate(d) {
   if (!d) return '-';
@@ -1557,6 +1558,39 @@ export function adminStock() {
   </div>`;
 }
 
+// Kartu vaksin anak — jadwal IDAI yang dihitung, daftar anak yang lewat waktu,
+// rujukan ke puskesmas saat stok kosong, dan pencatatan dosis dari luar.
+export function adminVaksin() {
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, ${vaxAnakXData('admin')} }" class="min-h-screen bg-wash">
+    ${adminSidebar('vaksin')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+        <h2 class="text-2xl font-bold text-ink mb-1">Vaksin Anak</h2>
+        <p class="text-[12.5px] text-muted mb-5">Jadwal dihitung dari tanggal lahir dan dosis terakhir, jadi penundaan satu dosis otomatis menggeser sisanya.</p>
+        ${vaxAnakBody()}
+      </main>
+    </div>
+  </div>`;
+}
+
+// Tabel jadwal IDAI: dicocokkan dan diverifikasi dokter sebelum dipakai.
+export function adminVaxSchedule() {
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, ${vaxScheduleXData()} }" class="min-h-screen bg-wash">
+    ${adminSidebar('vaksin-jadwal')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto">
+        <h2 class="text-2xl font-bold text-ink mb-1">Jadwal Vaksin IDAI</h2>
+        <p class="text-[12.5px] text-muted mb-5">Usia minimum dan jarak minimum tiap dosis. Angka di sinilah yang menentukan tanggal pada kartu vaksin setiap anak.</p>
+        ${vaxScheduleBody()}
+      </main>
+    </div>
+  </div>`;
+}
+
 // To-Do / Daftar Tugas — rencana & jadwal kegiatan Super Admin/Owner, dengan
 // delegasi ke staf. Isi halamannya ada di js/pages/tasks.js (dipakai juga oleh
 // halaman "Tugas Saya" #/tugas milik staf penerima).
@@ -2148,6 +2182,8 @@ function adminSidebar(active) {
     { id: 'users', label: 'Manajemen User', icon: 'group' },
     { id: 'patients', label: 'Rekam Medis Pasien', icon: 'clinical_notes', href: '#/admin/patients' },
     { id: 'reminders', label: 'Pengingat Kontrol', icon: 'notifications_active', href: '#/admin/reminders' },
+    { id: 'vaksin', label: 'Vaksin Anak', icon: 'vaccines', href: '#/admin/vaksin' },
+    { id: 'vaksin-jadwal', label: 'Jadwal Vaksin IDAI', icon: 'event_available', href: '#/admin/vaksin-jadwal' },
     { id: 'recap', label: 'Rekap Bulanan', icon: 'insights', href: '#/admin/recap' },
     { id: 'services', label: 'Layanan', icon: 'medical_services' },
     { id: 'articles', label: 'Artikel', icon: 'article' },

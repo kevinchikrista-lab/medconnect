@@ -194,6 +194,58 @@ export function waProspekMsg(name, interest) {
   return `Halo ${name || 'Kak'}, terima kasih sudah menghubungi ${CLINIC}.${interest ? ` Mengenai *${interest}*,` : ''} ada yang bisa kami bantu? Kami siap melayani Anda. 🙏`;
 }
 
+// ---------------------------------------------------------------------------
+// PESAN "SILAKAN VAKSIN DI TEMPAT LAIN DULU"
+//
+// Dipakai ketika vaksinnya sedang tidak tersedia di sini. Menahan orang tua
+// menunggu stok datang adalah pilihan yang paling merugikan anaknya: yang
+// hilang bukan kunjungan ke klinik ini, tapi rentang waktu anak itu tidak
+// terlindungi — dan untuk vaksin berseri, satu dosis yang mundur menggeser
+// seluruh sisanya.
+//
+// Maka pesannya memuat TANGGAL yang sudah dihitung, bukan cuma "silakan cari
+// tempat lain": paling cepat boleh kapan, dan sebaiknya kapan. Tanpa angka
+// itu, orang tua di loket puskesmas tidak punya apa pun untuk ditunjukkan.
+//
+// Ditulis di sini, bukan di dalam x-data halaman: isinya mengandung baris
+// baru, dan satu baris baru di dalam atribut x-data memutus string JS-nya
+// sehingga Alpine mati untuk seluruh halaman.
+// ---------------------------------------------------------------------------
+export function waPesanRujukVaksin(o) {
+  const d = o || {};
+  const anak = String(d.childName || '').trim();
+  const vaksin = String(d.vaccineName || '').trim() || 'vaksin';
+  const dosis = String(d.doseLabel || '').trim();
+  const cepat = String(d.earliestLabel || '').trim();
+  const anjur = String(d.recommendedLabel || '').trim();
+  const batas = String(d.deadlineLabel || '').trim();
+  const alasan = String(d.reason || '').trim();
+  const terverifikasi = d.verified === true;
+
+  const baris = [];
+  baris.push('Halo Bapak/Ibu' + (anak ? ' orang tua ananda *' + anak + '*' : '') + ',');
+  baris.push('');
+  baris.push('Vaksin *' + vaksin + '*' + (dosis ? ' (' + dosis + ')' : '') + ' untuk ananda '
+    + (alasan ? 'sedang ' + alasan + ' di ' + CLINIC + '.' : 'sedang tidak tersedia di ' + CLINIC + '.'));
+  baris.push('');
+  baris.push('Supaya jadwalnya tidak mundur, vaksin ini boleh diberikan di *puskesmas atau klinik lain* lebih dulu. Yang perlu dibawa: buku KIA/KMS ananda.');
+  baris.push('');
+  baris.push('Tanggalnya:');
+  if (cepat) baris.push('• Paling cepat boleh: *' + cepat + '*');
+  if (anjur && anjur !== cepat) baris.push('• Sebaiknya: *' + anjur + '*');
+  if (batas) baris.push('• Tidak boleh lewat dari: *' + batas + '*');
+  baris.push('');
+  baris.push('Setelah divaksin, mohon kabari kami tanggal dan nama tempatnya ya — akan kami catat di kartu vaksin ananda supaya jadwal dosis berikutnya tetap terhitung benar.');
+  if (!terverifikasi) {
+    baris.push('');
+    baris.push('_(Tanggal di atas masih perhitungan sementara. Mohon dicocokkan dengan petugas di tempat vaksinasi.)_');
+  }
+  baris.push('');
+  baris.push('Terima kasih. 🙏');
+  baris.push(CLINIC);
+  return baris.join('\n');
+}
+
 // Reminder for a patient scheduled TODAY (today's queue on the dashboard).
 export function waHariIniMsg(name, timeLabel, queueNo) {
   return `Halo ${name || 'Bapak/Ibu'},\n\nIni pengingat dari ${CLINIC}. Anda memiliki jadwal *hari ini*${timeLabel ? ` pukul *${timeLabel}*` : ''}${queueNo ? ` (no. antrean ${queueNo})` : ''}.\n\nMohon hadir tepat waktu ya. Terima kasih. 🙏`;

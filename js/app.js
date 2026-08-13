@@ -4,8 +4,8 @@ import { CONFIG } from './config.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
 import { tasksPage } from './pages/tasks.js';
 import { notesPage } from './pages/notes.js';
-import { adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminRecap, adminReminders, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh } from './pages/admin.js';
-import { doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorRmDebt, doctorCrm } from './pages/doctor.js';
+import { adminVaksin, adminVaxSchedule, adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminRecap, adminReminders, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh } from './pages/admin.js';
+import { doctorVaksin, doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorRmDebt, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyCertificates, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
@@ -15,7 +15,8 @@ import { publicLandingPage, publicArticleDetail, publicGuestBooking } from './pa
 import { issueSKD, printSKDById, renderSKDInto, SKD_LOADING_DOC } from './skd.js';
 import { editSKD } from './skdedit.js';
 import { printResepById } from './resep.js';
-import { waHref, waProspekMsg, waPesanObatSiap, waPesanPengingat } from './wa.js';
+import { waHref, waProspekMsg, waPesanObatSiap, waPesanPengingat, waPesanRujukVaksin } from './wa.js';
+import { parseUsia as idaiParseUsia, usiaSpecLabel as idaiUsiaLabel } from './idai.js';
 
 window.__store = store;
 window.adminUsersData = adminUsersData;
@@ -49,6 +50,11 @@ window.__crmWaMsg = waProspekMsg;
 // pesannya memuat baris baru, jadi tidak boleh dirakit di dalam x-data).
 window.__waPesanObatSiap = waPesanObatSiap;
 window.__waPesanPengingat = waPesanPengingat;
+window.__waPesanRujukVaksin = waPesanRujukVaksin;
+// Dipakai layar Super Admin saat menyunting tabel jadwal IDAI: dokter
+// mengetik '2 bulan' / '6 minggu' persis seperti yang dibacanya di tabel.
+window.__idaiParseUsia = idaiParseUsia;
+window.__idaiUsiaLabel = idaiUsiaLabel;
 
 // Load the SheetJS (xlsx) reader on demand from the same CDN Alpine uses, so the
 // stock-upload page can parse Excel without bundling anything.
@@ -266,6 +272,8 @@ router.add('/admin/dashboard', () => render(adminDashboard));
 router.add('/admin/users', () => render(adminUsers));
 router.add('/admin/patients', () => render(adminPatients));
 router.add('/admin/reminders', () => render(adminReminders));
+router.add('/admin/vaksin', () => render(adminVaksin));
+router.add('/admin/vaksin-jadwal', () => render(adminVaxSchedule));
 router.add('/admin/recap', () => render(adminRecap));
 router.add('/admin/bugs', () => render(adminBugs));
 router.add('/admin/crm', () => render(adminCrm));
@@ -293,6 +301,7 @@ router.add('/doctor/patients', () => render(doctorPatients));
 router.add('/doctor/records', () => render(doctorRecords));
 router.add('/doctor/skd-approval', () => render(doctorSKDApproval));
 router.add('/doctor/rm-debt', () => render(doctorRmDebt));
+router.add('/doctor/vaksin', () => render(doctorVaksin));
 router.add('/doctor/crm', () => render(doctorCrm));
 router.add('/doctor/emr/:patientId', (p) => render(doctorEMR, p));
 router.add('/doctor/emr/:patientId/new', (p) => render(doctorEMRNew, p));
@@ -348,8 +357,19 @@ window.addEventListener('auth-changed', () => {
 window.__generateVaxCert = async function(patientId, vaccineName, opts) {
   const isDraft = !!(opts && opts.draft);
   const patient = store.getPatient(patientId);
-  const vaccinations = store.getVaccinations(patientId).filter(v => v.vaccine_name === vaccineName);
-  if (!patient || vaccinations.length === 0) return;
+  const semuaDosis = store.getVaccinations(patientId).filter(v => v.vaccine_name === vaccineName);
+  // Dosis yang diberikan DI LUAR (puskesmas / klinik lain, dicatat atas
+  // keterangan orang tua) tidak ikut dicetak. Sertifikat ini kami tanda
+  // tangani; mencantumkan suntikan yang tidak kami saksikan berarti menjamin
+  // sesuatu yang tidak kami ketahui — termasuk vaksin apa yang sebenarnya
+  // masuk dan apakah rantai dinginnya utuh.
+  const dosisLuar = semuaDosis.filter(v => store.isVaxExternal(v));
+  const vaccinations = semuaDosis.filter(v => !store.isVaxExternal(v));
+  if (!patient || semuaDosis.length === 0) return;
+  if (vaccinations.length === 0) {
+    alert(`Seluruh dosis ${vaccineName} tercatat diberikan di luar (${dosisLuar.map(v => v.location).filter(Boolean).join(', ') || 'tempat lain'}).\n\nSertifikat tidak bisa kami terbitkan untuk suntikan yang bukan kami berikan. Silakan minta keterangan dari tempat vaksinasinya.`);
+    return;
+  }
 
   // Catatan vaksinasi yang diinput admin belum sah sampai dokter meng-ACC.
   // Sertifikat bernomor & ber-QR tidak boleh terbit selama masih menggantung —
@@ -584,6 +604,7 @@ window.__generateVaxCert = async function(patientId, vaccineName, opts) {
         return `<tr><td>${i+1}/${totalD}</td><td>${d?.vaccine_brand || '-'}</td><td>${d?.date_given ? new Date(d.date_given).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}) : '-'}</td><td>${d?.batch_number || '-'}</td><td>${docName || '-'}</td><td class="${d?.date_given ? 'status-done' : 'status-pending'}">${d?.date_given ? 'Selesai' : 'Belum'}</td></tr>`;
       }).join('')}
       </tbody></table>
+      ${dosisLuar.length ? `<p style="margin-top:3mm;font-size:8.5pt;color:var(--muted);line-height:1.5">Catatan: ${dosisLuar.length} dosis lain tercatat diberikan di luar (${dosisLuar.map(v => v.location).filter(Boolean).join(', ') || 'tempat lain'}) atas keterangan orang tua/wali, sehingga tidak tercantum di atas &mdash; bukan kami yang memberikannya.</p>` : ''}
 
       <div class="spacer"></div>
 

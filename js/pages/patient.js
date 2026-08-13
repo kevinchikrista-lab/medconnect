@@ -1,6 +1,7 @@
 import { store } from '../store.js';
 import { CONFIG } from '../config.js';
 import { chatListPage, chatThreadPage } from './chat.js';
+import { vaxPasienXData, vaxPasienBody } from './vaksin.js';
 
 // Teks apa pun yang berasal dari isian orang harus lewat sini sebelum
 // dicetak ke HTML. Nama obat kini bisa diketik apotek, jadi ini bukan lagi
@@ -145,6 +146,11 @@ export function patientHistory() {
     // manual satu per satu. Pasien berhak membaca hasil pemeriksaannya
     // sendiri, dan RLS memang sudah mengizinkannya (lab_results:
     // patient_read_own) — yang belum ada cuma layarnya.
+    // ---- Kartu vaksin anak (hanya untuk pasien di bawah 18 tahun) ----
+    // Tanggalnya dihitung dari tanggal lahir dan dosis terakhir, bukan diketik
+    // saat dosis sebelumnya dicatat: anak yang vaksinnya mundur karena demam
+    // tidak lagi meninggalkan deretan tanggal lama yang sudah tidak berlaku.
+    ${vaxPasienXData()},
     labList: [], labLoading: true,
     async loadLab() {
       if (!this.patientId) { this.labLoading = false; return; }
@@ -171,6 +177,7 @@ export function patientHistory() {
     statusColors: { pending:'bg-amber-100 text-amber-700', confirmed:'bg-blue-100 text-blue-700', completed:'bg-green-100 text-green-700', cancelled:'bg-red-100 text-red-700' },
     init() {
       this.loadLab();
+      this.loadVax();
       if (!this.patientId) return;
       if (window.__pagePollInterval) clearInterval(window.__pagePollInterval);
       window.__pagePollInterval = setInterval(() => this.poll(), 8000);
@@ -193,7 +200,9 @@ export function patientHistory() {
         <button @click="tab='vaccines'" :class="tab==='vaccines' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Vaksinasi (${vaccinations.length})</button>
         <button @click="tab='bookings'" :class="tab==='bookings' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Pendaftaran (<span x-text="bookings.length"></span>)</button>
         <button @click="tab='lab'" :class="tab==='lab' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Hasil Lab (<span x-text="labList.length"></span>)</button>
+        ${store.isAnak(patient) ? `<button @click="tab='jadwalvax'" :class="tab==='jadwalvax' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex-1">Jadwal Vaksin</button>` : ''}
       </div>
+      ${store.isAnak(patient) ? `<div x-show="tab==='jadwalvax'" x-cloak>${vaxPasienBody()}</div>` : ''}
       <div x-show="tab==='bookings'" x-cloak>
         <template x-if="bookings.length === 0"><div class="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Belum ada pendaftaran layanan</div></template>
         <template x-for="b in bookings" :key="b.id">
