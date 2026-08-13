@@ -3560,7 +3560,7 @@ class Store {
   awaitingReview(t) { return this.taskStatus(t) === 'review'; }
   needsMyReview(t, userId) { return this.awaitingReview(t) && !!userId && this.taskReviewerId(t) === userId; }
   countNeedingMyReview(userId) {
-    return (this.data.tasks || []).filter(t => this.needsMyReview(t, userId)).length;
+    return this._visibleTasks().filter(t => this.needsMyReview(t, userId)).length;
   }
 
   // Tugas ini "milik" siapa dari sudut pandang seseorang. Tugas tanpa
@@ -3590,8 +3590,64 @@ class Store {
     return t.assignee_id ? t.assignee_id === userId : t.created_by === userId;
   }
 
+  // ==========================================================================
+  // TUGAS PRIBADI
+  //
+  // Panel To-Do sengaja dibuat terbuka antar staf: dokter perlu tahu tugas
+  // admin dan sebaliknya. Tapi keterbukaan itu tidak selalu benar. Ada
+  // rencana yang memang belum boleh dibaca siapa pun — negosiasi sewa,
+  // rencana penambahan orang, urusan yang menyangkut nama seseorang. Sebelum
+  // ada ini, satu-satunya cara menyimpannya adalah dengan tidak menuliskannya
+  // sama sekali, dan yang tidak tertulis adalah yang terlupakan.
+  //
+  // Yang boleh menandai pribadi hanya pemilik klinik (alamat pada
+  // CONFIG.TASK_MANAGER_EMAILS) — SENGAJA bukan semua orang yang bisa membuat
+  // tugas. Kalau setiap staf bisa menyembunyikan tugasnya, panel ini berhenti
+  // menjadi gambaran pekerjaan klinik dan pemiliknya kehilangan justru hal
+  // yang membuat panel ini berguna.
+  canMakeTaskPrivate(user) {
+    if (!user) return false;
+    const allowed = (CONFIG.TASK_MANAGER_EMAILS || []).map(e => String(e).toLowerCase());
+    if (allowed.includes(String(user.email || '').toLowerCase())) return true;
+    // Cadangan yang sama seperti canManageNotes: bila tidak satu pun alamat
+    // itu terdaftar (mis. pemiliknya memakai alamat lain), Owner tetap boleh,
+    // supaya fiturnya tidak jadi tidak bisa dipakai siapa pun.
+    if (user.role === 'owner') {
+      return !(this.data.users || []).some(u => allowed.includes(String(u.email || '').toLowerCase()));
+    }
+    return false;
+  }
+
+  isTaskPrivate(t) { return !!(t && t.is_private); }
+
+  // Tugas pribadi hanya terlihat oleh PEMBUATNYA. Bukan penerimanya — tugas
+  // pribadi memang tidak boleh punya penerima (lihat createTask/updateTask),
+  // karena tugas yang didelegasikan tapi tidak bisa dibaca penerimanya adalah
+  // tugas yang tidak akan pernah dikerjakan.
+  canSeeTask(t, userId) {
+    if (!this.isTaskPrivate(t)) return true;
+    return !!userId && t.created_by === userId;
+  }
+
+  _sessionUserId() {
+    try {
+      const u = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+      return (u && u.id) || '';
+    } catch (e) { return ''; }
+  }
+
+  // Satu-satunya pintu ke this.data.tasks yang dipakai layar mana pun. Semua
+  // daftar, hitungan lencana, dan kalender lewat sini, supaya tidak ada satu
+  // jalur pun yang lupa menyaring — RLS di server adalah pagar sebenarnya,
+  // ini yang menjaga layarnya tidak bocor pada data yang sudah telanjur
+  // tersimpan di perangkat (mis. sesudah ganti akun tanpa reload).
+  _visibleTasks() {
+    const me = this._sessionUserId();
+    return (this.data.tasks || []).filter(t => this.canSeeTask(t, me));
+  }
+
   getAllTasks() {
-    const rows = (this.data.tasks || []).slice();
+    const rows = this._visibleTasks().slice();
     const P = { urgent: 0, high: 1, normal: 2, low: 3 };
     // Belum selesai dulu, lalu jatuh tempo paling dekat, lalu prioritas.
     // Tugas tanpa tanggal ditaruh paling belakang (bukan paling depan, yang
@@ -3638,10 +3694,26 @@ class Store {
     const title = String(data.title || '').trim();
     if (!title) return { error: 'Judul tugas wajib diisi' };
     const kind = data.kind === 'event' ? 'event' : 'task';
+
+    // Tanda pribadi tidak diterima apa adanya dari layar: yang menentukan
+    // adalah siapa yang sedang login, bukan apa yang dikirim formulirnya.
+    const aku = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    const pribadi = !!data.is_private && this.canMakeTaskPrivate(aku);
+    // Tugas pribadi yang punya penerima adalah tugas yang tidak akan pernah
+    // dikerjakan: penerimanya tidak bisa melihatnya. Ditolak di sini, bukan
+    // diam-diam dibuang salah satunya.
+    if (pribadi && kind !== 'event' && data.assignee_id) {
+      return { error: 'Tugas pribadi tidak bisa didelegasikan — penerimanya tidak akan bisa melihatnya. Hapus centang "pribadi" atau kosongkan penerimanya.' };
+    }
+    if (pribadi && kind === 'event' && Array.isArray(data.attendee_ids) && data.attendee_ids.filter(Boolean).length) {
+      return { error: 'Acara pribadi tidak bisa punya peserta lain — mereka tidak akan bisa melihatnya.' };
+    }
+
     const attendees = kind === 'event'
       ? (Array.isArray(data.attendee_ids) ? data.attendee_ids.filter(Boolean) : [])
       : [];
     const payload = {
+      is_private: pribadi,
       title,
       kind,
       // Acara dihadiri banyak orang; pekerjaan dipegang satu orang. Keduanya
@@ -3669,11 +3741,29 @@ class Store {
     if (CONFIG.DEMO_MODE) {
       rec = { id: generateId(), created_at: new Date().toISOString(), wa_count: 0, wa_last_at: null, ...payload };
     } else {
-      const inserted = await supabase.insert('tasks', payload);
+      let inserted = await supabase.insert('tasks', payload);
+      // Kolom is_private datang dari supabase-task-private.sql. Bila migrasi
+      // itu belum dijalankan, Postgres menolak SELURUH barisnya — tugasnya
+      // hilang hanya karena satu kolom belum ada. Dicoba ulang tanpa kolom
+      // itu, TAPI dengan peringatan keras: yang tersimpan menjadi tugas
+      // biasa yang terbaca semua staf, dan itu justru kebalikan dari yang
+      // diminta. Diam di sini akan membocorkan isi tugasnya.
+      let gagalPribadi = false;
+      if (inserted && inserted.error && /is_private/i.test(String(inserted.error))) {
+        const tanpa = { ...payload }; delete tanpa.is_private;
+        inserted = await supabase.insert('tasks', tanpa);
+        gagalPribadi = pribadi && !(inserted && inserted.error);
+      }
       if (inserted && inserted.error) {
         return { error: inserted.error + ' — pastikan supabase-tasks.sql sudah dijalankan di Supabase.' };
       }
       rec = inserted || { id: generateId(), created_at: new Date().toISOString(), ...payload };
+      if (gagalPribadi) {
+        rec.is_private = false;
+        this.data.tasks = (this.data.tasks || []).concat(rec);
+        this._save();
+        return { success: true, task: rec, warning: 'Tugas tersimpan TAPI TIDAK sebagai pribadi — kolomnya belum ada di server. Jalankan supabase-task-private.sql dulu, lalu ubah tugas ini dan centang lagi. Untuk sekarang isinya bisa dibaca staf lain.' };
+      }
     }
     this.data.tasks = (this.data.tasks || []).concat(rec);
     this._save();
@@ -3688,13 +3778,43 @@ class Store {
   async updateTask(id, updates) {
     const t = this.getTask(id);
     if (!t) return { error: 'Tugas tidak ditemukan' };
+
+    // Penjagaan tanda pribadi — sama seperti di createTask, dan harus ada di
+    // sini juga karena delegasi bisa dilakukan langsung dari kartu tugas
+    // tanpa membuka formulirnya sama sekali.
+    if (updates && Object.prototype.hasOwnProperty.call(updates, 'is_private')) {
+      const aku = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+      if (!this.canMakeTaskPrivate(aku)) {
+        return { error: 'Hanya pemilik klinik yang bisa menandai tugas sebagai pribadi.' };
+      }
+      updates = { ...updates, is_private: !!updates.is_private };
+    }
+    const akanPribadi = Object.prototype.hasOwnProperty.call(updates || {}, 'is_private')
+      ? !!updates.is_private : this.isTaskPrivate(t);
+    const akanPunyaPenerima = Object.prototype.hasOwnProperty.call(updates || {}, 'assignee_id')
+      ? !!updates.assignee_id : !!t.assignee_id;
+    if (akanPribadi && akanPunyaPenerima && !this.isEvent(t)) {
+      return { error: 'Tugas pribadi tidak bisa didelegasikan — penerimanya tidak akan bisa melihatnya.' };
+    }
+
     const prevAssignee = t.assignee_id || null;
     const prevAttendees = this.attendeeIds(t);
     Object.assign(t, updates);
     this._save();
     if (!CONFIG.DEMO_MODE && !String(id).startsWith('id_')) {
       const res = await supabase.update('tasks', id, updates).catch(() => null);
-      if (res && res.error) return { error: res.error };
+      if (res && res.error) {
+        // Kolomnya belum ada di server: yang di layar sudah terlihat pribadi
+        // padahal di server tidak. Dikembalikan apa adanya dan dikatakan
+        // terus terang, karena mengira sesuatu tersembunyi padahal terbaca
+        // semua orang jauh lebih berbahaya daripada gagal menyimpan.
+        if (/is_private/i.test(String(res.error))) {
+          t.is_private = false;
+          this._save();
+          return { error: 'Kolom tugas pribadi belum ada di server. Jalankan supabase-task-private.sql dulu — untuk sekarang tugas ini tetap terbaca staf lain.' };
+        }
+        return { error: res.error };
+      }
     }
     // Baru diberitahu kalau tugasnya memang berpindah tangan.
     if (updates.assignee_id !== undefined && (updates.assignee_id || null) !== prevAssignee) {
@@ -3960,7 +4080,7 @@ class Store {
   // tidak boleh ikut muncul di sana. Dikembalikan ringkas (bukan baris utuh)
   // karena halaman kalender hanya perlu menampilkannya, bukan mengubahnya.
   getCalendarTasks(userId) {
-    return (this.data.tasks || [])
+    return this._visibleTasks()
       .filter(t => t.due_date && (!userId || this.isMyTask(t, userId)))
       .map(t => ({
         id: t.id,
@@ -4044,7 +4164,7 @@ class Store {
     };
     const items = [];
 
-    (this.data.tasks || []).forEach(t => {
+    this._visibleTasks().forEach(t => {
       // Yang sudah diajukan untuk ditinjau tidak perlu lagi mengejar
       // pemiliknya — pekerjaannya sudah lepas dari tangannya.
       const st = this.taskStatus(t);
