@@ -6,6 +6,7 @@ import { chatListPage, chatThreadPage } from './chat.js';
 import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge, apptResponseBadge, waSapaMsg, waHariIniMsg, waMsgB64 } from '../wa.js';
 import { crmSetup, crmXData, crmBody } from './crm.js';
 import { calendarTasksSetup, calendarTasksXData, calendarTasksBlock } from './tasks.js';
+import { vaxAnakXData, vaxAnakBody } from './vaksin.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -2049,6 +2050,25 @@ export function doctorSKDApproval() {
 // membuat rekam medis kembar — dan riwayat pasien yang penuh kembaran sama
 // tidak bisa dibacanya dengan yang bolong.
 // ===========================================================================
+// Kartu vaksin anak dari sisi dokter. Isinya sama persis dengan yang dilihat
+// admin — dirakit dari potongan yang sama di js/pages/vaksin.js, supaya
+// keduanya tidak pelan-pelan menjadi dua perilaku yang berbeda.
+export function doctorVaksin() {
+  const doc = getDoctor();
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, ${vaxAnakXData('doctor')} }" class="min-h-screen bg-wash">
+    ${doctorSidebar('vaksin')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-[236px]' : 'ml-0'">
+      ${doctorHeader(doc)}
+      <main class="p-4 lg:p-6 max-w-5xl mx-auto pb-24 lg:pb-6">
+        <h2 class="text-2xl font-bold text-ink mb-1">Vaksin Anak</h2>
+        <p class="text-[12.5px] text-muted mb-5">Tanggalnya dihitung dari tanggal lahir dan dosis terakhir &mdash; anak yang vaksinnya tertunda karena demam tidak perlu lagi dijadwalkan ulang satu per satu.</p>
+        ${vaxAnakBody()}
+      </main>
+    </div>
+  </div>`;
+}
+
 export function doctorRmDebt() {
   const doc = getDoctor();
   const hutang = store.rmDebtsForDoctor(doc?.id);
@@ -2390,6 +2410,7 @@ function doctorSidebar(active) {
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/doctor/prescriptions' },
     { id: 'skd-approval', label: 'Menunggu ACC', icon: 'assignment_turned_in', href: '#/doctor/skd-approval', badge: accMenunggu },
     { id: 'rm-debt', label: 'Kewajiban RM', icon: 'assignment_late', href: '#/doctor/rm-debt', badge: rmHutang },
+    { id: 'vaksin', label: 'Vaksin Anak', icon: 'vaccines', href: '#/doctor/vaksin' },
     { id: 'crm', label: 'CRM Prospek', icon: 'contacts', href: '#/doctor/crm' },
     { id: 'chat', label: 'Pesan', icon: 'forum', href: '#/doctor/chat', badge: unreadChat },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/doctor/homecare/history' },
