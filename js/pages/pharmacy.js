@@ -208,27 +208,6 @@ export function pharmacyDashboard() {
     // memang ditanyakan saat mendaftarkannya. Komposisi racikan ikut diperiksa:
     // obat yang memicu alergi paling sering justru sembunyi di dalam racikan,
     // bukan di nama tampilnya.
-    // Stok obat yang sedang diketik. Ditampilkan saat MENYUSUN, bukan saat
-    // menyerahkan: apotek yang baru tahu obatnya habis setelah resepnya
-    // di-ACC dokter harus mengulang semuanya dari awal.
-    rxStok(item) { return window.__store.stockInfoFor(this.pharmacyId, item); },
-    rxStokTeks(item) {
-      const s = this.rxStok(item);
-      if (s.status === 'racikan') return '';
-      if (s.status === 'tidak-dikenal') return 'Tidak terdaftar di inventaris — stok tidak terpantau';
-      const sisa = s.stock + ' ' + (s.unit || '');
-      if (s.status === 'habis') return 'STOK HABIS (' + sisa + ')';
-      if (s.status === 'kurang') return 'Stok kurang: tersisa ' + sisa + ', diminta ' + s.perlu;
-      if (s.status === 'menipis') return 'Stok menipis: tersisa ' + sisa;
-      return 'Stok: ' + sisa;
-    },
-    rxStokWarna(item) {
-      const st = this.rxStok(item).status;
-      if (st === 'habis' || st === 'kurang') return 'text-red-600 font-semibold';
-      if (st === 'menipis') return 'text-amber-700 font-medium';
-      if (st === 'tidak-dikenal') return 'text-slate-400';
-      return 'text-slate-500';
-    },
     rxAlergiHit(item) {
       const hay = ((item.drug_name || '') + ' ' + (item.compound_details || '')).toLowerCase();
       return (window.__store.patientAllergyTerms(this.rxForm.patient_id) || []).find(t => hay.includes(t)) || '';
@@ -483,27 +462,6 @@ export function pharmacyPrescriptions() {
     // memang ditanyakan saat mendaftarkannya. Komposisi racikan ikut diperiksa:
     // obat yang memicu alergi paling sering justru sembunyi di dalam racikan,
     // bukan di nama tampilnya.
-    // Stok obat yang sedang diketik. Ditampilkan saat MENYUSUN, bukan saat
-    // menyerahkan: apotek yang baru tahu obatnya habis setelah resepnya
-    // di-ACC dokter harus mengulang semuanya dari awal.
-    rxStok(item) { return window.__store.stockInfoFor(this.pharmacyId, item); },
-    rxStokTeks(item) {
-      const s = this.rxStok(item);
-      if (s.status === 'racikan') return '';
-      if (s.status === 'tidak-dikenal') return 'Tidak terdaftar di inventaris — stok tidak terpantau';
-      const sisa = s.stock + ' ' + (s.unit || '');
-      if (s.status === 'habis') return 'STOK HABIS (' + sisa + ')';
-      if (s.status === 'kurang') return 'Stok kurang: tersisa ' + sisa + ', diminta ' + s.perlu;
-      if (s.status === 'menipis') return 'Stok menipis: tersisa ' + sisa;
-      return 'Stok: ' + sisa;
-    },
-    rxStokWarna(item) {
-      const st = this.rxStok(item).status;
-      if (st === 'habis' || st === 'kurang') return 'text-red-600 font-semibold';
-      if (st === 'menipis') return 'text-amber-700 font-medium';
-      if (st === 'tidak-dikenal') return 'text-slate-400';
-      return 'text-slate-500';
-    },
     rxAlergiHit(item) {
       const hay = ((item.drug_name || '') + ' ' + (item.compound_details || '')).toLowerCase();
       return (window.__store.patientAllergyTerms(this.rxForm.patient_id) || []).find(t => hay.includes(t)) || '';
@@ -976,7 +934,6 @@ export function pharmacyPrescriptions() {
                       <input type="text" x-model="it.instructions" placeholder="Aturan tambahan (opsional)" class="col-span-8 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white">
                     </div>
                     <p x-show="rxAlergiHit(it)" x-cloak class="text-[11px] text-red-600 font-medium mt-1.5" x-text="'⚠️ Cocok alergi pasien: ' + rxAlergiHit(it)"></p>
-                    <p x-show="it.drug_name && !it.is_compound" x-cloak class="text-[11px] mt-1" :class="rxStokWarna(it)" x-text="rxStokTeks(it)"></p>
                     <!-- Komposisi WAJIB untuk racikan: inilah yang dibaca dokter
                          saat meng-ACC dan yang tercetak sebagai isi resepnya. -->
                     <div x-show="it.is_compound" x-cloak class="mt-2 p-2 rounded-lg bg-purple-50 border border-purple-200">
@@ -1260,11 +1217,6 @@ export function pharmacyInventory() {
         <div class="flex items-center justify-between mb-6"><h2 class="text-xl font-bold text-gray-800">Inventaris Obat</h2>
           <div class="relative"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari obat..."></div>
         </div>
-        ${inventory.some(i => i.stock < 0) ? `
-        <div class="mb-4 px-4 py-3 rounded-2xl bg-red-50 border-2 border-red-200">
-          <p class="text-sm font-bold text-red-900">${inventory.filter(i => i.stock < 0).length} obat stoknya minus</p>
-          <p class="text-[12px] text-red-800 leading-relaxed mt-0.5">Artinya yang dilayani lebih banyak daripada yang tercatat masuk &mdash; hampir selalu karena ada pemasukan barang yang belum dicatat. Perlu opname: ${escHtml(inventory.filter(i => i.stock < 0).map(i => i.drug_name).join(', '))}.</p>
-        </div>` : ''}
         <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           <div class="overflow-x-auto"><table class="w-full"><thead><tr class="bg-gray-50 border-b border-gray-100"><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Nama Obat</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Stok</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden sm:table-cell">Min. Stok</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 hidden md:table-cell">Kadaluarsa</th><th class="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Status</th></tr></thead>
           <tbody class="divide-y divide-gray-50">
@@ -1272,17 +1224,10 @@ export function pharmacyInventory() {
             <template x-if="!search || '${i.drug_name.toLowerCase()}'.includes(search.toLowerCase())">
               <tr class="hover:bg-gray-50 transition">
                 <td class="px-4 py-3 text-sm font-medium text-gray-800">${escHtml(i.drug_name)}</td>
-                <td class="px-4 py-3 text-sm ${i.stock < 0 ? 'text-red-700 font-bold' : 'text-gray-600'}">${i.stock} ${escHtml(i.unit)}</td>
+                <td class="px-4 py-3 text-sm text-gray-600">${i.stock} ${escHtml(i.unit)}</td>
                 <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${i.min_stock} ${escHtml(i.unit)}</td>
                 <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${formatDate(i.expiry_date)}</td>
-                <td class="px-4 py-3">${
-                  // Stok minus sengaja tidak dipotong di nol saat resep
-                  // dilayani: angka minus berteriak "hitungan ini salah, perlu
-                  // opname", sedangkan angka yang dipotong berpura-pura beres.
-                  i.stock < 0
-                    ? '<span class="px-2 py-1 rounded-full text-xs font-bold bg-red-600 text-white" title="Terpakai melebihi catatan — perlu opname">Minus &middot; perlu opname</span>'
-                    : `<span class="px-2 py-1 rounded-full text-xs font-medium ${i.stock <= i.min_stock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${i.stock <= i.min_stock ? 'Rendah' : 'Cukup'}</span>`
-                }</td>
+                <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-medium ${i.stock <= i.min_stock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">${i.stock <= i.min_stock ? 'Rendah' : 'Cukup'}</span></td>
               </tr>
             </template>`).join('')}
           </tbody></table></div>
@@ -1301,7 +1246,17 @@ function pharmacySidebar(active) {
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view', href: '#/pharmacy/dashboard' },
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/pharmacy/prescriptions' },
     { id: 'certificates', label: 'Surat Keterangan', icon: 'description', href: '#/pharmacy/certificates' },
-    { id: 'inventory', label: 'Inventaris', icon: 'inventory_2', href: '#/pharmacy/inventory' },
+    // MENU INVENTARIS SENGAJA DISEMBUNYIKAN, bukan dihapus.
+    //
+    // Stok obat belum dikelola: angkanya tidak pernah berubah oleh pelayanan
+    // resep, jadi halaman yang menampilkannya hanya akan dipercaya padahal
+    // tidak benar — dan angka stok yang salah lebih berbahaya daripada tidak
+    // ada angka sama sekali.
+    //
+    // Halaman & datanya TIDAK dihapus: rutenya masih hidup (#/pharmacy/inventory)
+    // dan tabel inventory tidak disentuh, jadi menyalakannya kembali cukup
+    // dengan membuang komentar pada baris di bawah ini.
+    // { id: 'inventory', label: 'Inventaris', icon: 'inventory_2', href: '#/pharmacy/inventory' },
     { id: 'tugas', label: 'Tugas Saya', icon: 'checklist', href: '#/tugas', badge: openTasks },
   ];
   return `
