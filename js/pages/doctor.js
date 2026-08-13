@@ -1254,9 +1254,11 @@ export function doctorPrescriptions() {
   window.__rxAccDoctorId = doc?.id || '';
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, accDoctorId: window.__rxAccDoctorId || '',
-    async accRx(id, nomor) {
-      if (!confirm('Setujui resep ' + nomor + '? Setelah di-ACC, resep ini berlaku dan masuk antrean apotek.')) return;
-      const r = await window.__store.approvePrescription(id, this.accDoctorId, '');
+    async accRx(id, nomor, fee) {
+      const nominal = Math.max(0, Math.round(Number(fee) || 0));
+      const kalimatJasa = nominal > 0 ? ' Jasa dokter Rp' + nominal.toLocaleString('id-ID') + ' akan ditarik apotek dari pasien.' : '';
+      if (!confirm('Setujui resep ' + nomor + '? Setelah di-ACC, resep ini berlaku dan masuk antrean apotek.' + kalimatJasa)) return;
+      const r = await window.__store.approvePrescription(id, this.accDoctorId, '', { service_fee_enabled: nominal > 0, service_fee: nominal });
       if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
       window.__showToast && window.__showToast('Disetujui', 'Resep ' + nomor + ' kini berlaku.');
       setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
@@ -1284,16 +1286,30 @@ export function doctorPrescriptions() {
             const pat = store.getPatient(rx.patient_id);
             const ph = store.getPharmacy(rx.drafted_by_pharmacy || rx.pharmacy_id);
             const its = store.getPrescriptionItems(rx.id);
-            return `<div class="p-4">
+            const asal = rx.repeat_of ? store.data.prescriptions.find(x => x.id === rx.repeat_of) : null;
+            return `<div class="p-4" x-data="{ jasa: false, nominal: '' }">
               <div class="flex items-start justify-between gap-3 flex-wrap">
                 <div class="flex-1 min-w-[220px]">
-                  <p class="font-semibold text-gray-800 text-sm">${escHtml(rx.rx_number)} &mdash; ${escHtml(pat?.full_name || 'Pasien')}</p>
-                  <p class="text-xs text-gray-500 mt-0.5">Disusun ${escHtml(ph?.name || 'apotek')} &middot; ${formatDate((rx.created_at || '').split('T')[0])}</p>
+                  <p class="font-semibold text-gray-800 text-sm">${escHtml(rx.rx_number)} &mdash; ${escHtml(pat?.full_name || 'Pasien')}${asal ? ` <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 align-middle">RESEP ULANG</span>` : ''}</p>
+                  <p class="text-xs text-gray-500 mt-0.5">Disusun ${escHtml(ph?.name || 'apotek')} &middot; ${formatDate((rx.created_at || '').split('T')[0])}${asal ? ` &middot; mengulang ${escHtml(asal.rx_number || '')} (${formatDate((asal.created_at || '').split('T')[0])})` : ''}</p>
                   ${rx.notes ? `<p class="text-xs text-gray-600 mt-1"><b>Catatan apotek:</b> ${escHtml(rx.notes)}</p>` : ''}
                 </div>
                 <div class="flex gap-2">
-                  <button @click="accRx('${rx.id}', '${escHtml(rx.rx_number)}')" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-600 hover:bg-green-500 transition flex items-center gap-1"><span class="ms text-[15px]">check</span>ACC Resep</button>
+                  <button @click="accRx('${rx.id}', '${escHtml(rx.rx_number)}', jasa ? nominal : 0)" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-600 hover:bg-green-500 transition flex items-center gap-1"><span class="ms text-[15px]">check</span>ACC Resep</button>
                   <button @click="tolakRx('${rx.id}', '${escHtml(rx.rx_number)}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 transition">Tolak</button>
+                </div>
+              </div>
+              <!-- Jasa dokter ditentukan di sini, saat menyetujui — bukan oleh
+                   apotek saat menyusun. -->
+              <div class="mt-2 rounded-xl bg-green-50/70 border border-green-100 p-2.5">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" x-model="jasa" class="rounded border-green-300">
+                  <span class="text-xs font-semibold text-green-900">Cantumkan jasa dokter pada resep ini</span>
+                </label>
+                <div x-show="jasa" x-cloak class="mt-2 flex items-center gap-2 flex-wrap">
+                  <span class="text-xs text-green-800">Rp</span>
+                  <input type="number" min="0" step="5000" x-model="nominal" placeholder="0" class="w-32 px-2 py-1 border border-green-200 rounded-lg text-sm text-right bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50">
+                  <span class="text-[11px] text-green-700">Ditarik apotek dari pasien saat pengambilan obat.</span>
                 </div>
               </div>
               <div class="mt-2 rounded-xl bg-slate-50 border border-slate-100 p-2.5 space-y-1">

@@ -1340,10 +1340,17 @@ class Store {
   }
 
   // Dokter menyetujui: resepnya baru berlaku sejak detik ini.
-  async approvePrescription(rxId, doctorId, note) {
+  // opts.service_fee: jasa dokter yang boleh ditarik apotek dari pasien.
+  // Ditentukan SAAT ACC, bukan saat apotek menyusun — apotek tidak berhak
+  // menetapkan jasa dokter, dan dokternya baru tahu nilainya setelah membaca
+  // resepnya.
+  async approvePrescription(rxId, doctorId, note, opts) {
     const rx = (this.data.prescriptions || []).find(r => r.id === rxId);
     if (!rx) return { error: 'Resep tidak ditemukan' };
     if (!this.rxIsPending(rx)) return { error: 'Resep ini tidak sedang menunggu persetujuan.' };
+    const o = opts || {};
+    const fee = Math.max(0, Math.round(Number(o.service_fee) || 0));
+    const feeOn = o.service_fee_enabled === true && fee > 0;
     const updates = {
       approval_status: 'approved',
       approved_at: new Date().toISOString(),
@@ -1351,6 +1358,8 @@ class Store {
       // Sejak di-ACC, resepnya menjadi tanggung jawab dokter yang menyetujui.
       doctor_id: doctorId || rx.doctor_id,
       status: 'sent',
+      service_fee_enabled: feeOn,
+      service_fee: feeOn ? fee : 0,
     };
     Object.assign(rx, updates);
     this._save();
@@ -1359,8 +1368,11 @@ class Store {
     }
     const ph = (this.data.pharmacies || []).find(p => p.id === rx.drafted_by_pharmacy || p.id === rx.pharmacy_id);
     if (ph && ph.user_id) {
+      const jasa = updates.service_fee_enabled
+        ? ` Jasa dokter Rp${Number(updates.service_fee).toLocaleString('id-ID')} mohon ditarik dari pasien.`
+        : '';
       this.addNotification(ph.user_id, 'Resep Disetujui',
-        `Resep ${rx.rx_number} sudah di-ACC dokter dan berlaku. Silakan dilayani.`, 'prescription');
+        `Resep ${rx.rx_number} sudah di-ACC dokter dan berlaku. Silakan dilayani.${jasa}`, 'prescription');
     }
     const pat = (this.data.patients || []).find(p => p.id === rx.patient_id);
     if (pat && pat.user_id) {
@@ -1396,6 +1408,73 @@ class Store {
         `Resep ${rx.rx_number} tidak disetujui. Alasan: ${clean}`, 'prescription');
     }
     return { success: true, rx };
+  }
+
+  // ---- RESEP ULANG -------------------------------------------------------
+  //
+  // Apotek boleh menelusuri seluruh resep yang pernah sah, lalu mengulangnya.
+  // Yang diulang hanya DAFTAR OBATNYA; resep ulangnya tetap resep baru yang
+  // menunggu ACC dokter — sebab yang menjadikan sebuah resep sah adalah
+  // keputusan dokter hari ini, bukan keputusan dokter tiga bulan lalu.
+  //
+  // Yang bisa dicari hanya resep yang SUDAH SAH. Resep yang masih menunggu
+  // ACC atau pernah ditolak sengaja tidak bisa dijadikan sumber pengulangan.
+  searchPrescriptionsForRepeat(query, limit) {
+    const q = String(query || '').trim().toLowerCase();
+    const max = Number(limit) || 25;
+    const hasil = [];
+    const semua = (this.data.prescriptions || [])
+      .filter(rx => this.rxApprovalStatus(rx) === 'approved' && rx.status !== 'cancelled')
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    for (const rx of semua) {
+      const pasien = this.getPatient(rx.patient_id);
+      const items = this.getPrescriptionItems(rx.id);
+      if (!items.length) continue;
+      if (q) {
+        const jerami = [
+          (pasien && pasien.full_name) || '', rx.rx_number || '',
+          items.map(i => i.drug_name || '').join(' '),
+        ].join(' ').toLowerCase();
+        if (!jerami.includes(q)) continue;
+      }
+      hasil.push({
+        id: rx.id, rx_number: rx.rx_number || '', created_at: rx.created_at || '',
+        patient_id: rx.patient_id, patient_name: (pasien && pasien.full_name) || 'Pasien',
+        doctor_id: rx.doctor_id, doctor_name: (this.getDoctor(rx.doctor_id) || {}).full_name || '',
+        items: items.map(i => ({
+          drug_name: i.drug_name || '', dosage: i.dosage || '', frequency: i.frequency || '',
+          time: i.time || '', quantity: i.quantity || '', unit: i.unit || '',
+          instructions: i.instructions || '',
+        })),
+      });
+      if (hasil.length >= max) break;
+    }
+    return hasil;
+  }
+
+  // Buat resep ulang dari sebuah resep lama. Selalu menunggu ACC.
+  async repeatPrescription(sourceRxId, opts) {
+    const o = opts || {};
+    const src = (this.data.prescriptions || []).find(r => r.id === sourceRxId);
+    if (!src) return { success: false, error: 'Resep sumber tidak ditemukan.' };
+    if (this.rxApprovalStatus(src) !== 'approved') {
+      return { success: false, error: 'Hanya resep yang sudah sah yang bisa diulang.' };
+    }
+    const items = this.getPrescriptionItems(sourceRxId).map(i => ({
+      drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time,
+      quantity: i.quantity, unit: i.unit, instructions: i.instructions,
+      is_compound: i.is_compound, display_name: i.display_name, compound_details: i.compound_details,
+    }));
+    if (!items.length) return { success: false, error: 'Resep sumber tidak punya obat untuk diulang.' };
+    const catatan = String(o.notes || '').trim();
+    return this.createPharmacyPrescription({
+      patient_id: src.patient_id,
+      // Jejak asal-usulnya disimpan supaya dokter tahu ini pengulangan, dan
+      // bisa menengok resep aslinya sebelum memutuskan.
+      repeat_of: sourceRxId,
+      notes: (catatan ? catatan + ' ' : '') + `(Resep ulang dari ${src.rx_number || 'resep sebelumnya'})`,
+      record_id: null,
+    }, items, { pharmacyId: o.pharmacyId, doctorId: o.doctorId });
   }
 
   // Antrean ACC seorang dokter.

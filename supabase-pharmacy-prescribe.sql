@@ -10,6 +10,17 @@
 --   apotek menyusun  →  menunggu ACC dokter  →  berlaku (masuk antrean)
 --                                            ↘  ditolak (beserta alasannya)
 --
+-- RESEP ULANG mengikuti jalur yang sama persis. Apotek boleh menelusuri resep
+-- yang pernah sah lalu mengulangnya, tapi yang disalin hanya DAFTAR OBATNYA:
+-- resep ulangnya tetap resep baru yang menunggu ACC. Yang menjadikan sebuah
+-- resep sah adalah keputusan dokter hari ini, bukan keputusan dokter tiga
+-- bulan lalu — kondisi pasien bisa sudah berbeda. Asal-usulnya disimpan di
+-- kolom repeat_of supaya dokter bisa menengok resep aslinya.
+--
+-- JASA DOKTER ditentukan SAAT ACC (kolom service_fee_enabled & service_fee
+-- yang sudah ada), bukan saat apotek menyusun — apotek tidak berhak
+-- menetapkannya, dan dokternya baru tahu nilainya setelah membaca resepnya.
+--
 -- Izin ini MATI secara bawaan (can_prescribe = false). Apotek yang tidak
 -- diberi izin tidak melihat menunya sama sekali — bukan sekadar tombolnya
 -- dinonaktifkan.
@@ -37,7 +48,8 @@ ALTER TABLE public.prescriptions
   ADD COLUMN IF NOT EXISTS approval_doctor_id uuid,                    -- dokter yang harus meng-ACC
   ADD COLUMN IF NOT EXISTS drafted_by_pharmacy uuid,                   -- apotek penyusunnya
   ADD COLUMN IF NOT EXISTS approved_at        timestamptz,
-  ADD COLUMN IF NOT EXISTS approval_note      text;
+  ADD COLUMN IF NOT EXISTS approval_note      text,
+  ADD COLUMN IF NOT EXISTS repeat_of          uuid;   -- resep yang diulang
 
 -- Baris lama semuanya ditulis dokter, jadi sah sejak awal. Dibuat eksplisit
 -- supaya tidak ada NULL yang harus ditebak artinya oleh query mana pun.
@@ -47,6 +59,10 @@ UPDATE public.prescriptions SET approval_status = 'approved' WHERE approval_stat
 CREATE INDEX IF NOT EXISTS idx_prescriptions_pending_acc
   ON public.prescriptions (approval_doctor_id, created_at DESC)
   WHERE approval_status = 'pending';
+
+-- Menelusuri riwayat pengulangan sebuah resep.
+CREATE INDEX IF NOT EXISTS idx_prescriptions_repeat_of
+  ON public.prescriptions (repeat_of) WHERE repeat_of IS NOT NULL;
 
 -- Antrean apotek: resep yang sudah sah saja.
 CREATE INDEX IF NOT EXISTS idx_prescriptions_approved

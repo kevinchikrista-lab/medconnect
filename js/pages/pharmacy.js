@@ -39,6 +39,7 @@ export function pharmacyDashboard() {
     rxPatients: window.__pharmacyPatients || [], rxDoctors: window.__pharmacyDoctors || [],
     rxUnits: window.__rxUnits || [], rxSigna: window.__rxSigna || [], rxSignaTime: window.__rxSignaTime || [],
     rxOpen: false, rxSaving: false, rxErr: '', rxCari: '',
+    ulangOpen: false, ulangCari: '', ulangHasil: [], ulangBusy: false, ulangErr: '', ulangDokter: '', ulangPilih: '',
     rxForm: { patient_id: '', doctor_id: '', notes: '', items: [] },
     // ---- Menyusun resep (wajib ACC dokter) ----
     rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), instructions: '' }; },
@@ -68,6 +69,43 @@ export function pharmacyDashboard() {
       this.drafts = window.__store.getRxDraftedByPharmacy(this.pharmacyId);
       window.__showToast && window.__showToast('Terkirim untuk ACC',
         'Resep ' + res.rx.rx_number + ' menunggu persetujuan dokter. Resep ini belum berlaku sampai disetujui.');
+    },
+    // ---- Resep ulang: ambil dari resep yang pernah sah ----
+    openUlang() {
+      this.ulangOpen = true; this.ulangErr = ''; this.ulangPilih = '';
+      this.ulangCari = '';
+      this.ulangDokter = (this.rxDoctors[0] && this.rxDoctors[0].id) || '';
+      this.cariUlang();
+    },
+    cariUlang() { this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, 25); },
+    ulangRingkas(r) {
+      return (r.items || []).map(i => i.drug_name + (i.dosage ? ' ' + i.dosage : '')).join(', ');
+    },
+    async kirimUlang(r) {
+      if (this.ulangBusy) return;
+      if (!this.ulangDokter) { this.ulangErr = 'Pilih dokter yang akan meng-ACC terlebih dahulu.'; return; }
+      if (!confirm('Ulangi resep ' + r.rx_number + ' untuk ' + r.patient_name + '? Resep ulang ini tetap menunggu ACC dokter sebelum berlaku.')) return;
+      this.ulangBusy = true; this.ulangErr = '';
+      const res = await window.__store.repeatPrescription(r.id, { pharmacyId: this.pharmacyId, doctorId: this.ulangDokter });
+      this.ulangBusy = false;
+      if (!res || res.error || !res.success) { this.ulangErr = (res && res.error) || 'Gagal membuat resep ulang.'; return; }
+      this.ulangOpen = false;
+      this.drafts = window.__store.getRxDraftedByPharmacy(this.pharmacyId);
+      window.__showToast && window.__showToast('Resep ulang dikirim',
+        'Resep ' + res.rx.rx_number + ' menunggu ACC dokter. Belum berlaku sampai disetujui.');
+    },
+    // Menyalin isinya ke formulir susun resep, bila mau diubah dulu.
+    sunting(r) {
+      this.ulangOpen = false;
+      this.rxErr = ''; this.rxCari = r.patient_name;
+      this.rxForm = {
+        patient_id: r.patient_id,
+        doctor_id: this.ulangDokter || (this.rxDoctors[0] && this.rxDoctors[0].id) || '',
+        notes: 'Resep ulang dari ' + r.rx_number,
+        items: (r.items || []).map(i => ({ drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time, quantity: i.quantity, unit: i.unit || (this.rxUnits[0] || 'Tablet'), instructions: i.instructions })),
+      };
+      if (!this.rxForm.items.length) this.rxForm.items = [this.rxBlank()];
+      this.rxOpen = true;
     },
     rxAccLabel(rx) { const s = window.__store.rxApprovalStatus(rx); return s === 'pending' ? 'Menunggu ACC dokter' : (s === 'rejected' ? 'Ditolak dokter' : 'Disetujui'); },
     rxAccChip(rx) { const s = window.__store.rxApprovalStatus(rx); return s === 'pending' ? 'bg-amber-100 text-amber-800' : (s === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'); },
@@ -212,6 +250,7 @@ export function pharmacyPrescriptions() {
     rxPatients: window.__pharmacyPatients || [], rxDoctors: window.__pharmacyDoctors || [],
     rxUnits: window.__rxUnits || [], rxSigna: window.__rxSigna || [], rxSignaTime: window.__rxSignaTime || [],
     rxOpen: false, rxSaving: false, rxErr: '', rxCari: '',
+    ulangOpen: false, ulangCari: '', ulangHasil: [], ulangBusy: false, ulangErr: '', ulangDokter: '', ulangPilih: '',
     rxForm: { patient_id: '', doctor_id: '', notes: '', items: [] },
     // ---- Menyusun resep (wajib ACC dokter) ----
     rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), instructions: '' }; },
@@ -241,6 +280,43 @@ export function pharmacyPrescriptions() {
       this.drafts = window.__store.getRxDraftedByPharmacy(this.pharmacyId);
       window.__showToast && window.__showToast('Terkirim untuk ACC',
         'Resep ' + res.rx.rx_number + ' menunggu persetujuan dokter. Resep ini belum berlaku sampai disetujui.');
+    },
+    // ---- Resep ulang: ambil dari resep yang pernah sah ----
+    openUlang() {
+      this.ulangOpen = true; this.ulangErr = ''; this.ulangPilih = '';
+      this.ulangCari = '';
+      this.ulangDokter = (this.rxDoctors[0] && this.rxDoctors[0].id) || '';
+      this.cariUlang();
+    },
+    cariUlang() { this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, 25); },
+    ulangRingkas(r) {
+      return (r.items || []).map(i => i.drug_name + (i.dosage ? ' ' + i.dosage : '')).join(', ');
+    },
+    async kirimUlang(r) {
+      if (this.ulangBusy) return;
+      if (!this.ulangDokter) { this.ulangErr = 'Pilih dokter yang akan meng-ACC terlebih dahulu.'; return; }
+      if (!confirm('Ulangi resep ' + r.rx_number + ' untuk ' + r.patient_name + '? Resep ulang ini tetap menunggu ACC dokter sebelum berlaku.')) return;
+      this.ulangBusy = true; this.ulangErr = '';
+      const res = await window.__store.repeatPrescription(r.id, { pharmacyId: this.pharmacyId, doctorId: this.ulangDokter });
+      this.ulangBusy = false;
+      if (!res || res.error || !res.success) { this.ulangErr = (res && res.error) || 'Gagal membuat resep ulang.'; return; }
+      this.ulangOpen = false;
+      this.drafts = window.__store.getRxDraftedByPharmacy(this.pharmacyId);
+      window.__showToast && window.__showToast('Resep ulang dikirim',
+        'Resep ' + res.rx.rx_number + ' menunggu ACC dokter. Belum berlaku sampai disetujui.');
+    },
+    // Menyalin isinya ke formulir susun resep, bila mau diubah dulu.
+    sunting(r) {
+      this.ulangOpen = false;
+      this.rxErr = ''; this.rxCari = r.patient_name;
+      this.rxForm = {
+        patient_id: r.patient_id,
+        doctor_id: this.ulangDokter || (this.rxDoctors[0] && this.rxDoctors[0].id) || '',
+        notes: 'Resep ulang dari ' + r.rx_number,
+        items: (r.items || []).map(i => ({ drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time, quantity: i.quantity, unit: i.unit || (this.rxUnits[0] || 'Tablet'), instructions: i.instructions })),
+      };
+      if (!this.rxForm.items.length) this.rxForm.items = [this.rxBlank()];
+      this.rxOpen = true;
     },
     rxAccLabel(rx) { const s = window.__store.rxApprovalStatus(rx); return s === 'pending' ? 'Menunggu ACC dokter' : (s === 'rejected' ? 'Ditolak dokter' : 'Disetujui'); },
     rxAccChip(rx) { const s = window.__store.rxApprovalStatus(rx); return s === 'pending' ? 'bg-amber-100 text-amber-800' : (s === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'); },
@@ -279,9 +355,14 @@ export function pharmacyPrescriptions() {
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="flex items-center justify-between gap-2 flex-wrap mb-4">
           <h2 class="text-xl font-bold text-gray-800">Semua E-Resep</h2>
-          <button x-show="canRx" x-cloak @click="openRx()" class="px-4 py-2 rounded-lg text-sm font-semibold text-white flex items-center gap-1.5" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
-            <span class="ms text-[17px]">edit_note</span>Susun Resep
-          </button>
+          <div class="flex gap-2 flex-wrap">
+            <button x-show="canRx" x-cloak @click="openUlang()" class="px-4 py-2 rounded-lg text-sm font-semibold text-purple-800 bg-purple-100 hover:bg-purple-200 transition flex items-center gap-1.5">
+              <span class="ms text-[17px]">history</span>Ambil Resep Sebelumnya
+            </button>
+            <button x-show="canRx" x-cloak @click="openRx()" class="px-4 py-2 rounded-lg text-sm font-semibold text-white flex items-center gap-1.5" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
+              <span class="ms text-[17px]">edit_note</span>Susun Resep
+            </button>
+          </div>
         </div>
 
         <!-- Resep yang disusun apotek ini. Ditaruh terpisah dari antrean
@@ -395,6 +476,54 @@ export function pharmacyPrescriptions() {
           </template>
         </div>
       
+        <!-- Ambil resep sebelumnya. Yang disalin hanya daftar obatnya; resep
+             ulangnya tetap resep baru yang menunggu ACC dokter. -->
+        <div x-show="ulangOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="ulangOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] flex flex-col">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-lg font-bold text-gray-800">Ambil Resep Sebelumnya</h3>
+              <button @click="ulangOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div class="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+              <p class="text-[11.5px] text-amber-900 leading-relaxed">Resep ulang <b>tetap menunggu ACC dokter</b>. Yang menjadikan sebuah resep sah adalah keputusan dokter hari ini &mdash; kondisi pasien bisa sudah berbeda dari resep sebelumnya.</p>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3 mb-3">
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Cari resep</label>
+                <input type="text" x-model="ulangCari" @input="cariUlang()" placeholder="Nama pasien, no. resep, atau nama obat..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Dokter yang meng-ACC *</label>
+                <select x-model="ulangDokter" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                  <template x-for="d in rxDoctors" :key="d.id"><option :value="d.id" x-text="d.name + (d.sip ? ' — SIP ' + d.sip : '')"></option></template>
+                </select>
+              </div>
+            </div>
+            <p x-show="ulangErr" x-cloak class="text-xs text-red-600 mb-2" x-text="ulangErr"></p>
+            <div class="flex-1 min-h-0 overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-50">
+              <template x-for="r in ulangHasil" :key="r.id">
+                <div class="p-3">
+                  <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div class="flex-1 min-w-[200px]">
+                      <p class="text-sm font-semibold text-gray-800"><span x-text="r.rx_number"></span> &middot; <span x-text="r.patient_name"></span></p>
+                      <p class="text-[11px] text-slate-500" x-text="(r.created_at || '').slice(0,10) + (r.doctor_name ? ' · ' + r.doctor_name : '')"></p>
+                      <p class="text-xs text-gray-700 mt-1" x-text="ulangRingkas(r)"></p>
+                    </div>
+                    <div class="flex gap-1.5">
+                      <button @click="kirimUlang(r)" :disabled="ulangBusy" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 transition disabled:opacity-50">Ulangi &amp; Kirim ACC</button>
+                      <button @click="sunting(r)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition">Ubah dulu</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div x-show="!ulangHasil.length" x-cloak class="p-8 text-center text-sm text-gray-400">Tidak ada resep yang cocok.</div>
+            </div>
+            <div class="flex justify-end mt-4">
+              <button @click="ulangOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Tutup</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Menyusun resep. Selalu berujung pada ACC dokter. -->
         <div x-show="rxOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="rxOpen=false">
           <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] overflow-y-auto">
