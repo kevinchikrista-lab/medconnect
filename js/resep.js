@@ -100,8 +100,14 @@ function buildResepDetails(rx, patient, doctor, items) {
     // Tempat praktik saat resep ditulis (Klinik / Home Care / Telemedicine) —
     // bagian dari Inscriptio, bisa berbeda tiap kunjungan.
     practice_place: (linkedRecord && linkedRecord.location) || '',
+    doctor_id: (doctor && doctor.id) || (rx && rx.doctor_id) || '',
     doctor_name: (doctor && doctor.full_name) || '',
     doctor_sip: (doctor && doctor.sip_number) || '',
+    // Kop resep ikut DOKTERNYA (lihat store.getKopFor), lalu dibekukan di sini
+    // supaya cetak ulang bertahun kemudian tetap menghasilkan lembar yang sama
+    // persis — walau kop dokternya sudah diubah sejak itu.
+    kop: store.getKopFor((doctor && doctor.id) || (rx && rx.doctor_id) || '',
+      (linkedRecord && linkedRecord.location) || ''),
     letter_date: issueDate,
     notes: rx.notes || '',
     service_fee_enabled: !!rx.service_fee_enabled,
@@ -204,9 +210,16 @@ function writeResep(w, cert) {
   // master Lokasi Praktik DAN alamatnya diisi, alamat itu yang dicetak; kalau
   // tidak (mis. Home Care / Telemedicine yang alamatnya kosong), jatuh kembali
   // ke alamat & kontak klinik utama.
-  const place = store.findLocationByName(d.practice_place);
-  const kopAddr = (place && place.address) || CONFIG.CLINIC_ADDRESS || '';
-  const kopPhone = (place && place.phone) || CONFIG.CLINIC_WHATSAPP_DISPLAY || '';
+  // Kop yang dibekukan saat resep diterbitkan. Resep lama (terbit sebelum kop
+  // per dokter ada) tidak punya d.kop, jadi disusun ulang di sini dari data
+  // yang berlaku sekarang — hasilnya sama dengan perilaku lama.
+  const kop = d.kop && d.kop.name
+    ? d.kop
+    : store.getKopFor(d.doctor_id || '', d.practice_place || '');
+  const kopAddr = kop.address || CONFIG.CLINIC_ADDRESS || '';
+  const kopPhone = kop.phone || CONFIG.CLINIC_WHATSAPP_DISPLAY || '';
+  // Logo boleh berupa URL penuh (logo apotek mitra) atau path lokal.
+  const kopLogo = /^https?:\/\//i.test(kop.logo || '') ? kop.logo : (kop.logo ? `${origin}/${String(kop.logo).replace(/^\//, '')}` : '');
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Resep - ${esc(cert.patient_name)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -303,11 +316,11 @@ function writeResep(w, cert) {
   </div>
   <div class="page">
     <div class="kop">
-      <img src="${origin}/assets/logos/klinik-prima-logo.png" alt="Klinik Prima">
+      ${kopLogo ? `<img src="${esc(kopLogo)}" alt="${esc(kop.name)}">` : ''}
       <div class="kop-text">
-        <div class="kop-name">KLINIK KASIH ANUGERAH PRIMA</div>
-        <div class="kop-sub">(PRIMA KLINIK)</div>
-        <div class="kop-addr">${esc(kopAddr)}<br>No. HP / WA : ${esc(kopPhone)} &nbsp;|&nbsp; email: primaklinik.ptk@gmail.com</div>
+        <div class="kop-name">${esc(kop.name)}</div>
+        ${kop.sub ? `<div class="kop-sub">${esc(kop.sub)}</div>` : ''}
+        <div class="kop-addr">${esc(kopAddr)}<br>No. HP / WA : ${esc(kopPhone)}${kop.email ? ' &nbsp;|&nbsp; email: ' + esc(kop.email) : ''}</div>
       </div>
     </div>
 
@@ -409,8 +422,11 @@ export async function printResepById(rxId) {
     berat_badan: vs.bb || '',
     tinggi_badan: vs.tb || '',
     practice_place: (linked && linked.location) || '',
+    doctor_id: (doctor && doctor.id) || (rx && rx.doctor_id) || '',
     doctor_name: (doctor && doctor.full_name) || '',
     doctor_sip: (doctor && doctor.sip_number) || '',
+    kop: store.getKopFor((doctor && doctor.id) || (rx && rx.doctor_id) || '',
+      (linked && linked.location) || ''),
     rx_target: rx.rx_target || 'apotek',
     notes: rx.notes || '',
   };

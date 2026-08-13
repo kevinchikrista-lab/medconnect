@@ -1920,6 +1920,82 @@ class Store {
 
   // Cari data lengkap sebuah tempat dari namanya (nama itulah yang tersimpan
   // di medical_records.location), agar alamatnya bisa dicetak di kop resep.
+  // ==========================================================================
+  // KOP RESEP PER DOKTER
+  //
+  // Kop menyatakan SIAPA YANG MENULIS resep, bukan ke mana resepnya dikirim.
+  // Resep dr. Kevin berkop Klinik Prima tetap boleh ditebus di apotek mana pun.
+  //
+  // Urutan penentuannya, dari yang paling menentukan:
+  //   1. Kop bawaan dokternya (doctors.kop_location_id) — inilah yang dimaksud
+  //      "dr. Niko memakai kop Apotek Medika Raya".
+  //   2. Tempat praktik yang tertulis pada resep itu, bila tempatnya punya
+  //      identitas kop sendiri.
+  //   3. Identitas Klinik Prima.
+  //
+  // Lihat supabase-doctor-letterhead.sql.
+  // ==========================================================================
+  getKopFor(doctorId, practicePlace) {
+    const bawaan = {
+      name: 'KLINIK KASIH ANUGERAH PRIMA',
+      sub: '(PRIMA KLINIK)',
+      address: CONFIG.CLINIC_ADDRESS || '',
+      phone: CONFIG.CLINIC_WHATSAPP_DISPLAY || '',
+      email: 'primaklinik.ptk@gmail.com',
+      logo: 'assets/logos/klinik-prima-logo.png',
+      source: 'klinik',
+    };
+    const dokter = this.getDoctor(doctorId);
+    const daftar = this.data.practice_locations || [];
+    const dariDokter = dokter && dokter.kop_location_id
+      ? daftar.find(l => l.id === dokter.kop_location_id)
+      : null;
+    // Tempat pada resepnya hanya dipakai bila ia benar-benar punya identitas
+    // kop; kalau hanya punya alamat, alamatnya saja yang menimpa — itulah
+    // perilaku lama yang tetap dipertahankan.
+    const dariTempat = practicePlace ? this.findLocationByName(practicePlace) : null;
+    const utama = dariDokter || null;
+
+    // Bila dokternya SUDAH DIPATOK ke sebuah tempat, tempat itulah yang
+    // berlaku sepenuhnya — tempat pada resepnya tidak boleh menimpanya.
+    // Tanpa aturan ini, dr. Kevin yang dipatok ke Klinik Prima akan tercetak
+    // berkop apotek hanya karena kebetulan menulis resep di sana.
+    const pakai = utama || dariTempat;
+    const kop = { ...bawaan };
+    if (pakai && String(pakai.kop_name || '').trim()) {
+      kop.name = String(pakai.kop_name).trim();
+      kop.sub = String(pakai.kop_sub || '').trim();
+      kop.email = String(pakai.kop_email || '').trim();
+      kop.logo = String(pakai.kop_logo_url || '').trim();
+      kop.source = utama ? 'dokter' : 'tempat';
+    } else if (utama) {
+      // Dipatok ke tempat yang belum punya identitas kop: identitasnya tetap
+      // Klinik Prima, tapi alamat & teleponnya ikut tempat itu.
+      kop.source = 'dokter';
+    }
+    if (pakai && (pakai.address || pakai.phone)) {
+      kop.address = pakai.address || bawaan.address;
+      kop.phone = pakai.phone || bawaan.phone;
+    }
+    return kop;
+  }
+
+  // Menyetel kop bawaan seorang dokter.
+  async setDoctorKop(doctorId, locationId) {
+    const d = this.getDoctor(doctorId);
+    if (!d) return { error: 'Dokter tidak ditemukan' };
+    const id = locationId || null;
+    if (id && !(this.data.practice_locations || []).some(l => l.id === id)) {
+      return { error: 'Tempat praktik tidak ditemukan' };
+    }
+    d.kop_location_id = id;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(doctorId).startsWith('id_')) {
+      supabase.update('doctors', doctorId, { kop_location_id: id }).catch(() => {});
+    }
+    return { success: true, kop: this.getKopFor(doctorId, '') };
+  }
+
   findLocationByName(name) {
     const key = String(name || '').trim().toLowerCase();
     if (!key) return null;
@@ -1943,6 +2019,12 @@ class Store {
       name: String(data.name || '').trim(), address: data.address || '', phone: data.phone || '',
       notes: data.notes || '', is_active: data.is_active !== false,
       sort_order: Number(data.sort_order) || 100,
+      // Identitas kop resep tempat ini. Boleh kosong — yang kosong jatuh
+      // kembali ke identitas Klinik Prima (lihat getKopFor).
+      kop_name: String(data.kop_name || '').trim(),
+      kop_sub: String(data.kop_sub || '').trim(),
+      kop_email: String(data.kop_email || '').trim(),
+      kop_logo_url: String(data.kop_logo_url || '').trim(),
     };
     if (!payload.name) return { error: 'Nama tempat wajib diisi' };
     if (this.findLocationByName(payload.name)) return { error: 'Tempat dengan nama itu sudah ada' };

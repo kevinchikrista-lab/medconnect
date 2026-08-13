@@ -139,6 +139,14 @@ export function adminUsers() {
             <div class="space-y-3">
               <div><label class="block text-xs text-gray-600 mb-1">Nama Lengkap</label><input type="text" x-model="docForm.full_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">No. SIP / SIPD</label><input type="text" x-model="docForm.sip_number" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: 500.16/1540/SIPD/..."></div>
+              <div class="rounded-xl bg-indigo-50 border border-indigo-100 p-3">
+                <label class="block text-xs font-semibold text-indigo-900 mb-1">Kop Resep Dokter Ini</label>
+                <select x-model="docForm.kop_location_id" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50">
+                  <option value="">Ikut tempat praktik / Klinik Prima (bawaan)</option>
+                  ${store.getAllLocations().map(l => `<option value="${escHtml(l.id)}">${escHtml(l.name)}${l.kop_name ? ' — ' + escHtml(l.kop_name) : ' (kop belum diisi)'}</option>`).join('')}
+                </select>
+                <p class="text-[11px] text-indigo-700 mt-1 leading-relaxed">Kop menyatakan <b>siapa yang menulis</b> resep, bukan ke mana resepnya dikirim &mdash; resep dokter ini tetap bisa dikirim ke apotek mana pun. Identitas kop tiap tempat (nama besar, e-mail, logo) diisi di menu <b>Lokasi Praktik</b>.</p>
+              </div>
               <div><label class="block text-xs text-gray-600 mb-1">Spesialisasi</label><input type="text" x-model="docForm.specialization" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Dokter Umum"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Telepon</label><input type="tel" x-model="docForm.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
             </div>
@@ -219,15 +227,21 @@ export function adminUsersData() {
     openEditDoc(user) {
       this.docMsg = '';
       const p = user.profile || {};
-      this.docForm = { full_name: p.full_name || '', sip_number: p.sip_number || '', specialization: p.specialization || '', phone: p.phone || '' };
+      this.docForm = { full_name: p.full_name || '', sip_number: p.sip_number || '', specialization: p.specialization || '', phone: p.phone || '', kop_location_id: p.kop_location_id || '' };
       this.editDoc = user;
     },
     async saveDoctor() {
       if (!this.editDoc || !this.editDoc.profile) { this.docMsg = 'Data dokter tidak ditemukan'; return; }
       this.savingDoc = true; this.docMsg = '';
-      const result = store.updateDoctorProfile(this.editDoc.profile.id, this.docForm);
+      const { kop_location_id, ...profil } = this.docForm;
+      const result = store.updateDoctorProfile(this.editDoc.profile.id, profil);
       this.savingDoc = false;
       if (result && result.error) { this.docMsg = result.error; return; }
+      // Kop resep disimpan lewat jalurnya sendiri karena ia menyentuh kolom
+      // yang bukan bagian dari profil dokter.
+      const kop = await store.setDoctorKop(this.editDoc.profile.id, kop_location_id || null);
+      if (kop && kop.error) { this.docMsg = kop.error; return; }
+      this.editDoc.profile.kop_location_id = kop_location_id || null;
       // If the admin edited their own (owner) doctor record, refresh the cached
       // session profile so the new SIP shows on letters without re-login.
       const cur = JSON.parse(sessionStorage.getItem('medconnect_profile') || 'null');
@@ -1515,7 +1529,7 @@ export function adminLocations() {
         ${l.phone ? `<p class="text-xs text-gray-400 mt-0.5">Telp: ${escHtml(l.phone)}</p>` : ''}
         ${l.notes ? `<p class="text-xs text-gray-400 mt-0.5 italic">${escHtml(l.notes)}</p>` : ''}
         <div class="flex gap-1.5 mt-3 flex-wrap">
-          <button onclick="window.__locEdit(${jsStr(l.id)},${jsStr(l.name)},${jsStr(l.address)},${jsStr(l.phone)},${jsStr(l.notes)},${Number(l.sort_order) || 100})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit</button>
+          <button onclick="window.__locEdit(${jsStr(l.id)},${jsStr(l.name)},${jsStr(l.address)},${jsStr(l.phone)},${jsStr(l.notes)},${Number(l.sort_order) || 100},${jsStr(l.kop_name)},${jsStr(l.kop_sub)},${jsStr(l.kop_email)},${jsStr(l.kop_logo_url)})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit</button>
           <button onclick="window.__locToggle(${jsStr(l.id)})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">${off ? 'Aktifkan' : 'Nonaktifkan'}</button>
           <button onclick="window.__locDelete(${jsStr(l.id)},${jsStr(l.name)},${used})" class="px-2.5 py-1 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition">Hapus</button>
         </div>
@@ -1528,13 +1542,14 @@ export function adminLocations() {
     sideOpen: window.innerWidth > 1024,
     showForm: false, editing: null, msg: '', saving: false,
     form: { name:'', address:'', phone:'', notes:'', sort_order:100 },
-    openNew() { this.editing = null; this.form = { name:'', address:'', phone:'', notes:'', sort_order:100 }; this.msg = ''; this.showForm = true; },
+    openNew() { this.editing = null; this.form = { name:'', address:'', phone:'', notes:'', sort_order:100, kop_name:'', kop_sub:'', kop_email:'', kop_logo_url:'' }; this.msg = ''; this.showForm = true; },
     async save() {
       if (this.saving) return;
       const name = (this.form.name || '').trim();
       if (!name) { this.msg = 'Nama tempat wajib diisi'; return; }
       this.saving = true; this.msg = '';
-      const payload = { name: name, address: this.form.address, phone: this.form.phone, notes: this.form.notes, sort_order: Number(this.form.sort_order) || 100 };
+      const payload = { name: name, address: this.form.address, phone: this.form.phone, notes: this.form.notes, sort_order: Number(this.form.sort_order) || 100,
+        kop_name: this.form.kop_name, kop_sub: this.form.kop_sub, kop_email: this.form.kop_email, kop_logo_url: this.form.kop_logo_url };
       const res = this.editing
         ? await window.__store.updateLocation(this.editing, payload)
         : await window.__store.createLocation(payload);
@@ -1545,7 +1560,7 @@ export function adminLocations() {
       setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
     }
   }" x-init="
-    window.__locEdit = (id,name,address,phone,notes,sort) => { editing = id; form = { name: name, address: address, phone: phone, notes: notes, sort_order: sort }; msg = ''; showForm = true; };
+    window.__locEdit = (id,name,address,phone,notes,sort,kn,ks,ke,kl) => { editing = id; form = { name: name, address: address, phone: phone, notes: notes, sort_order: sort, kop_name: kn || '', kop_sub: ks || '', kop_email: ke || '', kop_logo_url: kl || '' }; msg = ''; showForm = true; };
     window.__locToggle = async (id) => { const r = await window.__store.toggleLocationActive(id); if (r && r.error) { alert(r.error); return; } window.__rerender && window.__rerender(); };
     window.__locDelete = async (id,name,used) => {
       const warn = used ? ('\\n\\nTempat ini tercatat pada ' + used + ' rekam medis/vaksinasi. Riwayat lama TIDAK berubah, tapi tempat ini tidak lagi muncul di pilihan.') : '';
@@ -1579,6 +1594,16 @@ export function adminLocations() {
                 <div><label class="block text-xs text-gray-600 mb-1">Urutan Tampil</label><input type="number" x-model="form.sort_order" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
               <div><label class="block text-xs text-gray-600 mb-1">Catatan</label><input type="text" x-model="form.notes" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Opsional"></div>
+              <div class="sm:col-span-2 rounded-xl bg-indigo-50 border border-indigo-100 p-3">
+                <p class="text-xs font-bold text-indigo-900 mb-1">Identitas Kop Resep</p>
+                <p class="text-[11px] text-indigo-700 mb-2 leading-relaxed">Diisi bila tempat ini punya kop sendiri &mdash; misalnya apotek tempat seorang dokter berpraktik. <b>Dikosongkan berarti memakai identitas Klinik Prima</b>, jadi tempat lama tidak berubah tampilannya. Alamat &amp; telepon di atas yang dipakai pada kop ini.</p>
+                <div class="grid sm:grid-cols-2 gap-2">
+                  <div><label class="block text-[11px] text-indigo-800 mb-1">Nama besar di kop</label><input type="text" x-model="form.kop_name" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="cth: APOTEK MEDIKA RAYA"></div>
+                  <div><label class="block text-[11px] text-indigo-800 mb-1">Baris kecil di bawahnya</label><input type="text" x-model="form.kop_sub" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="cth: (Medika Raya)"></div>
+                  <div><label class="block text-[11px] text-indigo-800 mb-1">E-mail pada kop</label><input type="text" x-model="form.kop_email" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="Opsional"></div>
+                  <div><label class="block text-[11px] text-indigo-800 mb-1">URL logo</label><input type="text" x-model="form.kop_logo_url" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="https://... (kosong = tanpa logo)"></div>
+                </div>
+              </div>
             </div>
             <div class="flex gap-2 justify-end mt-5">
               <button @click="showForm=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
