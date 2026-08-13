@@ -108,6 +108,17 @@ export async function createSKD(opts) {
     from_date: isSehat ? '' : (opts.from_date || ''),
     to_date: isSehat ? '' : (opts.to_date || ''),
     approval: { status: opts.status || 'approved', doctor_id: opts.approvalDoctorId || '', reject_reason: '', created_by: opts.createdBy || '', by_pharmacy: opts.byPharmacyId || '' },
+    // KOP SURAT MENGIKUTI TEMPAT PRAKTIK DOKTERNYA, bukan dipaku ke Klinik
+    // Prima. Aplikasi ini menghubungkan banyak fasilitas: surat dr. Niko yang
+    // berpraktik di Apotek Medika Raya harus berkop Medika Raya, bukan berkop
+    // klinik lain yang tidak ada hubungannya dengan surat itu.
+    //
+    // Dibekukan ke dalam details, persis seperti kertas resep: surat yang
+    // dicetak ulang bertahun kemudian harus tampil sama seperti saat
+    // diterbitkan, walaupun kop tempatnya sudah berubah sejak itu.
+    kop: store.getKopFor(opts.approvalDoctorId || (opts.doctorId || ''),
+                         opts.practicePlace || '',
+                         opts.kopLocationId || ''),
   };
 
   // certificates.patient_id is a UUID column, so never send a client
@@ -135,6 +146,11 @@ export async function createSKD(opts) {
 function writeLetter(w, cert) {
   if (!w) return;
   const d = cert.details || {};
+  // Surat yang terbit SEBELUM kop ikut dibekukan belum menyimpannya. Untuk itu
+  // dipakai identitas bawaan — sumbernya satu dengan getKopFor, supaya surat
+  // lama tercetak persis seperti dulu dan tidak ada dua definisi "kop bawaan"
+  // yang bisa berbeda.
+  const kop = d.kop || store.getKopFor('', '', '');
   const isSehat = (cert.perihal || '').toUpperCase() === 'SEHAT';
   const draft = approvalStatus(cert) !== 'approved';
   const certNum = cert.cert_number || '';
@@ -218,11 +234,11 @@ function writeLetter(w, cert) {
   <div class="page">
     ${draft ? '<div class="watermark"><span>DRAFT<br>BELUM DISAHKAN</span></div>' : ''}
     <div class="kop">
-      <img src="${origin}/assets/logos/klinik-prima-logo.png" alt="Klinik Prima">
+      <img src="${kop.logo && /^https?:/.test(kop.logo) ? kop.logo : origin + '/' + String(kop.logo || 'assets/logos/klinik-prima-logo.png').replace(/^\//, '')}" alt="${esc(kop.name)}">
       <div class="kop-text">
-        <div class="kop-name">KLINIK KASIH ANUGERAH PRIMA</div>
-        <div class="kop-sub">(PRIMA KLINIK)</div>
-        <div class="kop-addr">Jl. Dr. Wahidin Gg. Sepakat 8, Ruko No. 88 B-C, Kel. Sungai Jawi<br>Kec. Pontianak Kota, Kota Pontianak, Kalimantan Barat, 78111<br>No. HP / WA : 089518824216 &nbsp;|&nbsp; email: primaklinik.ptk@gmail.com</div>
+        <div class="kop-name">${esc(kop.name)}</div>
+        ${kop.sub ? `<div class="kop-sub">${esc(kop.sub)}</div>` : ''}
+        <div class="kop-addr">${esc(kop.address)}${kop.phone ? '<br>No. HP / WA : ' + esc(kop.phone) : ''}${kop.email ? ' &nbsp;|&nbsp; email: ' + esc(kop.email) : ''}</div>
       </div>
     </div>
     <div class="content">
@@ -249,7 +265,7 @@ function writeLetter(w, cert) {
       <div class="sign-row">
         <div class="verify">
           <img src="${qrUrl}" alt="QR Verifikasi">
-          <div class="verify-t"><b>Verifikasi Keaslian</b><br>Pindai QR untuk memverifikasi keabsahan surat ini secara online melalui sistem Klinik Prima.</div>
+          <div class="verify-t"><b>Verifikasi Keaslian</b><br>Pindai QR untuk memverifikasi keabsahan surat ini secara online melalui MedConnect.</div>
         </div>
         <div class="sign">
           <div class="place">Pontianak, ${fmtDate(d.letter_date)}</div>
@@ -260,7 +276,7 @@ function writeLetter(w, cert) {
         </div>
       </div>
 
-      <div class="foot">Dokumen ini diterbitkan secara digital oleh Klinik Prima melalui platform myprima.id &middot; No. ${esc(certNum)}</div>
+      <div class="foot">Dokumen ini diterbitkan secara digital oleh ${esc(kop.name)} melalui platform MedConnect (myprima.id) &middot; No. ${esc(certNum)}</div>
     </div>
   </div>
   <button class="no-print print-btn" onclick="window.print()">Cetak / Download PDF</button>

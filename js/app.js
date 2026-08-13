@@ -592,7 +592,7 @@ window.__generateVaxCert = async function(patientId, vaccineName, opts) {
           <div class="verify-title">${isDraft ? 'Belum Disahkan' : 'Verifikasi Keaslian Dokumen'}</div>
           <div class="verify-desc">${isDraft
             ? 'Ini pratinjau untuk pemeriksaan dokter. Nomor sertifikat dan QR verifikasi baru diterbitkan setelah dokter menekan Setujui &amp; Sahkan.'
-            : 'Pindai kode QR untuk memverifikasi keabsahan sertifikat ini secara online melalui sistem Klinik Prima.'}</div>
+            : 'Pindai kode QR untuk memverifikasi keabsahan sertifikat ini secara online melalui MedConnect.'}</div>
         </div>
         <div class="stamp">
           <div class="stamp-ring">
@@ -605,7 +605,7 @@ window.__generateVaxCert = async function(patientId, vaccineName, opts) {
 
       <div class="footer">
         <div class="footer-id">${isDraft ? 'Nomor sertifikat belum diterbitkan' : `No. Sertifikat: ${certNum} &nbsp;|&nbsp; Diterbitkan: ${certDate}`}</div>
-        <div class="footer-note">${isDraft ? 'Pratinjau internal &mdash; belum sah dan tidak untuk diserahkan ke pasien.' : 'Dokumen ini diterbitkan secara digital oleh Klinik Prima melalui platform Primuni.id'}</div>
+        <div class="footer-note">${isDraft ? 'Pratinjau internal &mdash; belum sah dan tidak untuk diserahkan ke pasien.' : 'Dokumen ini diterbitkan secara digital melalui platform MedConnect (myprima.id)'}</div>
       </div>
     </div>
   </div>

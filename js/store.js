@@ -237,9 +237,9 @@ const DEMO_DATA = {
   // Master lokasi / tempat praktik. Dikelola dari halaman Super Admin
   // (Lokasi Praktik) dan disinkronkan ke tabel practice_locations.
   practice_locations: [
-    { id: 'loc_1', name: 'Klinik Utama Prima', address: 'Jl. Dr. Wahidin, Gg. Sepakat 8 No. 88BC, Pontianak', phone: '0895-1882-4216', notes: '', is_active: true, sort_order: 10 },
-    { id: 'loc_2', name: 'Home Care', address: '', phone: '', notes: 'Kunjungan ke rumah pasien', is_active: true, sort_order: 20 },
-    { id: 'loc_3', name: 'Telemedicine', address: '', phone: '', notes: 'Konsultasi jarak jauh', is_active: true, sort_order: 30 },
+    { id: 'loc_1', name: 'Klinik Utama Prima', address: 'Jl. Dr. Wahidin, Gg. Sepakat 8 No. 88BC, Pontianak', phone: '0895-1882-4216', notes: '', is_active: true, sort_order: 10, kind: 'facility' },
+    { id: 'loc_2', name: 'Home Care', address: '', phone: '', notes: 'Kunjungan ke rumah pasien', is_active: true, sort_order: 20, kind: 'service' },
+    { id: 'loc_3', name: 'Telemedicine', address: '', phone: '', notes: 'Konsultasi jarak jauh', is_active: true, sort_order: 30, kind: 'service' },
   ],
 
   // Catatan Bisnis — buku perkembangan usaha, isinya teks Markdown.
@@ -1076,6 +1076,12 @@ class Store {
         // Izin menyusun resep MATI secara bawaan. Memberi izin harus jadi
         // keputusan yang disadari, bukan sesuatu yang kebetulan menyala.
         can_prescribe: userData.can_prescribe === true });
+      // Fasilitas berakun HARUS punya tempat praktik. Dibuatkan sekarang juga,
+      // bukan diserahkan sebagai pekerjaan susulan yang mudah terlupa —
+      // apotek tanpa tempat praktik tidak bisa membuat surat keterangan dan
+      // resepnya tercetak dengan kop klinik lain.
+      const phBaru = this.data.pharmacies[this.data.pharmacies.length - 1];
+      this.ensureLocationForPharmacy(phBaru.id).catch(() => {});
     }
     this._save();
     return { user };
@@ -2590,6 +2596,90 @@ class Store {
     return this.getAllLocations();
   }
 
+  // =========================================================================
+  // TEMPAT PRAKTIK MENGIKUTI AKUN FASILITAS
+  //
+  // Aplikasi ini bukan lagi milik satu klinik. Ia menghubungkan dokter,
+  // apotek, klinik, dan admin dari berbagai tempat — jadi setiap fasilitas
+  // yang punya akun HARUS punya tempat praktiknya sendiri, lengkap dengan
+  // kop. Kalau tidak, resep dan surat dari sana tercetak memakai identitas
+  // klinik lain, dan dokumen medis yang salah kop adalah dokumen yang salah
+  // penerbitnya.
+  //
+  // TEMPAT PRAKTIK ADA DUA MACAM, dan bedanya menentukan mana yang wajib:
+  //
+  //   'facility' — tempat fisik yang punya akun (apotek / klinik). Wajib ada
+  //                untuk tiap akun, dan kop-nya wajib diisi.
+  //   'service'  — CARA layanan, bukan tempat: Home Care, Telemedicine.
+  //                Tidak punya akun, tidak punya kop sendiri, dan tidak boleh
+  //                ikut ditagih kelengkapannya.
+  //
+  // Baris lama belum punya kolom kind, jadi jenisnya disimpulkan dari
+  // namanya. Kesimpulan itu hanya cadangan — supabase-location-kind.sql
+  // mengisinya sekali, dan sesudah itu kolomnya yang berlaku.
+  // =========================================================================
+
+  locationKind(l) {
+    if (!l) return 'facility';
+    if (l.kind === 'service' || l.kind === 'facility') return l.kind;
+    const n = this.normalizeName(l.name);
+    return (n === 'home care' || n === 'telemedicine') ? 'service' : 'facility';
+  }
+
+  isServiceLocation(l) { return this.locationKind(l) === 'service'; }
+
+  // Apotek yang belum punya tempat praktik. Inilah daftar kerja halaman
+  // "Tempat Praktik & Kop": tiap akun fasilitas harus punya satu.
+  pharmaciesWithoutLocation() {
+    return (this.data.pharmacies || []).filter(p => !this.pharmacyLocationId(p.id));
+  }
+
+  // Buatkan tempat praktik untuk sebuah akun apotek, lalu tautkan. Aman
+  // diulang: kalau sudah ada (lewat location_id maupun kecocokan nama),
+  // yang sudah ada itulah yang dipakai — bukan dibuatkan yang kedua.
+  async ensureLocationForPharmacy(pharmacyId) {
+    const ph = (this.data.pharmacies || []).find(p => p.id === pharmacyId);
+    if (!ph) return { error: 'Apotek tidak ditemukan' };
+    const adaId = this.pharmacyLocationId(pharmacyId);
+    if (adaId) {
+      // Sudah cocok lewat nama tapi belum ditautkan tegas — tegaskan sekarang,
+      // supaya kelak tidak bergantung pada nama yang bisa berubah.
+      if (!ph.location_id) await this.setPharmacyLocation(pharmacyId, adaId);
+      return { success: true, sudah: true, location_id: adaId };
+    }
+    const nama = String(ph.name || '').trim();
+    if (!nama) return { error: 'Akun apotek ini belum punya nama' };
+    const res = await this.createLocation({
+      name: nama, address: ph.address || '', phone: ph.phone || '',
+      notes: 'Dibuat otomatis dari akun ' + nama,
+      sort_order: 100, kind: 'facility',
+      // Kop sengaja DIBIARKAN KOSONG, bukan diisi tebakan. Kop adalah
+      // identitas resmi yang tercetak di resep; menebaknya berarti mencetak
+      // identitas karangan, dan itu lebih buruk daripada kolom kosong yang
+      // ditagih halaman ini sampai diisi orangnya.
+    });
+    if (!res || res.error) return { error: (res && res.error) || 'Gagal membuat tempat praktik' };
+    await this.setPharmacyLocation(pharmacyId, res.item.id);
+    return { success: true, sudah: false, location_id: res.item.id, item: res.item };
+  }
+
+  // Apa yang masih kurang pada daftar tempat praktik. Dipakai halaman admin
+  // untuk menagih, bukan sekadar menampilkan daftar apa adanya.
+  locationIssues() {
+    const masalah = [];
+    for (const ph of this.pharmaciesWithoutLocation()) {
+      masalah.push({ jenis: 'tanpa-tempat', pharmacy_id: ph.id, nama: ph.name || '(tanpa nama)' });
+    }
+    for (const l of (this.data.practice_locations || [])) {
+      if (this.isServiceLocation(l)) continue;         // Home Care & Telemedicine memang tidak berkop
+      if (l.is_active === false) continue;
+      if (!String(l.kop_name || '').trim()) {
+        masalah.push({ jenis: 'tanpa-kop', location_id: l.id, nama: l.name || '(tanpa nama)' });
+      }
+    }
+    return masalah;
+  }
+
   async createLocation(data) {
     const payload = {
       name: String(data.name || '').trim(), address: data.address || '', phone: data.phone || '',
@@ -2601,6 +2691,9 @@ class Store {
       kop_sub: String(data.kop_sub || '').trim(),
       kop_email: String(data.kop_email || '').trim(),
       kop_logo_url: String(data.kop_logo_url || '').trim(),
+      // 'facility' = tempat fisik berakun (wajib berkop); 'service' = cara
+      // layanan seperti Home Care / Telemedicine.
+      kind: data.kind === 'service' ? 'service' : 'facility',
     };
     if (!payload.name) return { error: 'Nama tempat wajib diisi' };
     if (this.findLocationByName(payload.name)) return { error: 'Tempat dengan nama itu sudah ada' };

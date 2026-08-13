@@ -23,7 +23,7 @@ export function verifyPage(params) {
     <div class="w-full max-w-md">
       <div class="text-center mb-6">
         <div class="inline-block rounded-2xl overflow-hidden mb-3 shadow-xl">
-          <img src="assets/logos/klinik-prima-logo.png" alt="Klinik Prima" class="h-16 w-auto">
+          <img src="assets/logos/medconnect-logo.svg" alt="MedConnect" class="h-16 w-auto">
         </div>
         <h1 class="text-xl font-bold text-white">Verifikasi Sertifikat</h1>
         <p class="text-teal-200/70 text-sm mt-1">Klinik Kasih Anugerah Prima &middot; Primuni.id</p>
@@ -40,7 +40,7 @@ export function verifyPage(params) {
             <!-- Sah (approved / vaccine certificate) -->
             <div x-show="status === 'approved'" class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-green-500/15 border border-green-400/30">
               <div class="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0"><svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div>
-              <div><p class="text-green-300 font-semibold text-sm" x-text="({ skd: 'Surat Sah & Terverifikasi', resep: 'Resep Sah & Terverifikasi' })[cert.cert_type] || 'Sertifikat Sah & Terverifikasi'"></p><p class="text-green-200/70 text-xs">Dokumen ini diterbitkan resmi oleh Klinik Prima</p></div>
+              <div><p class="text-green-300 font-semibold text-sm" x-text="({ skd: 'Surat Sah & Terverifikasi', resep: 'Resep Sah & Terverifikasi' })[cert.cert_type] || 'Sertifikat Sah & Terverifikasi'"></p><p class="text-green-200/70 text-xs" x-text="'Diterbitkan resmi oleh ' + ((cert.details && cert.details.kop && cert.details.kop.name) || 'fasilitas penerbitnya')"></p></div>
             </div>
             <!-- Belum disahkan (pending ACC) -->
             <div x-show="status === 'pending'" x-cloak class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-amber-500/15 border border-amber-400/30">
@@ -93,7 +93,7 @@ export function verifyPage(params) {
           <p class="text-teal-100/60 text-sm">Dokumen ini tidak terdaftar dalam sistem kami atau ID verifikasi tidak valid.</p>
         </div>
       </div>
-      <p class="text-center text-teal-100/40 text-xs mt-6">myprima.id &middot; Sistem Verifikasi Digital Klinik Prima</p>
+      <p class="text-center text-teal-100/40 text-xs mt-6">myprima.id &middot; Verifikasi Dokumen MedConnect</p>
     </div>
   </div>`;
 }

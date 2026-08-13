@@ -355,7 +355,7 @@ function writeResep(w, cert) {
     <div class="sign-row">
       <div class="verify">
         <img src="${qrUrl}" alt="QR Verifikasi">
-        <div class="verify-t"><b>Verifikasi Keaslian</b><br>Pindai QR untuk memverifikasi keabsahan resep ini secara online melalui sistem Klinik Prima.</div>
+        <div class="verify-t"><b>Verifikasi Keaslian</b><br>Pindai QR untuk memverifikasi keabsahan resep ini secara online melalui MedConnect.</div>
       </div>
       <div class="sign">
         <div class="place">Dokter Penulis Resep,</div>
