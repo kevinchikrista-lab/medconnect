@@ -535,13 +535,13 @@ export function doctorEMR(params) {
                         <span class="text-sm font-medium text-gray-800">${rx.rx_number} — ${rxPharmacy?.name || 'N/A'}</span>
                         <span class="px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[rx.status] || 'bg-gray-100'}">${CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status}</span>
                       </div>
-                      ${rx.status === 'rejected' && rx.reject_reason ? `<p class="text-xs text-red-600 mb-1">Ditolak: ${rx.reject_reason}</p>` : ''}
+                      ${rx.status === 'rejected' && rx.reject_reason ? `<p class="text-xs text-red-600 mb-1">Ditolak: ${escHtml(rx.reject_reason)}</p>` : ''}
                       <div class="space-y-1.5">${rxItems.map(i => i.is_compound ? `
                         <div class="rounded-lg border border-purple-200 bg-purple-50/60 p-2">
                           <p class="text-xs font-semibold text-purple-700 mb-1">${i.display_name || i.drug_name} (Racikan)</p>
                           <p class="text-xs text-gray-700 whitespace-pre-line leading-relaxed">${(i.compound_details || '-').trim()}</p>
                           <p class="text-xs text-gray-500 mt-1">${i.frequency||''} ${i.time||''} (${i.quantity||'-'} ${i.unit||''})</p>
-                        </div>` : `<p class="text-xs text-gray-600">• ${i.drug_name} ${i.dosage||''} — ${i.frequency||''} ${i.time||''} (${i.quantity||'-'} ${i.unit||''})</p>`).join('')}</div>
+                        </div>` : `<p class="text-xs text-gray-600">• ${escHtml(i.drug_name)} ${escHtml(i.dosage||'')} — ${escHtml(i.frequency||'')} ${escHtml(i.time||'')} (${escHtml(String(i.quantity||'-'))} ${escHtml(i.unit||'')})</p>`).join('')}</div>
                     </div>`;
                   }).join('')}
                 </div>
@@ -1247,12 +1247,63 @@ export function doctorRecords() {
 export function doctorPrescriptions() {
   const doc = getDoctor();
   const prescriptions = store.getPrescriptionsByDoctor(doc?.id);
+  // Resep yang disusun apotek berizin dan menunggu ACC dokter ini. Ditaruh di
+  // ATAS riwayat karena ini pekerjaan yang menunggu keputusan, bukan arsip —
+  // dan selama belum diputuskan, resepnya tidak berlaku bagi siapa pun.
+  const pending = store.getPendingRxForDoctor(doc?.id);
+  window.__rxAccDoctorId = doc?.id || '';
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-wash">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, accDoctorId: window.__rxAccDoctorId || '',
+    async accRx(id, nomor) {
+      if (!confirm('Setujui resep ' + nomor + '? Setelah di-ACC, resep ini berlaku dan masuk antrean apotek.')) return;
+      const r = await window.__store.approvePrescription(id, this.accDoctorId, '');
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      window.__showToast && window.__showToast('Disetujui', 'Resep ' + nomor + ' kini berlaku.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
+    },
+    async tolakRx(id, nomor) {
+      const alasan = window.prompt('Alasan menolak resep ' + nomor + ' (wajib diisi, akan dikirim ke apotek):', '');
+      if (alasan === null) return;
+      const r = await window.__store.rejectPrescription(id, this.accDoctorId, alasan);
+      if (r && r.error) { window.__showToast && window.__showToast('Belum bisa ditolak', r.error); return; }
+      window.__showToast && window.__showToast('Ditolak', 'Apotek diberi tahu beserta alasannya.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
+    } }" class="min-h-screen bg-wash">
     ${doctorSidebar('prescriptions')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
+        ${pending.length ? `
+        <div class="mb-6 bg-white border-2 border-amber-300 rounded-3xl overflow-hidden">
+          <div class="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+            <span class="ms text-[20px] text-amber-700">pending_actions</span>
+            <p class="font-bold text-amber-900">Resep Menunggu ACC Anda</p>
+            <span class="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 text-[11px] font-bold">${pending.length}</span>
+          </div>
+          <div class="divide-y divide-slate-50">${pending.map(rx => {
+            const pat = store.getPatient(rx.patient_id);
+            const ph = store.getPharmacy(rx.drafted_by_pharmacy || rx.pharmacy_id);
+            const its = store.getPrescriptionItems(rx.id);
+            return `<div class="p-4">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div class="flex-1 min-w-[220px]">
+                  <p class="font-semibold text-gray-800 text-sm">${escHtml(rx.rx_number)} &mdash; ${escHtml(pat?.full_name || 'Pasien')}</p>
+                  <p class="text-xs text-gray-500 mt-0.5">Disusun ${escHtml(ph?.name || 'apotek')} &middot; ${formatDate((rx.created_at || '').split('T')[0])}</p>
+                  ${rx.notes ? `<p class="text-xs text-gray-600 mt-1"><b>Catatan apotek:</b> ${escHtml(rx.notes)}</p>` : ''}
+                </div>
+                <div class="flex gap-2">
+                  <button @click="accRx('${rx.id}', '${escHtml(rx.rx_number)}')" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-green-600 hover:bg-green-500 transition flex items-center gap-1"><span class="ms text-[15px]">check</span>ACC Resep</button>
+                  <button @click="tolakRx('${rx.id}', '${escHtml(rx.rx_number)}')" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 transition">Tolak</button>
+                </div>
+              </div>
+              <div class="mt-2 rounded-xl bg-slate-50 border border-slate-100 p-2.5 space-y-1">
+                ${its.map(i => `<p class="text-xs text-gray-700">&bull; <b>${escHtml(i.drug_name || '')}</b> ${escHtml(i.dosage || '')} &mdash; ${escHtml(i.frequency || '')} ${escHtml(i.time || '')} (${escHtml(String(i.quantity || '-'))} ${escHtml(i.unit || '')})${i.instructions ? ' &middot; ' + escHtml(i.instructions) : ''}</p>`).join('') || '<p class="text-xs text-gray-400">Tidak ada obat tercatat</p>'}
+              </div>
+            </div>`;
+          }).join('')}</div>
+          <p class="px-4 py-2 bg-slate-50 text-[11px] text-slate-500 border-t border-slate-100">Resep ini <b>belum berlaku</b> dan tidak muncul di antrean apotek mana pun sampai Anda menyetujuinya. Setelah di-ACC, resep menjadi tanggung jawab Anda.</p>
+        </div>` : ''}
+
         <h2 class="text-xl font-bold text-gray-800 mb-6">Riwayat E-Resep</h2>
         <div class="bg-white border border-slate-100 rounded-3xl overflow-hidden">
           ${prescriptions.length === 0 ? '<p class="p-8 text-center text-gray-400">Belum ada resep</p>' : `
@@ -1273,11 +1324,11 @@ export function doctorPrescriptions() {
               <div x-show="open" x-cloak class="mt-3 pl-13 text-sm space-y-2">
                 ${items.map(i => i.is_compound ? `
                 <div class="rounded-lg border border-purple-200 bg-purple-50/60 p-2.5">
-                  <div class="flex items-center gap-2 mb-1"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white tracking-wide">RACIKAN</span><span class="font-medium text-gray-800">${i.drug_name}</span></div>
+                  <div class="flex items-center gap-2 mb-1"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white tracking-wide">RACIKAN</span><span class="font-medium text-gray-800">${escHtml(i.drug_name)}</span></div>
                   <p class="text-xs text-gray-700 whitespace-pre-line leading-relaxed">${(i.compound_details || '-').trim()}</p>
                   <p class="text-xs text-gray-500 mt-1">${i.frequency} ${i.time} — ${i.quantity} ${i.unit}</p>
-                </div>` : `<div class="flex items-center gap-2 py-1 text-gray-600"><span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>${i.drug_name} ${i.dosage} — ${i.frequency} ${i.time} (${i.quantity} ${i.unit})</div>`).join('')}
-                ${rx.notes ? `<p class="mt-2 text-xs text-gray-500 italic whitespace-pre-line">Catatan: ${rx.notes}</p>` : ''}
+                </div>` : `<div class="flex items-center gap-2 py-1 text-gray-600"><span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>${escHtml(i.drug_name)} ${escHtml(i.dosage)} — ${escHtml(i.frequency)} ${escHtml(i.time)} (${escHtml(String(i.quantity))} ${escHtml(i.unit)})</div>`).join('')}
+                ${rx.notes ? `<p class="mt-2 text-xs text-gray-500 italic whitespace-pre-line">Catatan: ${escHtml(rx.notes)}</p>` : ''}
                 ${rx.service_fee_enabled ? `<p class="mt-1 text-xs font-semibold text-green-700">💰 Jasa Dokter: Rp ${Number(rx.service_fee || 0).toLocaleString('id-ID')}</p>` : ''}
                 ${rx.cancel_reason ? `<p class="mt-1 text-xs text-red-500 italic">Alasan batal: ${escHtml(rx.cancel_reason)}</p>` : ''}
                 <div class="mt-3 pt-3 border-t border-gray-100"><button onclick="window.__printResep && window.__printResep('${rx.id}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition inline-flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg> Cetak Kertas Resep</button></div>

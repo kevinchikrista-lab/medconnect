@@ -106,6 +106,15 @@ export function adminUsers() {
                 <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">No. HP Keluarga</label><input type="tel" x-model="newUser.family_phone" placeholder="0812..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
                 <template x-if="newUser.role==='patient'"><div><label class="block text-xs text-gray-600 mb-1">Hubungan dgn Pasien</label><select x-model="newUser.family_relation" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">Pilih</option>${(CONFIG.FAMILY_RELATIONS||[]).map(r=>`<option>${r}</option>`).join('')}</select></div></template>
                 <template x-if="newUser.role==='pharmacy'"><div><label class="block text-xs text-gray-600 mb-1">No. SIPA</label><input type="text" x-model="newUser.license_no" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div></template>
+                <template x-if="newUser.role==='pharmacy'"><div class="col-span-2 rounded-xl bg-purple-50 border border-purple-100 p-3">
+                  <label class="flex items-start gap-2 cursor-pointer">
+                    <input type="checkbox" x-model="newUser.can_prescribe" class="mt-0.5 rounded border-purple-300">
+                    <span>
+                      <span class="block text-[13px] font-semibold text-purple-900">Boleh menyusun resep sendiri</span>
+                      <span class="block text-[11px] text-purple-700 leading-relaxed mt-0.5">Apotek ini boleh menyusun resep untuk pasien. Resepnya <b>tidak berlaku</b> sampai di-ACC dokter &mdash; sebelum disetujui, resep itu tidak masuk antrean pelayanan apotek mana pun. Biarkan mati bila apotek hanya melayani resep dari dokter.</span>
+                    </span>
+                  </label>
+                </div></template>
                 <div class="col-span-2"><label class="block text-xs text-gray-600 mb-1">Alamat</label><input type="text" x-model="newUser.address" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
               <div class="flex gap-2 justify-end"><button type="button" @click="showCreate=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button><button type="submit" :disabled="creating" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!creating">Buat Akun</span><span x-show="creating" x-cloak>Memproses...</span></button></div>
@@ -185,6 +194,7 @@ export function adminUsers() {
                   <button @click="resetUser=user; resetNewPass=''; resetMsg=''" class="px-2 py-1 rounded text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Reset Pass</button>
                   <template x-if="user.role==='patient'"><button @click="certUser=user" class="px-2 py-1 rounded text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition">Sertifikat</button></template>
                   <template x-if="user.role==='doctor' || user.role==='owner'"><button @click="openEditDoc(user)" class="px-2 py-1 rounded text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition">Edit Dokter/SIP</button></template>
+                  <template x-if="user.role==='pharmacy'"><button @click="toggleRxIzin(user)" :title="user.profile?.can_prescribe ? 'Cabut izin menyusun resep' : 'Izinkan apotek ini menyusun resep (tetap harus di-ACC dokter)'" class="px-2 py-1 rounded text-xs font-medium" :class="user.profile?.can_prescribe ? 'text-purple-700 bg-purple-100 hover:bg-purple-200' : 'text-slate-600 bg-slate-100 hover:bg-slate-200'" x-text="user.profile?.can_prescribe ? 'Boleh Tulis Resep' : 'Tidak Boleh Tulis Resep'"></button></template>
                   <template x-if="user.role==='doctor'"><button @click="toggleDoctorListing(user)" class="px-2 py-1 rounded text-xs font-medium" :class="user.profile?.is_public_listed ? 'text-red-700 bg-red-50 hover:bg-red-100' : 'text-green-700 bg-green-50 hover:bg-green-100'" x-text="user.profile?.is_public_listed ? 'Sembunyikan dari Beranda' : 'Tampilkan di Beranda'"></button></template>
                   <button @click="deleteUser(user)" class="px-2 py-1 rounded text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Hapus</button>
                 </div></td>
@@ -230,7 +240,28 @@ export function adminUsersData() {
       const vax = window.__store.getVaccinations(user.profile.id);
       return [...new Set(vax.map(v => v.vaccine_name))];
     },
-    newUser: { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', birth_date: '', gender: '', license_no: '', address: '', family_name: '', family_phone: '', family_relation: '' },
+    // Izin apotek menyusun resep. Konfirmasinya menyebut nama apoteknya dan
+    // menegaskan bahwa resepnya tetap harus di-ACC dokter — supaya izin ini
+    // tidak diberikan karena salah paham bahwa apotek jadi bisa meresepkan
+    // sendiri tanpa dokter.
+    async toggleRxIzin(user) {
+      const ph = user && user.profile;
+      if (!ph || !ph.id) { window.__showToast && window.__showToast('Gagal', 'Data apotek tidak ditemukan.'); return; }
+      const nyala = ph.can_prescribe === true;
+      const nama = ph.name || ph.full_name || 'apotek ini';
+      const tanya = nyala
+        ? 'Cabut izin menyusun resep untuk ' + nama + '? Resep yang sudah di-ACC dokter tetap berlaku.'
+        : 'Izinkan ' + nama + ' menyusun resep? Setiap resep yang disusunnya TIDAK berlaku sampai di-ACC dokter, dan sebelum disetujui tidak masuk antrean pelayanan apotek mana pun.';
+      if (!confirm(tanya)) return;
+      const r = window.__store.setPharmacyCanPrescribe(ph.id, !nyala);
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      ph.can_prescribe = r.can_prescribe;
+      window.__showToast && window.__showToast(
+        r.can_prescribe ? 'Izin diberikan' : 'Izin dicabut',
+        nama + (r.can_prescribe ? ' kini boleh menyusun resep (tetap perlu ACC dokter).' : ' tidak lagi boleh menyusun resep.'));
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
+    },
+    newUser: { role: '', full_name: '', email: '', password: 'default123', phone: '', sip_number: '', specialization: '', nik: '', birth_date: '', gender: '', license_no: '', address: '', family_name: '', family_phone: '', family_relation: '', can_prescribe: false },
     get filteredUsers() {
       let users = store.getUsers(this.filter || undefined);
       if (this.search) {

@@ -2,6 +2,16 @@ import { store } from '../store.js';
 import { CONFIG } from '../config.js';
 import { chatListPage, chatThreadPage } from './chat.js';
 
+// Teks apa pun yang berasal dari isian orang harus lewat sini sebelum
+// dicetak ke HTML. Nama obat kini bisa diketik apotek, jadi ini bukan lagi
+// sekadar kehati-hatian.
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+
 function getPatient() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
   return store.getPatientByUserId(user?.id);
@@ -305,10 +315,10 @@ export function patientPrescriptions() {
           </div>
           <div x-show="open" x-cloak class="border-t border-gray-100 p-4 bg-gray-50/50">
             <h5 class="text-xs font-semibold text-gray-600 uppercase mb-2">Daftar Obat</h5>
-            ${items.map(i => { const name = i.is_compound ? (i.display_name || i.drug_name) : `${i.drug_name} ${i.dosage}`; return `<div class="flex items-start gap-2 py-1.5 text-sm"><span class="w-1.5 h-1.5 rounded-full bg-teal-500 mt-1.5 flex-shrink-0"></span><div><p class="text-gray-800 font-medium">${name}</p><p class="text-xs text-gray-500">${i.frequency} ${i.time} — ${i.quantity} ${i.unit}</p></div></div>`; }).join('')}
-            ${rx.notes ? `<p class="text-xs text-gray-500 mt-2 italic">Catatan: ${rx.notes}</p>` : ''}
+            ${items.map(i => { const name = escHtml(i.is_compound ? (i.display_name || i.drug_name) : `${i.drug_name} ${i.dosage}`); return `<div class="flex items-start gap-2 py-1.5 text-sm"><span class="w-1.5 h-1.5 rounded-full bg-teal-500 mt-1.5 flex-shrink-0"></span><div><p class="text-gray-800 font-medium">${name}</p><p class="text-xs text-gray-500">${escHtml(i.frequency)} ${escHtml(i.time)} — ${escHtml(String(i.quantity))} ${escHtml(i.unit)}</p></div></div>`; }).join('')}
+            ${rx.notes ? `<p class="text-xs text-gray-500 mt-2 italic">Catatan: ${escHtml(rx.notes)}</p>` : ''}
             ${isDelivery && rx.delivery_address ? `<div class="mt-2 p-2 rounded-lg bg-blue-50 border border-blue-100"><p class="text-xs font-semibold text-blue-800">🚚 Dikirim ke:</p><p class="text-xs text-blue-900 whitespace-pre-line">${rx.delivery_address}</p></div>` : ''}
-            ${rx.status === 'rejected' && rx.reject_reason ? `<div class="mt-2 p-2 rounded-lg bg-red-50 border border-red-100"><p class="text-xs font-semibold text-red-800">Alasan Ditolak:</p><p class="text-xs text-red-900 whitespace-pre-line">${rx.reject_reason}</p></div>` : ''}
+            ${rx.status === 'rejected' && rx.reject_reason ? `<div class="mt-2 p-2 rounded-lg bg-red-50 border border-red-100"><p class="text-xs font-semibold text-red-800">Alasan Ditolak:</p><p class="text-xs text-red-900 whitespace-pre-line">${escHtml(rx.reject_reason)}</p></div>` : ''}
             ${waLink ? `<a href="${waLink}" target="_blank" class="inline-flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-lg text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 transition">💬 Hubungi Apotek (mau titip obat lain?)</a>` : ''}
           </div>
         </div>`;
