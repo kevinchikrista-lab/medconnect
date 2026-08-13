@@ -1072,7 +1072,10 @@ class Store {
     } else if (userData.role === 'patient') {
       this.data.patients.push({ id: generateId(), user_id: userId, full_name: userData.full_name, nik: userData.nik || '', birth_date: userData.birth_date || '', gender: userData.gender || '', phone: userData.phone || '', address: userData.address || '', blood_type: userData.blood_type || '', allergies: userData.allergies || '-', emergency_contact: userData.emergency_contact || '' });
     } else if (userData.role === 'pharmacy') {
-      this.data.pharmacies.push({ id: generateId(), user_id: userId, name: userData.name || userData.full_name, address: userData.address || '', phone: userData.phone || '', license_no: userData.license_no || '', operating_hours: userData.operating_hours || '' });
+      this.data.pharmacies.push({ id: generateId(), user_id: userId, name: userData.name || userData.full_name, address: userData.address || '', phone: userData.phone || '', license_no: userData.license_no || '', operating_hours: userData.operating_hours || '',
+        // Izin menyusun resep MATI secara bawaan. Memberi izin harus jadi
+        // keputusan yang disadari, bukan sesuatu yang kebetulan menyala.
+        can_prescribe: userData.can_prescribe === true });
     }
     this._save();
     return { user };
@@ -1218,8 +1221,13 @@ class Store {
     return this.data.prescriptions.filter(rx => rx.record_id === recordId).sort((a, b) => this._rxSortTime(b).localeCompare(this._rxSortTime(a)));
   }
 
+  // Antrean apotek TIDAK memuat resep yang masih menunggu ACC dokter. Ini
+  // pengaman terpentingnya: resep yang belum disetujui tidak boleh terbaca
+  // sebagai resep yang siap dilayani, walau apoteknya sendiri yang menyusun.
   getPrescriptionsByPharmacy(pharmacyId) {
-    return this.data.prescriptions.filter(rx => rx.pharmacy_id === pharmacyId).sort((a, b) => this._rxSortTime(b).localeCompare(this._rxSortTime(a)));
+    return this.data.prescriptions
+      .filter(rx => rx.pharmacy_id === pharmacyId && !this.rxIsPending(rx))
+      .sort((a, b) => this._rxSortTime(b).localeCompare(this._rxSortTime(a)));
   }
 
   // Re-fetches a pharmacy's prescriptions (+ items) from Supabase — same
@@ -1251,6 +1259,240 @@ class Store {
   // fresh, server-truth fetch. Success is judged by whether newRx.id got
   // patched from its client-generated 'id_...' placeholder to a real
   // Supabase UUID (see _syncInsert); if not, the insert never persisted.
+  // =========================================================================
+  // APOTEK MENULIS RESEP → WAJIB DI-ACC DOKTER
+  //
+  // Izinnya per apotek dan MATI secara bawaan. Resep yang lahir dari apotek
+  // selalu berstatus menunggu ACC; tidak ada jalan lain membuatnya aktif.
+  // Lihat supabase-pharmacy-prescribe.sql.
+  // =========================================================================
+
+  pharmacyCanPrescribe(pharmacyId) {
+    const ph = (this.data.pharmacies || []).find(p => p.id === pharmacyId);
+    return !!(ph && ph.can_prescribe === true);
+  }
+
+  // Dipakai halaman apotek: apotek milik akun yang sedang login.
+  pharmacyOfUser(userId) {
+    return (this.data.pharmacies || []).find(p => p.user_id === userId) || null;
+  }
+
+  setPharmacyCanPrescribe(pharmacyId, allowed) {
+    const ph = (this.data.pharmacies || []).find(p => p.id === pharmacyId);
+    if (!ph) return { error: 'Apotek tidak ditemukan' };
+    ph.can_prescribe = allowed === true;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(pharmacyId).startsWith('id_')) {
+      supabase.update('pharmacies', pharmacyId, { can_prescribe: ph.can_prescribe }).catch(() => {});
+    }
+    // Apoteknya diberi tahu — izin yang berubah diam-diam membingungkan, dan
+    // yang dicabut izinnya perlu tahu kenapa menunya tiba-tiba hilang.
+    if (ph.user_id) {
+      this.addNotification(ph.user_id,
+        ph.can_prescribe ? 'Izin Menyusun Resep Diberikan' : 'Izin Menyusun Resep Dicabut',
+        ph.can_prescribe
+          ? 'Apotek Anda kini boleh menyusun resep. Setiap resep yang Anda susun tetap harus di-ACC dokter sebelum berlaku.'
+          : 'Apotek Anda tidak lagi boleh menyusun resep. Resep yang sudah di-ACC dokter tetap berlaku seperti biasa.',
+        'system');
+    }
+    return { success: true, can_prescribe: ph.can_prescribe };
+  }
+
+  // Status persetujuan sebuah resep. Baris lama (semuanya ditulis dokter)
+  // tidak punya kolom ini, jadi tanpa nilai berarti sudah sah.
+  rxApprovalStatus(rx) { return (rx && rx.approval_status) || 'approved'; }
+  rxIsPending(rx) { return this.rxApprovalStatus(rx) === 'pending'; }
+
+  // Apotek menyusun resep. SELALU menunggu ACC — tidak ada parameter untuk
+  // melewatinya, supaya tidak ada jalan pintas yang bisa dipanggil dari mana
+  // pun kelak.
+  async createPharmacyPrescription(rx, items, opts) {
+    const o = opts || {};
+    const pharmacyId = o.pharmacyId || rx.pharmacy_id;
+    if (!this.pharmacyCanPrescribe(pharmacyId)) {
+      return { success: false, error: 'Apotek ini tidak diberi izin menyusun resep. Hubungi Super Admin klinik.' };
+    }
+    const doctorId = o.doctorId || rx.approval_doctor_id;
+    if (!doctorId) return { success: false, error: 'Pilih dokter yang akan meng-ACC resep ini terlebih dahulu.' };
+    if (!rx.patient_id) return { success: false, error: 'Pilih pasiennya terlebih dahulu.' };
+    const bersih = (items || []).filter(i => String((i && i.drug_name) || '').trim());
+    if (!bersih.length) return { success: false, error: 'Isi minimal satu obat.' };
+
+    const res = await this.createPrescription({
+      ...rx,
+      pharmacy_id: pharmacyId,
+      doctor_id: doctorId,
+      approval_status: 'pending',
+      approval_doctor_id: doctorId,
+      drafted_by_pharmacy: pharmacyId,
+    }, bersih);
+    if (!res || !res.success) return res;
+
+    const doc = this.getDoctor(doctorId);
+    const patient = this.getPatient(rx.patient_id);
+    const ph = (this.data.pharmacies || []).find(p => p.id === pharmacyId);
+    if (doc && doc.user_id) {
+      this.addNotification(doc.user_id, 'Resep Menunggu ACC',
+        `${(ph && ph.name) || 'Apotek'} menyusun resep ${res.rx.rx_number} untuk ${(patient && patient.full_name) || 'pasien'}. Resep ini belum berlaku sampai Anda menyetujuinya.`,
+        'prescription');
+    }
+    return res;
+  }
+
+  // Dokter menyetujui: resepnya baru berlaku sejak detik ini.
+  // opts.service_fee: jasa dokter yang boleh ditarik apotek dari pasien.
+  // Ditentukan SAAT ACC, bukan saat apotek menyusun — apotek tidak berhak
+  // menetapkan jasa dokter, dan dokternya baru tahu nilainya setelah membaca
+  // resepnya.
+  async approvePrescription(rxId, doctorId, note, opts) {
+    const rx = (this.data.prescriptions || []).find(r => r.id === rxId);
+    if (!rx) return { error: 'Resep tidak ditemukan' };
+    if (!this.rxIsPending(rx)) return { error: 'Resep ini tidak sedang menunggu persetujuan.' };
+    const o = opts || {};
+    const fee = Math.max(0, Math.round(Number(o.service_fee) || 0));
+    const feeOn = o.service_fee_enabled === true && fee > 0;
+    const updates = {
+      approval_status: 'approved',
+      approved_at: new Date().toISOString(),
+      approval_note: String(note || '').trim(),
+      // Sejak di-ACC, resepnya menjadi tanggung jawab dokter yang menyetujui.
+      doctor_id: doctorId || rx.doctor_id,
+      status: 'sent',
+      service_fee_enabled: feeOn,
+      service_fee: feeOn ? fee : 0,
+    };
+    Object.assign(rx, updates);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(rxId).startsWith('id_')) {
+      await supabase.update('prescriptions', rxId, updates).catch(() => null);
+    }
+    const ph = (this.data.pharmacies || []).find(p => p.id === rx.drafted_by_pharmacy || p.id === rx.pharmacy_id);
+    if (ph && ph.user_id) {
+      const jasa = updates.service_fee_enabled
+        ? ` Jasa dokter Rp${Number(updates.service_fee).toLocaleString('id-ID')} mohon ditarik dari pasien.`
+        : '';
+      this.addNotification(ph.user_id, 'Resep Disetujui',
+        `Resep ${rx.rx_number} sudah di-ACC dokter dan berlaku. Silakan dilayani.${jasa}`, 'prescription');
+    }
+    const pat = (this.data.patients || []).find(p => p.id === rx.patient_id);
+    if (pat && pat.user_id) {
+      this.addNotification(pat.user_id, 'Resep Dibuat',
+        `Resep ${rx.rx_number} telah disetujui dokter.`, 'prescription');
+    }
+    return { success: true, rx };
+  }
+
+  // Ditolak. Alasannya wajib — resep yang dikembalikan tanpa keterangan hanya
+  // akan disusun ulang dengan cara yang sama.
+  async rejectPrescription(rxId, doctorId, reason) {
+    const rx = (this.data.prescriptions || []).find(r => r.id === rxId);
+    if (!rx) return { error: 'Resep tidak ditemukan' };
+    if (!this.rxIsPending(rx)) return { error: 'Resep ini tidak sedang menunggu persetujuan.' };
+    const clean = String(reason || '').trim();
+    if (!clean) return { error: 'Tulis dulu alasan penolakannya.' };
+    const updates = {
+      approval_status: 'rejected',
+      approval_note: clean,
+      reject_reason: clean,
+      status: 'rejected',
+      approved_at: new Date().toISOString(),
+    };
+    Object.assign(rx, updates);
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(rxId).startsWith('id_')) {
+      await supabase.update('prescriptions', rxId, updates).catch(() => null);
+    }
+    const ph = (this.data.pharmacies || []).find(p => p.id === rx.drafted_by_pharmacy || p.id === rx.pharmacy_id);
+    if (ph && ph.user_id) {
+      this.addNotification(ph.user_id, 'Resep Ditolak Dokter',
+        `Resep ${rx.rx_number} tidak disetujui. Alasan: ${clean}`, 'prescription');
+    }
+    return { success: true, rx };
+  }
+
+  // ---- RESEP ULANG -------------------------------------------------------
+  //
+  // Apotek boleh menelusuri seluruh resep yang pernah sah, lalu mengulangnya.
+  // Yang diulang hanya DAFTAR OBATNYA; resep ulangnya tetap resep baru yang
+  // menunggu ACC dokter — sebab yang menjadikan sebuah resep sah adalah
+  // keputusan dokter hari ini, bukan keputusan dokter tiga bulan lalu.
+  //
+  // Yang bisa dicari hanya resep yang SUDAH SAH. Resep yang masih menunggu
+  // ACC atau pernah ditolak sengaja tidak bisa dijadikan sumber pengulangan.
+  searchPrescriptionsForRepeat(query, limit) {
+    const q = String(query || '').trim().toLowerCase();
+    const max = Number(limit) || 25;
+    const hasil = [];
+    const semua = (this.data.prescriptions || [])
+      .filter(rx => this.rxApprovalStatus(rx) === 'approved' && rx.status !== 'cancelled')
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    for (const rx of semua) {
+      const pasien = this.getPatient(rx.patient_id);
+      const items = this.getPrescriptionItems(rx.id);
+      if (!items.length) continue;
+      if (q) {
+        const jerami = [
+          (pasien && pasien.full_name) || '', rx.rx_number || '',
+          items.map(i => i.drug_name || '').join(' '),
+        ].join(' ').toLowerCase();
+        if (!jerami.includes(q)) continue;
+      }
+      hasil.push({
+        id: rx.id, rx_number: rx.rx_number || '', created_at: rx.created_at || '',
+        patient_id: rx.patient_id, patient_name: (pasien && pasien.full_name) || 'Pasien',
+        doctor_id: rx.doctor_id, doctor_name: (this.getDoctor(rx.doctor_id) || {}).full_name || '',
+        items: items.map(i => ({
+          drug_name: i.drug_name || '', dosage: i.dosage || '', frequency: i.frequency || '',
+          time: i.time || '', quantity: i.quantity || '', unit: i.unit || '',
+          instructions: i.instructions || '',
+        })),
+      });
+      if (hasil.length >= max) break;
+    }
+    return hasil;
+  }
+
+  // Buat resep ulang dari sebuah resep lama. Selalu menunggu ACC.
+  async repeatPrescription(sourceRxId, opts) {
+    const o = opts || {};
+    const src = (this.data.prescriptions || []).find(r => r.id === sourceRxId);
+    if (!src) return { success: false, error: 'Resep sumber tidak ditemukan.' };
+    if (this.rxApprovalStatus(src) !== 'approved') {
+      return { success: false, error: 'Hanya resep yang sudah sah yang bisa diulang.' };
+    }
+    const items = this.getPrescriptionItems(sourceRxId).map(i => ({
+      drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time,
+      quantity: i.quantity, unit: i.unit, instructions: i.instructions,
+      is_compound: i.is_compound, display_name: i.display_name, compound_details: i.compound_details,
+    }));
+    if (!items.length) return { success: false, error: 'Resep sumber tidak punya obat untuk diulang.' };
+    const catatan = String(o.notes || '').trim();
+    return this.createPharmacyPrescription({
+      patient_id: src.patient_id,
+      // Jejak asal-usulnya disimpan supaya dokter tahu ini pengulangan, dan
+      // bisa menengok resep aslinya sebelum memutuskan.
+      repeat_of: sourceRxId,
+      notes: (catatan ? catatan + ' ' : '') + `(Resep ulang dari ${src.rx_number || 'resep sebelumnya'})`,
+      record_id: null,
+    }, items, { pharmacyId: o.pharmacyId, doctorId: o.doctorId });
+  }
+
+  // Antrean ACC seorang dokter.
+  getPendingRxForDoctor(doctorId) {
+    if (!doctorId) return [];
+    return (this.data.prescriptions || [])
+      .filter(rx => this.rxIsPending(rx) && (rx.approval_doctor_id === doctorId || rx.doctor_id === doctorId))
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  }
+
+  // Resep yang disusun sebuah apotek (untuk halaman apoteknya sendiri).
+  getRxDraftedByPharmacy(pharmacyId) {
+    if (!pharmacyId) return [];
+    return (this.data.prescriptions || [])
+      .filter(rx => rx.drafted_by_pharmacy === pharmacyId)
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  }
+
   async createPrescription(rx, items) {
     const year = new Date().getFullYear();
     // Self-heal a stranded record_id: if the linked medical record never
@@ -1678,6 +1920,159 @@ class Store {
 
   // Cari data lengkap sebuah tempat dari namanya (nama itulah yang tersimpan
   // di medical_records.location), agar alamatnya bisa dicetak di kop resep.
+  // ==========================================================================
+  // KOP RESEP PER DOKTER
+  //
+  // Kop menyatakan SIAPA YANG MENULIS resep, bukan ke mana resepnya dikirim.
+  // Resep dr. Kevin berkop Klinik Prima tetap boleh ditebus di apotek mana pun.
+  //
+  // Urutan penentuannya, dari yang paling menentukan:
+  //   1. Kop bawaan dokternya (doctors.kop_location_id) — inilah yang dimaksud
+  //      "dr. Niko memakai kop Apotek Medika Raya".
+  //   2. Tempat praktik yang tertulis pada resep itu, bila tempatnya punya
+  //      identitas kop sendiri.
+  //   3. Identitas Klinik Prima.
+  //
+  // Lihat supabase-doctor-letterhead.sql.
+  // ==========================================================================
+  // Daftar tempat praktik seorang dokter, BESERTA NOMOR SIP di tiap tempat.
+  // Bentuknya [{ location_id, sip_number }]. SIP memang diterbitkan per tempat
+  // praktik, jadi dokter yang praktik di dua tempat punya dua nomor berbeda.
+  doctorPracticePlaces(doctorId) {
+    const d = this.getDoctor(doctorId);
+    let v = d && d.practice_places;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = []; } }
+    if (!Array.isArray(v)) return [];
+    return v
+      .map(x => (typeof x === 'string'
+        // Bentuk lama (hanya daftar id) tetap terbaca, SIP-nya dianggap kosong.
+        ? { location_id: x, sip_number: '' }
+        : { location_id: (x && x.location_id) || '', sip_number: String((x && x.sip_number) || '').trim() }))
+      .filter(x => x.location_id);
+  }
+
+  doctorPracticeLocationIds(doctorId) {
+    return this.doctorPracticePlaces(doctorId).map(x => x.location_id);
+  }
+
+  async setDoctorPracticePlaces(doctorId, places) {
+    const d = this.getDoctor(doctorId);
+    if (!d) return { error: 'Dokter tidak ditemukan' };
+    const daftar = this.data.practice_locations || [];
+    const terlihat = new Set();
+    const bersih = (places || [])
+      .map(x => ({ location_id: (x && x.location_id) || '', sip_number: String((x && x.sip_number) || '').trim() }))
+      .filter(x => {
+        if (!x.location_id || terlihat.has(x.location_id)) return false;
+        if (!daftar.some(l => l.id === x.location_id)) return false;
+        terlihat.add(x.location_id);
+        return true;
+      });
+    d.practice_places = bersih;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(doctorId).startsWith('id_')) {
+      supabase.update('doctors', doctorId, { practice_places: bersih }).catch(() => {});
+    }
+    return { success: true, places: bersih };
+  }
+
+  // SIP yang berlaku untuk sebuah resep: SIP di tempat kop resep itu, kalau
+  // diisi; kalau tidak, SIP utama dokternya. Yang tercetak harus SIP di tempat
+  // resep itu ditulis — bukan sembarang satu.
+  doctorSipFor(doctorId, kopLocationId) {
+    const d = this.getDoctor(doctorId);
+    const utama = (d && d.sip_number) || '';
+    if (!kopLocationId) return utama;
+    const p = this.doctorPracticePlaces(doctorId).find(x => x.location_id === kopLocationId);
+    return (p && p.sip_number) || utama;
+  }
+
+  // Pilihan kop yang ditawarkan saat menulis resep. Tempat praktik dokternya
+  // ditaruh di depan (ditandai milik dia), sisanya tetap boleh dipilih —
+  // membatasi hanya akan memaksa orang mengakali sistem saat ada keadaan yang
+  // tidak terduga.
+  getKopChoicesForDoctor(doctorId) {
+    const milik = this.doctorPracticePlaces(doctorId);
+    return (this.data.practice_locations || [])
+      .filter(l => l.is_active !== false)
+      .map(l => {
+        const p = milik.find(x => x.location_id === l.id);
+        return {
+          id: l.id, name: l.name || '',
+          kop_name: String(l.kop_name || '').trim(),
+          mine: !!p,
+          sip: (p && p.sip_number) || '',
+        };
+      })
+      .sort((a, b) => (a.mine === b.mine ? a.name.localeCompare(b.name) : (a.mine ? -1 : 1)));
+  }
+
+  // kopLocationId = kop yang DIPILIH untuk resep itu; paling menentukan.
+  getKopFor(doctorId, practicePlace, kopLocationId) {
+    const bawaan = {
+      name: 'KLINIK KASIH ANUGERAH PRIMA',
+      sub: '(PRIMA KLINIK)',
+      address: CONFIG.CLINIC_ADDRESS || '',
+      phone: CONFIG.CLINIC_WHATSAPP_DISPLAY || '',
+      email: 'primaklinik.ptk@gmail.com',
+      logo: 'assets/logos/klinik-prima-logo.png',
+      source: 'klinik',
+    };
+    const dokter = this.getDoctor(doctorId);
+    const daftar = this.data.practice_locations || [];
+    // Pilihan pada resepnya menang atas apa pun. Dokter yang praktik di dua
+    // tempat memilih kop saat menulis, dan pilihannya menempel pada resep itu.
+    const dipilih = kopLocationId ? daftar.find(l => l.id === kopLocationId) : null;
+    const dariDokter = dokter && dokter.kop_location_id
+      ? daftar.find(l => l.id === dokter.kop_location_id)
+      : null;
+    // Tempat pada resepnya hanya dipakai bila ia benar-benar punya identitas
+    // kop; kalau hanya punya alamat, alamatnya saja yang menimpa — itulah
+    // perilaku lama yang tetap dipertahankan.
+    const dariTempat = practicePlace ? this.findLocationByName(practicePlace) : null;
+    const utama = dariDokter || null;
+
+    // Bila kopnya sudah DIPILIH pada resep, atau dokternya sudah DIPATOK ke
+    // sebuah tempat, tempat itulah yang berlaku sepenuhnya — tempat pada
+    // resepnya tidak boleh menimpanya.
+    // Tanpa aturan ini, dr. Kevin yang dipatok ke Klinik Prima akan tercetak
+    // berkop apotek hanya karena kebetulan menulis resep di sana.
+    const pakai = dipilih || utama || dariTempat;
+    const kop = { ...bawaan };
+    if (pakai && String(pakai.kop_name || '').trim()) {
+      kop.name = String(pakai.kop_name).trim();
+      kop.sub = String(pakai.kop_sub || '').trim();
+      kop.email = String(pakai.kop_email || '').trim();
+      kop.logo = String(pakai.kop_logo_url || '').trim();
+      kop.source = dipilih ? 'resep' : (utama ? 'dokter' : 'tempat');
+    } else if (dipilih || utama) {
+      // Dipatok ke tempat yang belum punya identitas kop: identitasnya tetap
+      // Klinik Prima, tapi alamat & teleponnya ikut tempat itu.
+      kop.source = dipilih ? 'resep' : 'dokter';
+    }
+    if (pakai && (pakai.address || pakai.phone)) {
+      kop.address = pakai.address || bawaan.address;
+      kop.phone = pakai.phone || bawaan.phone;
+    }
+    return kop;
+  }
+
+  // Menyetel kop bawaan seorang dokter.
+  async setDoctorKop(doctorId, locationId) {
+    const d = this.getDoctor(doctorId);
+    if (!d) return { error: 'Dokter tidak ditemukan' };
+    const id = locationId || null;
+    if (id && !(this.data.practice_locations || []).some(l => l.id === id)) {
+      return { error: 'Tempat praktik tidak ditemukan' };
+    }
+    d.kop_location_id = id;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(doctorId).startsWith('id_')) {
+      supabase.update('doctors', doctorId, { kop_location_id: id }).catch(() => {});
+    }
+    return { success: true, kop: this.getKopFor(doctorId, '') };
+  }
+
   findLocationByName(name) {
     const key = String(name || '').trim().toLowerCase();
     if (!key) return null;
@@ -1701,6 +2096,12 @@ class Store {
       name: String(data.name || '').trim(), address: data.address || '', phone: data.phone || '',
       notes: data.notes || '', is_active: data.is_active !== false,
       sort_order: Number(data.sort_order) || 100,
+      // Identitas kop resep tempat ini. Boleh kosong — yang kosong jatuh
+      // kembali ke identitas Klinik Prima (lihat getKopFor).
+      kop_name: String(data.kop_name || '').trim(),
+      kop_sub: String(data.kop_sub || '').trim(),
+      kop_email: String(data.kop_email || '').trim(),
+      kop_logo_url: String(data.kop_logo_url || '').trim(),
     };
     if (!payload.name) return { error: 'Nama tempat wajib diisi' };
     if (this.findLocationByName(payload.name)) return { error: 'Tempat dengan nama itu sudah ada' };

@@ -1,6 +1,16 @@
 import { store } from '../store.js';
 import { CONFIG } from '../config.js';
 
+// Teks apa pun yang berasal dari isian orang harus lewat sini sebelum
+// dicetak ke HTML. Nama obat kini bisa diketik apotek, jadi ini bukan lagi
+// sekadar kehati-hatian.
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+
 function getPharmacy() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
   return store.getPharmacyByUserId(user?.id);
@@ -24,6 +34,81 @@ export function pharmacyDashboard() {
     pharmacyId: '${pharmacy?.id || ''}',
     prescriptions: window.__pharmacyPrescriptionsInitial || [],
     statusLabels: window.__prescriptionStatusLabels || {},
+    canRx: window.__pharmacyCanRx === true,
+    drafts: window.__pharmacyDrafts || [],
+    rxPatients: window.__pharmacyPatients || [], rxDoctors: window.__pharmacyDoctors || [],
+    rxUnits: window.__rxUnits || [], rxSigna: window.__rxSigna || [], rxSignaTime: window.__rxSignaTime || [],
+    rxOpen: false, rxSaving: false, rxErr: '', rxCari: '',
+    ulangOpen: false, ulangCari: '', ulangHasil: [], ulangBusy: false, ulangErr: '', ulangDokter: '', ulangPilih: '',
+    rxForm: { patient_id: '', doctor_id: '', notes: '', items: [] },
+    // ---- Menyusun resep (wajib ACC dokter) ----
+    rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), instructions: '' }; },
+    openRx() {
+      this.rxErr = ''; this.rxCari = '';
+      this.rxForm = { patient_id: '', doctor_id: (this.rxDoctors[0] && this.rxDoctors[0].id) || '', notes: '', items: [this.rxBlank()] };
+      this.rxOpen = true;
+    },
+    rxAddItem() { this.rxForm.items.push(this.rxBlank()); },
+    get rxPasienTersaring() {
+      const q = (this.rxCari || '').toLowerCase();
+      if (!q) return this.rxPatients.slice(0, 8);
+      return this.rxPatients.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 8);
+    },
+    rxPasienNama(id) { const p = this.rxPatients.find(x => x.id === id); return p ? p.name : ''; },
+    async submitRx() {
+      if (this.rxSaving) return;
+      this.rxErr = '';
+      this.rxSaving = true;
+      const res = await window.__store.createPharmacyPrescription(
+        { patient_id: this.rxForm.patient_id, notes: this.rxForm.notes, record_id: null },
+        this.rxForm.items,
+        { pharmacyId: this.pharmacyId, doctorId: this.rxForm.doctor_id });
+      this.rxSaving = false;
+      if (!res || res.error || !res.success) { this.rxErr = (res && res.error) || 'Gagal menyimpan resep.'; return; }
+      this.rxOpen = false;
+      this.drafts = window.__store.getRxDraftedByPharmacy(this.pharmacyId);
+      window.__showToast && window.__showToast('Terkirim untuk ACC',
+        'Resep ' + res.rx.rx_number + ' menunggu persetujuan dokter. Resep ini belum berlaku sampai disetujui.');
+    },
+    // ---- Resep ulang: ambil dari resep yang pernah sah ----
+    openUlang() {
+      this.ulangOpen = true; this.ulangErr = ''; this.ulangPilih = '';
+      this.ulangCari = '';
+      this.ulangDokter = (this.rxDoctors[0] && this.rxDoctors[0].id) || '';
+      this.cariUlang();
+    },
+    cariUlang() { this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, 25); },
+    ulangRingkas(r) {
+      return (r.items || []).map(i => i.drug_name + (i.dosage ? ' ' + i.dosage : '')).join(', ');
+    },
+    async kirimUlang(r) {
+      if (this.ulangBusy) return;
+      if (!this.ulangDokter) { this.ulangErr = 'Pilih dokter yang akan meng-ACC terlebih dahulu.'; return; }
+      if (!confirm('Ulangi resep ' + r.rx_number + ' untuk ' + r.patient_name + '? Resep ulang ini tetap menunggu ACC dokter sebelum berlaku.')) return;
+      this.ulangBusy = true; this.ulangErr = '';
+      const res = await window.__store.repeatPrescription(r.id, { pharmacyId: this.pharmacyId, doctorId: this.ulangDokter });
+      this.ulangBusy = false;
+      if (!res || res.error || !res.success) { this.ulangErr = (res && res.error) || 'Gagal membuat resep ulang.'; return; }
+      this.ulangOpen = false;
+      this.drafts = window.__store.getRxDraftedByPharmacy(this.pharmacyId);
+      window.__showToast && window.__showToast('Resep ulang dikirim',
+        'Resep ' + res.rx.rx_number + ' menunggu ACC dokter. Belum berlaku sampai disetujui.');
+    },
+    // Menyalin isinya ke formulir susun resep, bila mau diubah dulu.
+    sunting(r) {
+      this.ulangOpen = false;
+      this.rxErr = ''; this.rxCari = r.patient_name;
+      this.rxForm = {
+        patient_id: r.patient_id,
+        doctor_id: this.ulangDokter || (this.rxDoctors[0] && this.rxDoctors[0].id) || '',
+        notes: 'Resep ulang dari ' + r.rx_number,
+        items: (r.items || []).map(i => ({ drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time, quantity: i.quantity, unit: i.unit || (this.rxUnits[0] || 'Tablet'), instructions: i.instructions })),
+      };
+      if (!this.rxForm.items.length) this.rxForm.items = [this.rxBlank()];
+      this.rxOpen = true;
+    },
+    rxAccLabel(rx) { const s = window.__store.rxApprovalStatus(rx); return s === 'pending' ? 'Menunggu ACC dokter' : (s === 'rejected' ? 'Ditolak dokter' : 'Disetujui'); },
+    rxAccChip(rx) { const s = window.__store.rxApprovalStatus(rx); return s === 'pending' ? 'bg-amber-100 text-amber-800' : (s === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'); },
     statusColors: { sent: 'border-l-red-500 bg-red-50/30', received: 'border-l-indigo-500', preparing: 'border-l-amber-500 bg-amber-50/30', ready: 'border-l-green-500 bg-green-50/30', delivering: 'border-l-blue-500 bg-blue-50/30' },
     statusDots: { sent: 'bg-red-500', received: 'bg-indigo-500', preparing: 'bg-amber-500', ready: 'bg-green-500', delivering: 'bg-blue-500' },
     statusBadges: { sent: 'bg-red-100 text-red-700', received: 'bg-indigo-100 text-indigo-700', preparing: 'bg-amber-100 text-amber-700', ready: 'bg-green-100 text-green-700', delivering: 'bg-blue-100 text-blue-700' },
@@ -132,7 +217,7 @@ export function pharmacyDashboard() {
         ${lowStock.length > 0 ? `
         <div class="bg-white rounded-xl border border-red-200 shadow-sm">
           <div class="p-4 border-b border-red-100 bg-red-50/50"><h3 class="font-semibold text-red-800 text-sm">Peringatan Stok Rendah</h3></div>
-          <div class="divide-y divide-gray-50">${lowStock.map(i => `<div class="p-3 flex items-center justify-between"><div><p class="text-sm font-medium text-gray-800">${i.drug_name}</p><p class="text-xs text-gray-500">Min. stok: ${i.min_stock} ${i.unit}</p></div><span class="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">Sisa: ${i.stock}</span></div>`).join('')}</div>
+          <div class="divide-y divide-gray-50">${lowStock.map(i => `<div class="p-3 flex items-center justify-between"><div><p class="text-sm font-medium text-gray-800">${escHtml(i.drug_name)}</p><p class="text-xs text-gray-500">Min. stok: ${escHtml(String(i.min_stock))} ${escHtml(i.unit)}</p></div><span class="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">Sisa: ${i.stock}</span></div>`).join('')}</div>
         </div>` : ''}
       </main>
     </div>
@@ -144,12 +229,97 @@ export function pharmacyPrescriptions() {
   window.__pharmacyId = pharmacy?.id || '';
   window.__pharmacyAllPrescriptionsInitial = store.getPrescriptionsByPharmacy(pharmacy?.id);
   window.__prescriptionStatusLabels = CONFIG.PRESCRIPTION_STATUS_LABELS;
+  // Izin menyusun resep diberikan per apotek dari Manajemen User. Kalau tidak
+  // diberi izin, seluruh bagian ini tidak dirender sama sekali — bukan sekadar
+  // tombolnya dinonaktifkan.
+  window.__pharmacyCanRx = store.pharmacyCanPrescribe(pharmacy?.id) === true;
+  window.__pharmacyPatients = (store.data.patients || []).map(p => ({ id: p.id, name: p.full_name, phone: p.phone || '' }));
+  window.__pharmacyDoctors = store.getDoctors().map(d => ({ id: d.id, name: d.full_name || 'Dokter', sip: d.sip_number || '' }));
+  window.__pharmacyDrafts = store.getRxDraftedByPharmacy(pharmacy?.id);
+  window.__rxUnits = CONFIG.DRUG_UNITS || [];
+  window.__rxSigna = CONFIG.SIGNA_OPTIONS || [];
+  window.__rxSignaTime = CONFIG.SIGNA_TIME || [];
   return `
   <div x-data="{
     sideOpen: window.innerWidth > 1024, filter: '',
     pharmacyId: '${pharmacy?.id || ''}',
     prescriptions: window.__pharmacyAllPrescriptionsInitial || [],
     statusLabels: window.__prescriptionStatusLabels || {},
+    canRx: window.__pharmacyCanRx === true,
+    drafts: window.__pharmacyDrafts || [],
+    rxPatients: window.__pharmacyPatients || [], rxDoctors: window.__pharmacyDoctors || [],
+    rxUnits: window.__rxUnits || [], rxSigna: window.__rxSigna || [], rxSignaTime: window.__rxSignaTime || [],
+    rxOpen: false, rxSaving: false, rxErr: '', rxCari: '',
+    ulangOpen: false, ulangCari: '', ulangHasil: [], ulangBusy: false, ulangErr: '', ulangDokter: '', ulangPilih: '',
+    rxForm: { patient_id: '', doctor_id: '', notes: '', items: [] },
+    // ---- Menyusun resep (wajib ACC dokter) ----
+    rxBlank() { return { drug_name: '', dosage: '', frequency: '', time: '', quantity: '', unit: (this.rxUnits[0] || 'Tablet'), instructions: '' }; },
+    openRx() {
+      this.rxErr = ''; this.rxCari = '';
+      this.rxForm = { patient_id: '', doctor_id: (this.rxDoctors[0] && this.rxDoctors[0].id) || '', notes: '', items: [this.rxBlank()] };
+      this.rxOpen = true;
+    },
+    rxAddItem() { this.rxForm.items.push(this.rxBlank()); },
+    get rxPasienTersaring() {
+      const q = (this.rxCari || '').toLowerCase();
+      if (!q) return this.rxPatients.slice(0, 8);
+      return this.rxPatients.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 8);
+    },
+    rxPasienNama(id) { const p = this.rxPatients.find(x => x.id === id); return p ? p.name : ''; },
+    async submitRx() {
+      if (this.rxSaving) return;
+      this.rxErr = '';
+      this.rxSaving = true;
+      const res = await window.__store.createPharmacyPrescription(
+        { patient_id: this.rxForm.patient_id, notes: this.rxForm.notes, record_id: null },
+        this.rxForm.items,
+        { pharmacyId: this.pharmacyId, doctorId: this.rxForm.doctor_id });
+      this.rxSaving = false;
+      if (!res || res.error || !res.success) { this.rxErr = (res && res.error) || 'Gagal menyimpan resep.'; return; }
+      this.rxOpen = false;
+      this.drafts = window.__store.getRxDraftedByPharmacy(this.pharmacyId);
+      window.__showToast && window.__showToast('Terkirim untuk ACC',
+        'Resep ' + res.rx.rx_number + ' menunggu persetujuan dokter. Resep ini belum berlaku sampai disetujui.');
+    },
+    // ---- Resep ulang: ambil dari resep yang pernah sah ----
+    openUlang() {
+      this.ulangOpen = true; this.ulangErr = ''; this.ulangPilih = '';
+      this.ulangCari = '';
+      this.ulangDokter = (this.rxDoctors[0] && this.rxDoctors[0].id) || '';
+      this.cariUlang();
+    },
+    cariUlang() { this.ulangHasil = window.__store.searchPrescriptionsForRepeat(this.ulangCari, 25); },
+    ulangRingkas(r) {
+      return (r.items || []).map(i => i.drug_name + (i.dosage ? ' ' + i.dosage : '')).join(', ');
+    },
+    async kirimUlang(r) {
+      if (this.ulangBusy) return;
+      if (!this.ulangDokter) { this.ulangErr = 'Pilih dokter yang akan meng-ACC terlebih dahulu.'; return; }
+      if (!confirm('Ulangi resep ' + r.rx_number + ' untuk ' + r.patient_name + '? Resep ulang ini tetap menunggu ACC dokter sebelum berlaku.')) return;
+      this.ulangBusy = true; this.ulangErr = '';
+      const res = await window.__store.repeatPrescription(r.id, { pharmacyId: this.pharmacyId, doctorId: this.ulangDokter });
+      this.ulangBusy = false;
+      if (!res || res.error || !res.success) { this.ulangErr = (res && res.error) || 'Gagal membuat resep ulang.'; return; }
+      this.ulangOpen = false;
+      this.drafts = window.__store.getRxDraftedByPharmacy(this.pharmacyId);
+      window.__showToast && window.__showToast('Resep ulang dikirim',
+        'Resep ' + res.rx.rx_number + ' menunggu ACC dokter. Belum berlaku sampai disetujui.');
+    },
+    // Menyalin isinya ke formulir susun resep, bila mau diubah dulu.
+    sunting(r) {
+      this.ulangOpen = false;
+      this.rxErr = ''; this.rxCari = r.patient_name;
+      this.rxForm = {
+        patient_id: r.patient_id,
+        doctor_id: this.ulangDokter || (this.rxDoctors[0] && this.rxDoctors[0].id) || '',
+        notes: 'Resep ulang dari ' + r.rx_number,
+        items: (r.items || []).map(i => ({ drug_name: i.drug_name, dosage: i.dosage, frequency: i.frequency, time: i.time, quantity: i.quantity, unit: i.unit || (this.rxUnits[0] || 'Tablet'), instructions: i.instructions })),
+      };
+      if (!this.rxForm.items.length) this.rxForm.items = [this.rxBlank()];
+      this.rxOpen = true;
+    },
+    rxAccLabel(rx) { const s = window.__store.rxApprovalStatus(rx); return s === 'pending' ? 'Menunggu ACC dokter' : (s === 'rejected' ? 'Ditolak dokter' : 'Disetujui'); },
+    rxAccChip(rx) { const s = window.__store.rxApprovalStatus(rx); return s === 'pending' ? 'bg-amber-100 text-amber-800' : (s === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'); },
     statusBadges: { sent:'bg-blue-100 text-blue-700', preparing:'bg-amber-100 text-amber-700', ready:'bg-green-100 text-green-700', delivering:'bg-blue-100 text-blue-700', completed:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-700', received:'bg-indigo-100 text-indigo-700' },
     get filteredPrescriptions() { return (this.filter ? this.prescriptions.filter(rx => rx.status === this.filter) : this.prescriptions).slice().sort((a,b) => b.created_at.localeCompare(a.created_at)); },
     itemsFor(rxId) { return window.__store.getPrescriptionItems(rxId); },
@@ -183,7 +353,41 @@ export function pharmacyPrescriptions() {
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${pharmacyHeader(pharmacy)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
-        <h2 class="text-xl font-bold text-gray-800 mb-4">Semua E-Resep</h2>
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-4">
+          <h2 class="text-xl font-bold text-gray-800">Semua E-Resep</h2>
+          <div class="flex gap-2 flex-wrap">
+            <button x-show="canRx" x-cloak @click="openUlang()" class="px-4 py-2 rounded-lg text-sm font-semibold text-purple-800 bg-purple-100 hover:bg-purple-200 transition flex items-center gap-1.5">
+              <span class="ms text-[17px]">history</span>Ambil Resep Sebelumnya
+            </button>
+            <button x-show="canRx" x-cloak @click="openRx()" class="px-4 py-2 rounded-lg text-sm font-semibold text-white flex items-center gap-1.5" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
+              <span class="ms text-[17px]">edit_note</span>Susun Resep
+            </button>
+          </div>
+        </div>
+
+        <!-- Resep yang disusun apotek ini. Ditaruh terpisah dari antrean
+             pelayanan, karena selama menunggu ACC resepnya BELUM berlaku dan
+             tidak boleh dilayani. -->
+        <div x-show="canRx && drafts.length" x-cloak class="mb-5 bg-white border-2 border-purple-200 rounded-2xl overflow-hidden">
+          <div class="px-4 py-2.5 bg-purple-50 border-b border-purple-100 flex items-center gap-2">
+            <span class="ms text-[18px] text-purple-700">edit_note</span>
+            <p class="text-sm font-bold text-purple-900">Resep yang Anda Susun</p>
+            <span class="px-2 py-0.5 rounded-full bg-purple-200 text-purple-900 text-[11px] font-bold" x-text="drafts.length"></span>
+          </div>
+          <div class="divide-y divide-slate-50">
+            <template x-for="rx in drafts" :key="rx.id">
+              <div class="px-4 py-3 flex items-center gap-3 flex-wrap">
+                <div class="flex-1 min-w-[200px]">
+                  <p class="text-sm font-semibold text-gray-800"><span x-text="rx.rx_number"></span> &middot; <span x-text="patientName(rx.patient_id)"></span></p>
+                  <p class="text-[11px] text-slate-500">Dokter penilai: <span x-text="doctorName(rx.approval_doctor_id || rx.doctor_id) || '-'"></span></p>
+                  <p x-show="rx.approval_note" x-cloak class="text-[11px] text-red-600 mt-0.5" x-text="'Catatan dokter: ' + rx.approval_note"></p>
+                </div>
+                <span class="px-2 py-1 rounded-full text-[11px] font-bold" :class="rxAccChip(rx)" x-text="rxAccLabel(rx)"></span>
+              </div>
+            </template>
+          </div>
+          <p class="px-4 py-2 bg-slate-50 text-[11px] text-slate-500 border-t border-slate-100">Resep yang masih <b>menunggu ACC</b> belum berlaku dan sengaja tidak muncul di antrean pelayanan mana pun &mdash; termasuk antrean apotek ini sendiri.</p>
+        </div>
         <div class="flex flex-wrap gap-2 mb-4">
           ${['','sent','preparing','ready','delivering','completed','rejected'].map(s => `<button @click="filter='${s}'" :class="filter==='${s}' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-3 py-1.5 rounded-lg text-xs font-medium transition">${s ? CONFIG.PRESCRIPTION_STATUS_LABELS[s] : 'Semua'}</button>`).join('')}
         </div>
@@ -271,7 +475,128 @@ export function pharmacyPrescriptions() {
             </div>
           </template>
         </div>
-      </main>
+      
+        <!-- Ambil resep sebelumnya. Yang disalin hanya daftar obatnya; resep
+             ulangnya tetap resep baru yang menunggu ACC dokter. -->
+        <div x-show="ulangOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="ulangOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] flex flex-col">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-lg font-bold text-gray-800">Ambil Resep Sebelumnya</h3>
+              <button @click="ulangOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div class="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+              <p class="text-[11.5px] text-amber-900 leading-relaxed">Resep ulang <b>tetap menunggu ACC dokter</b>. Yang menjadikan sebuah resep sah adalah keputusan dokter hari ini &mdash; kondisi pasien bisa sudah berbeda dari resep sebelumnya.</p>
+            </div>
+            <div class="grid sm:grid-cols-2 gap-3 mb-3">
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Cari resep</label>
+                <input type="text" x-model="ulangCari" @input="cariUlang()" placeholder="Nama pasien, no. resep, atau nama obat..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Dokter yang meng-ACC *</label>
+                <select x-model="ulangDokter" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                  <template x-for="d in rxDoctors" :key="d.id"><option :value="d.id" x-text="d.name + (d.sip ? ' — SIP ' + d.sip : '')"></option></template>
+                </select>
+              </div>
+            </div>
+            <p x-show="ulangErr" x-cloak class="text-xs text-red-600 mb-2" x-text="ulangErr"></p>
+            <div class="flex-1 min-h-0 overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-50">
+              <template x-for="r in ulangHasil" :key="r.id">
+                <div class="p-3">
+                  <div class="flex items-start justify-between gap-3 flex-wrap">
+                    <div class="flex-1 min-w-[200px]">
+                      <p class="text-sm font-semibold text-gray-800"><span x-text="r.rx_number"></span> &middot; <span x-text="r.patient_name"></span></p>
+                      <p class="text-[11px] text-slate-500" x-text="(r.created_at || '').slice(0,10) + (r.doctor_name ? ' · ' + r.doctor_name : '')"></p>
+                      <p class="text-xs text-gray-700 mt-1" x-text="ulangRingkas(r)"></p>
+                    </div>
+                    <div class="flex gap-1.5">
+                      <button @click="kirimUlang(r)" :disabled="ulangBusy" class="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 transition disabled:opacity-50">Ulangi &amp; Kirim ACC</button>
+                      <button @click="sunting(r)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition">Ubah dulu</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div x-show="!ulangHasil.length" x-cloak class="p-8 text-center text-sm text-gray-400">Tidak ada resep yang cocok.</div>
+            </div>
+            <div class="flex justify-end mt-4">
+              <button @click="ulangOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Tutup</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Menyusun resep. Selalu berujung pada ACC dokter. -->
+        <div x-show="rxOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="rxOpen=false">
+          <div class="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-6 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-lg font-bold text-gray-800">Susun Resep</h3>
+              <button @click="rxOpen=false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div class="mb-4 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+              <p class="text-[11.5px] text-amber-900 leading-relaxed">Resep ini <b>tidak berlaku</b> sampai di-ACC dokter. Selama menunggu, resepnya tidak masuk antrean pelayanan dan tidak bisa ditebus.</p>
+            </div>
+
+            <div class="grid sm:grid-cols-2 gap-3 mb-3">
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Pasien *</label>
+                <input type="text" x-model="rxCari" placeholder="Ketik nama pasien..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                <div class="mt-1 border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-40 overflow-y-auto">
+                  <template x-for="p in rxPasienTersaring" :key="p.id">
+                    <button type="button" @click="rxForm.patient_id = p.id; rxCari = p.name"
+                      class="w-full text-left px-3 py-2 text-sm hover:bg-purple-50 transition"
+                      :class="rxForm.patient_id === p.id ? 'bg-purple-50 font-semibold text-purple-800' : 'text-gray-700'">
+                      <span x-text="p.name"></span><span class="text-[11px] text-slate-400" x-text="p.phone ? ' · ' + p.phone : ''"></span>
+                    </button>
+                  </template>
+                </div>
+                <p x-show="rxForm.patient_id" x-cloak class="text-[11px] text-green-700 mt-1" x-text="'Terpilih: ' + rxPasienNama(rxForm.patient_id)"></p>
+              </div>
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Dokter yang meng-ACC *</label>
+                <select x-model="rxForm.doctor_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                  <template x-for="d in rxDoctors" :key="d.id"><option :value="d.id" x-text="d.name + (d.sip ? ' — SIP ' + d.sip : '')"></option></template>
+                </select>
+                <p class="text-[11px] text-gray-400 mt-1">Nama dokter inilah yang akan tercantum pada resep setelah disetujui.</p>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs text-gray-600">Obat</label>
+                <button type="button" @click="rxAddItem()" class="text-xs text-purple-700 font-semibold">+ Tambah obat</button>
+              </div>
+              <div class="space-y-2">
+                <template x-for="(it, ix) in rxForm.items" :key="ix">
+                  <div class="rounded-xl border border-slate-100 p-2.5 bg-slate-50/50">
+                    <div class="grid grid-cols-12 gap-2">
+                      <input type="text" x-model="it.drug_name" placeholder="Nama obat *" class="col-span-7 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                      <input type="text" x-model="it.dosage" placeholder="Dosis (mis. 500 mg)" class="col-span-5 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                      <select x-model="it.frequency" class="col-span-4 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white"><option value="">Frekuensi</option><template x-for="f in rxSigna" :key="f"><option :value="f" x-text="f"></option></template></select>
+                      <select x-model="it.time" class="col-span-4 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white"><option value="">Waktu</option><template x-for="t in rxSignaTime" :key="t"><option :value="t" x-text="t"></option></template></select>
+                      <input type="number" min="1" x-model="it.quantity" placeholder="Jml" class="col-span-2 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white">
+                      <select x-model="it.unit" class="col-span-2 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white"><template x-for="u in rxUnits" :key="u"><option :value="u" x-text="u"></option></template></select>
+                      <input type="text" x-model="it.instructions" placeholder="Aturan tambahan (opsional)" class="col-span-11 px-2 py-1.5 border border-gray-200 rounded text-sm bg-white">
+                      <button type="button" @click="rxForm.items.splice(ix,1)" x-show="rxForm.items.length > 1" class="col-span-1 text-red-400 hover:text-red-600 text-sm">&times;</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="block text-xs text-gray-600 mb-1">Catatan untuk dokter</label>
+              <textarea x-model="rxForm.notes" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Mis. keluhan pasien, riwayat alergi, alasan pemilihan obat"></textarea>
+            </div>
+
+            <p x-show="rxErr" x-cloak class="text-xs text-red-600 mb-2 leading-relaxed" x-text="rxErr"></p>
+            <div class="flex gap-2 justify-end">
+              <button @click="rxOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="submitRx()" :disabled="rxSaving || !rxForm.patient_id" class="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-40" style="background:linear-gradient(135deg,#7c3aed,#5b21b6)">
+                <span x-show="!rxSaving">Kirim untuk ACC Dokter</span><span x-show="rxSaving" x-cloak>Menyimpan...</span>
+              </button>
+            </div>
+          </div>
+        </div>
+</main>
     </div>
   </div>`;
 }
@@ -294,7 +619,7 @@ export function pharmacyInventory() {
             ${inventory.map(i => `
             <template x-if="!search || '${i.drug_name.toLowerCase()}'.includes(search.toLowerCase())">
               <tr class="hover:bg-gray-50 transition">
-                <td class="px-4 py-3 text-sm font-medium text-gray-800">${i.drug_name}</td>
+                <td class="px-4 py-3 text-sm font-medium text-gray-800">${escHtml(i.drug_name)}</td>
                 <td class="px-4 py-3 text-sm text-gray-600">${i.stock} ${i.unit}</td>
                 <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${i.min_stock} ${i.unit}</td>
                 <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${formatDate(i.expiry_date)}</td>
