@@ -1260,6 +1260,142 @@ class Store {
   // patched from its client-generated 'id_...' placeholder to a real
   // Supabase UUID (see _syncInsert); if not, the insert never persisted.
   // =========================================================================
+  // MENDAFTARKAN PASIEN BARU DARI MEJA DEPAN (dipakai halaman apotek)
+  //
+  // Resep tidak bisa ditulis untuk orang yang belum ada di daftar pasien,
+  // sementara yang datang ke apotek sering belum pernah tercatat di klinik.
+  // Karena itu apotek boleh mendaftarkannya sendiri. Mendaftarkan pasien
+  // adalah pekerjaan administrasi, bukan keputusan klinis — jadi tidak perlu
+  // menunggu ACC dokter. Yang tetap menunggu ACC adalah RESEPNYA.
+  //
+  // AKUNNYA DIBUAT TANPA LOGIN. Pasien yang didaftarkan di meja apotek tidak
+  // sedang membuat akun aplikasi, dan menambalnya dengan alamat e-mail karangan
+  // justru akan menghalangi dia mendaftar sendiri nanti. Super Admin bisa
+  // mengisikan e-mail aslinya belakangan lewat Manajemen User untuk
+  // mengaktifkan login — jalur yang memang sudah ada.
+  //
+  // YANG PALING BERBAHAYA DI SINI BUKAN SALAH KETIK, TAPI DUPLIKAT. Satu orang
+  // yang terdaftar dua kali membuat riwayat obatnya terbelah, dan itu baru
+  // ketahuan justru saat riwayatnya paling dibutuhkan. Karena itu ada dua
+  // lapis: findSimilarPatients menampilkan calon kembarannya SEBELUM disimpan,
+  // dan NIK yang sudah dipakai ditolak mentah-mentah.
+  // =========================================================================
+
+  // Satu nomor HP sering ditulis dengan banyak cara ('0812…', '+62812…',
+  // '0812-3456'). Disamakan dulu, kalau tidak pencarian duplikat lolos hanya
+  // karena bedanya cara menulis.
+  normalizePhone(v) {
+    let d = String(v || '').replace(/\D/g, '');
+    if (d.startsWith('62')) d = '0' + d.slice(2);
+    return d;
+  }
+
+  normalizeName(v) {
+    return String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  // Pasien yang MUNGKIN orang yang sama. Ini peringatan, bukan penghalang:
+  // nama yang sama persis itu lumrah di Indonesia, jadi yang memutuskan tetap
+  // petugasnya. Yang benar-benar ditolak (NIK sama) diurus createPatientByStaff.
+  findSimilarPatients(data, limit = 5) {
+    const d = data || {};
+    const nama = this.normalizeName(d.full_name);
+    const hp = this.normalizePhone(d.phone);
+    const nik = String(d.nik || '').replace(/\D/g, '');
+    if (!nama && !hp && !nik) return [];
+    const hasil = [];
+    for (const p of (this.data.patients || [])) {
+      const alasan = [];
+      // Diurut dari yang paling meyakinkan: NIK menandai orang, nomor HP
+      // menandai satu rumah tangga, nama hanya menandai kemungkinan.
+      if (nik && String(p.nik || '').replace(/\D/g, '') === nik) alasan.push('NIK sama');
+      if (hp && this.normalizePhone(p.phone) === hp) alasan.push('nomor HP sama');
+      const namaP = this.normalizeName(p.full_name);
+      if (nama && namaP && namaP === nama) alasan.push('nama sama persis');
+      else if (nama.length >= 4 && namaP && (namaP.includes(nama) || nama.includes(namaP))) alasan.push('nama mirip');
+      if (alasan.length) hasil.push({ ...p, match_reason: alasan.join(', '), match_score: alasan.length });
+    }
+    return hasil.sort((a, b) => b.match_score - a.match_score).slice(0, limit);
+  }
+
+  // opts: { byUserId, via } — jejak siapa yang mendaftarkan, lihat catatan
+  // tentang kolom registered_by di bawah.
+  async createPatientByStaff(data, opts) {
+    const o = opts || {};
+    const d = data || {};
+    const nama = String(d.full_name || '').trim();
+    if (!nama) return { success: false, error: 'Nama lengkap pasien wajib diisi.' };
+
+    // Berlapis dengan RLS (is_staff() sudah menolaknya di server): akun pasien
+    // tidak boleh membuatkan data pasien lain.
+    try {
+      const me = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+      if (me && me.role === 'patient') return { success: false, error: 'Akun pasien tidak bisa mendaftarkan pasien lain.' };
+    } catch (e) { /* sesi tidak terbaca — biarkan RLS yang memutuskan */ }
+
+    // NIK adalah identitas tunggal. Kalau sudah dipakai, yang benar hampir
+    // pasti memakai data yang sudah ada, bukan membuat data kedua.
+    const nik = String(d.nik || '').replace(/\D/g, '');
+    if (nik) {
+      const kembar = (this.data.patients || []).find(p => String(p.nik || '').replace(/\D/g, '') === nik);
+      if (kembar) return { success: false, error: 'NIK ini sudah terdaftar atas nama ' + (kembar.full_name || '-') + '. Pakai data pasien yang sudah ada saja.', existing: kembar };
+    }
+
+    const isi = {
+      full_name: nama,
+      nik: String(d.nik || '').trim(),
+      birth_date: d.birth_date || null,
+      gender: d.gender || '',
+      phone: String(d.phone || '').trim(),
+      address: String(d.address || '').trim(),
+      blood_type: d.blood_type || '',
+      allergies: String(d.allergies || '').trim() || '-',
+      emergency_contact: '',
+      family_name: String(d.family_name || '').trim(),
+      family_phone: String(d.family_phone || '').trim(),
+      family_relation: String(d.family_relation || '').trim(),
+    };
+
+    if (CONFIG.DEMO_MODE) {
+      const userId = generateId();
+      this.data.users.push({ id: userId, email: placeholderEmail(), password: 'default123', role: 'patient', is_active: true, no_email: true, created_at: todayLocal(), full_name: nama, phone: isi.phone });
+      const baris = { id: generateId(), user_id: userId, rm_number: String(await this.getNextRmNumber()).padStart(6, '0'), registered_by: o.byUserId || null, registered_via: o.via || '', ...isi };
+      this.data.patients.push(baris);
+      this._save();
+      return { success: true, patient: baris };
+    }
+
+    const profileRes = await supabase.insert('profiles', {
+      email: placeholderEmail(), role: 'patient', is_active: true,
+      full_name: nama, phone: isi.phone,
+    });
+    if (!profileRes || profileRes.error) return { success: false, error: (profileRes && profileRes.error) || 'Gagal membuat data pasien.' };
+
+    const payload = { profile_id: profileRes.id, ...isi };
+    // Nomor RM diberikan sejak awal, bukan menunggu rekam medisnya dibuka
+    // pertama kali — apotek sering butuh menyebutnya di hari yang sama.
+    try { const n = await this.getNextRmNumber(); if (n) payload.rm_number = String(n).padStart(6, '0'); } catch (e) { /* diberikan belakangan oleh ensureRmNumber */ }
+
+    // Jejak "siapa yang mendaftarkan" baru ada setelah
+    // supabase-pharmacy-add-patient.sql dijalankan. Kalau kolomnya belum ada,
+    // PostgREST menolak SELURUH barisnya — bukan hanya kolom itu — sehingga
+    // pasiennya gagal terdaftar sama sekali. Karena itu percobaan kedua
+    // dilakukan tanpa jejaknya: yang hilang hanya catatan tambahan, bukan
+    // pasiennya.
+    let res = await supabase.insert('patients', { ...payload, registered_by: o.byUserId || null, registered_via: o.via || '' });
+    if (res && res.error && /registered_(by|via)/.test(String(res.error))) {
+      res = await supabase.insert('patients', payload);
+    }
+    if (!res || res.error) return { success: false, error: (res && res.error) || 'Gagal menyimpan data pasien.' };
+
+    const baris = { ...res, user_id: res.profile_id };
+    this.data.patients.push(baris);
+    this.data.users.push({ id: profileRes.id, email: profileRes.email, role: 'patient', is_active: true, auth_id: null, no_email: true, has_login: false, password: '***', created_at: profileRes.created_at, full_name: nama, phone: isi.phone });
+    this._save();
+    return { success: true, patient: baris };
+  }
+
+  // =========================================================================
   // APOTEK MENULIS RESEP → WAJIB DI-ACC DOKTER
   //
   // Izinnya per apotek dan MATI secara bawaan. Resep yang lahir dari apotek
