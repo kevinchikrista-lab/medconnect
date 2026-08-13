@@ -102,12 +102,15 @@ function buildResepDetails(rx, patient, doctor, items) {
     practice_place: (linkedRecord && linkedRecord.location) || '',
     doctor_id: (doctor && doctor.id) || (rx && rx.doctor_id) || '',
     doctor_name: (doctor && doctor.full_name) || '',
-    doctor_sip: (doctor && doctor.sip_number) || '',
+    // SIP yang tercetak mengikuti TEMPAT kop resep ini — SIP diterbitkan per
+    // tempat praktik, jadi dokter yang praktik di dua tempat punya dua nomor.
+    doctor_sip: store.doctorSipFor((doctor && doctor.id) || (rx && rx.doctor_id) || '', rx && rx.kop_location_id)
+      || (doctor && doctor.sip_number) || '',
     // Kop resep ikut DOKTERNYA (lihat store.getKopFor), lalu dibekukan di sini
     // supaya cetak ulang bertahun kemudian tetap menghasilkan lembar yang sama
     // persis — walau kop dokternya sudah diubah sejak itu.
     kop: store.getKopFor((doctor && doctor.id) || (rx && rx.doctor_id) || '',
-      (linkedRecord && linkedRecord.location) || ''),
+      (linkedRecord && linkedRecord.location) || '', rx && rx.kop_location_id),
     letter_date: issueDate,
     notes: rx.notes || '',
     service_fee_enabled: !!rx.service_fee_enabled,
@@ -424,9 +427,10 @@ export async function printResepById(rxId) {
     practice_place: (linked && linked.location) || '',
     doctor_id: (doctor && doctor.id) || (rx && rx.doctor_id) || '',
     doctor_name: (doctor && doctor.full_name) || '',
-    doctor_sip: (doctor && doctor.sip_number) || '',
+    doctor_sip: store.doctorSipFor((doctor && doctor.id) || (rx && rx.doctor_id) || '', rx && rx.kop_location_id)
+      || (doctor && doctor.sip_number) || '',
     kop: store.getKopFor((doctor && doctor.id) || (rx && rx.doctor_id) || '',
-      (linked && linked.location) || ''),
+      (linked && linked.location) || '', rx && rx.kop_location_id),
     rx_target: rx.rx_target || 'apotek',
     notes: rx.notes || '',
   };

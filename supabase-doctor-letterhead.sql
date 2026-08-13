@@ -30,9 +30,35 @@ ALTER TABLE public.practice_locations
   ADD COLUMN IF NOT EXISTS kop_email    text,
   ADD COLUMN IF NOT EXISTS kop_logo_url text;   -- URL logo; kosong = tanpa logo
 
--- Kop bawaan seorang dokter. Kosong = ikut tempat praktik pada resepnya,
--- lalu ikut Klinik Prima bila tempat itu pun tidak punya identitas kop.
+-- SATU DOKTER BISA BERPRAKTIK DI LEBIH DARI SATU TEMPAT, jadi kop tidak bisa
+-- ditetapkan sekali untuk selamanya. Karena itu ada dua hal berbeda:
+--
+--   doctors.practice_places : DAFTAR tempat dia berpraktik, BESERTA NOMOR SIP
+--       di masing-masing tempat. Bentuknya
+--       [{ "location_id": "...", "sip_number": "..." }, ...]
+--       SIP memang diterbitkan per tempat praktik, jadi satu dokter yang
+--       praktik di dua tempat punya dua nomor SIP yang berbeda — dan yang
+--       tercetak harus SIP di tempat resep itu ditulis, bukan sembarang satu.
+--   doctors.kop_location_id       : kop BAWAAN-nya — dipakai bila resep itu
+--       tidak menyebut tempat mana pun. Boleh kosong.
+--
+-- Lalu yang paling menentukan ada di resepnya sendiri:
+--   prescriptions.kop_location_id : kop yang DIPILIH untuk resep itu.
+--
+-- Dengan begitu dokter yang praktik di dua tempat cukup memilih kop saat
+-- menulis resepnya, dan pilihannya menempel pada resep itu selamanya.
 ALTER TABLE public.doctors
+  ADD COLUMN IF NOT EXISTS kop_location_id uuid,
+  ADD COLUMN IF NOT EXISTS practice_places jsonb DEFAULT '[]'::jsonb;
+
+UPDATE public.doctors SET practice_places = '[]'::jsonb WHERE practice_places IS NULL;
+
+-- doctors.sip_number yang sudah ada TETAP DIPAKAI sebagai SIP utama: dipakai
+-- bila tempat kop-nya tidak punya SIP tersendiri, dan untuk surat-surat lain
+-- di luar resep. Jadi dokter yang hanya praktik di satu tempat tidak perlu
+-- mengisi apa pun yang baru.
+
+ALTER TABLE public.prescriptions
   ADD COLUMN IF NOT EXISTS kop_location_id uuid;
 
 CREATE INDEX IF NOT EXISTS idx_doctors_kop ON public.doctors (kop_location_id)

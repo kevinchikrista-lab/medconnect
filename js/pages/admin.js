@@ -139,13 +139,29 @@ export function adminUsers() {
             <div class="space-y-3">
               <div><label class="block text-xs text-gray-600 mb-1">Nama Lengkap</label><input type="text" x-model="docForm.full_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               <div><label class="block text-xs text-gray-600 mb-1">No. SIP / SIPD</label><input type="text" x-model="docForm.sip_number" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: 500.16/1540/SIPD/..."></div>
+              <div class="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                <label class="block text-xs font-semibold text-slate-800 mb-1">Tempat Praktik Dokter Ini</label>
+                <p class="text-[11px] text-slate-600 mb-2 leading-relaxed">Boleh lebih dari satu, <b>masing-masing dengan nomor SIP-nya sendiri</b> &mdash; SIP memang diterbitkan per tempat praktik. Yang tercetak di resep adalah SIP di tempat resep itu ditulis. Dikosongkan berarti memakai No. SIP utama di atas.</p>
+                <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                  ${store.getAllLocations().map(l => `<div class="rounded-lg bg-white border border-slate-200 p-2">
+                    <label class="flex items-center gap-2 text-[13px] text-slate-700 cursor-pointer">
+                      <input type="checkbox" @change="togglePlace('${escHtml(l.id)}')" :checked="hasPlace('${escHtml(l.id)}')" class="rounded border-slate-300">
+                      <span class="flex-1">${escHtml(l.name)}</span>
+                    </label>
+                    <input type="text" x-show="hasPlace('${escHtml(l.id)}')" x-cloak
+                      :value="placeSip('${escHtml(l.id)}')" @input="setPlaceSip('${escHtml(l.id)}', $event.target.value)"
+                      placeholder="No. SIP di tempat ini (kosong = pakai SIP utama)"
+                      class="mt-1.5 w-full px-2 py-1.5 border border-slate-200 rounded text-[13px] focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+                  </div>`).join('')}
+                </div>
+              </div>
               <div class="rounded-xl bg-indigo-50 border border-indigo-100 p-3">
-                <label class="block text-xs font-semibold text-indigo-900 mb-1">Kop Resep Dokter Ini</label>
+                <label class="block text-xs font-semibold text-indigo-900 mb-1">Kop Resep Bawaan</label>
                 <select x-model="docForm.kop_location_id" class="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50">
                   <option value="">Ikut tempat praktik / Klinik Prima (bawaan)</option>
                   ${store.getAllLocations().map(l => `<option value="${escHtml(l.id)}">${escHtml(l.name)}${l.kop_name ? ' — ' + escHtml(l.kop_name) : ' (kop belum diisi)'}</option>`).join('')}
                 </select>
-                <p class="text-[11px] text-indigo-700 mt-1 leading-relaxed">Kop menyatakan <b>siapa yang menulis</b> resep, bukan ke mana resepnya dikirim &mdash; resep dokter ini tetap bisa dikirim ke apotek mana pun. Identitas kop tiap tempat (nama besar, e-mail, logo) diisi di menu <b>Lokasi Praktik</b>.</p>
+                <p class="text-[11px] text-indigo-700 mt-1 leading-relaxed">Ini hanya <b>bawaannya</b>. Saat menulis resep, dokter tetap bisa memilih kop lain &mdash; pilihan pada resep itu yang berlaku. Kop menyatakan <b>di mana resep ditulis</b>, bukan ke mana resepnya dikirim: resepnya tetap bisa ditebus di apotek mana pun. Identitas kop tiap tempat (nama besar, e-mail, logo) diisi di menu <b>Lokasi Praktik</b>.</p>
               </div>
               <div><label class="block text-xs text-gray-600 mb-1">Spesialisasi</label><input type="text" x-model="docForm.specialization" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Dokter Umum"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Telepon</label><input type="tel" x-model="docForm.phone" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
@@ -224,10 +240,20 @@ export function adminUsersData() {
     editDoc: null, docForm: { full_name: '', sip_number: '', specialization: '', phone: '' }, docMsg: '', savingDoc: false,
     resetUser: null, resetNewPass: '', resetMsg: '', resetting: false,
     certUser: null,
+    docPlaces: [],
+    hasPlace(id) { return this.docPlaces.some(p => p.location_id === id); },
+    placeSip(id) { const p = this.docPlaces.find(x => x.location_id === id); return p ? p.sip_number : ''; },
+    setPlaceSip(id, v) { const p = this.docPlaces.find(x => x.location_id === id); if (p) p.sip_number = v; },
+    togglePlace(id) {
+      const i = this.docPlaces.findIndex(p => p.location_id === id);
+      if (i === -1) this.docPlaces.push({ location_id: id, sip_number: '' });
+      else this.docPlaces.splice(i, 1);
+    },
     openEditDoc(user) {
       this.docMsg = '';
       const p = user.profile || {};
       this.docForm = { full_name: p.full_name || '', sip_number: p.sip_number || '', specialization: p.specialization || '', phone: p.phone || '', kop_location_id: p.kop_location_id || '' };
+      this.docPlaces = window.__store.doctorPracticePlaces(p.id).slice();
       this.editDoc = user;
     },
     async saveDoctor() {
@@ -242,6 +268,8 @@ export function adminUsersData() {
       const kop = await store.setDoctorKop(this.editDoc.profile.id, kop_location_id || null);
       if (kop && kop.error) { this.docMsg = kop.error; return; }
       this.editDoc.profile.kop_location_id = kop_location_id || null;
+      const tp = await store.setDoctorPracticePlaces(this.editDoc.profile.id, this.docPlaces);
+      if (tp && tp.error) { this.docMsg = tp.error; return; }
       // If the admin edited their own (owner) doctor record, refresh the cached
       // session profile so the new SIP shows on letters without re-login.
       const cur = JSON.parse(sessionStorage.getItem('medconnect_profile') || 'null');

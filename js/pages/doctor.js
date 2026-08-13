@@ -1364,6 +1364,12 @@ export function doctorPrescriptions() {
 export function doctorPrescriptionNew(params) {
   const doc = getDoctor();
   const record = store.data.medical_records.find(r => r.id === params.recordId);
+  // Pilihan kop untuk dokter ini; tempat praktiknya sendiri ditaruh di depan.
+  window.__kopChoices = store.getKopChoicesForDoctor(doc && doc.id);
+  // Bawaannya: tempat kunjungan ini bila terdaftar, kalau tidak kop bawaan
+  // dokternya — jadi yang paling sering benar sudah terpilih sejak awal.
+  const tempatKunjungan = record ? store.findLocationByName(record.location) : null;
+  window.__kopDefault = (tempatKunjungan && tempatKunjungan.id) || (doc && doc.kop_location_id) || '';
   const patient = record ? store.getPatient(record.patient_id) : null;
   const pharmacies = store.getPharmacies();
   if (!record || !patient) return '<div class="p-8 text-center text-gray-500">Rekam medis tidak ditemukan</div>';
@@ -1379,6 +1385,9 @@ export function doctorPrescriptionNew(params) {
     items: [{drug_name:'',dosage:'',quantity:'',unit:'Tablet',frequency:'3 x 1',time:'Sesudah makan (PC)',duration:'',instructions:'',is_compound:false,compound_details:'',display_name:''}],
     pharmacy_id: '${pharmacies[0]?.id || ''}', notes: '', delivery_method: 'pickup', delivery_address: '${qAttr(patient.address)}',
     rxTarget: 'apotek',
+    // Kop resep. Satu dokter bisa praktik di lebih dari satu tempat, jadi
+    // kopnya dipilih di sini — bukan dipaku sekali untuk selamanya.
+    kopId: window.__kopDefault || '', kopChoices: window.__kopChoices || [],
     serviceFeeEnabled: false, serviceFee: '',
     sending: false, sent: false, error: '',
     allergyTerms: window.__allergyTerms || [],
@@ -1411,7 +1420,7 @@ export function doctorPrescriptionNew(params) {
       if (this.allergyConflicts.length && !confirm('PERINGATAN ALERGI\\n\\nAda obat yang cocok dengan alergi pasien (' + this.allergyConflicts.map(c=>'R/'+(c.i+1)+': '+c.term).join(', ') + ').\\n\\nTetap kirim resep ini?')) return;
       this.sending = true; this.error = '';
       const isLuar = this.rxTarget === 'luar';
-      const result = await window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:isLuar?null:this.pharmacy_id,notes:this.notes,rx_target:this.rxTarget,delivery_method:isLuar?'pickup':this.delivery_method,delivery_address:(!isLuar&&this.delivery_method==='delivery')?this.delivery_address:'',service_fee_enabled:this.serviceFeeEnabled,service_fee:this.serviceFeeEnabled?(parseInt(this.serviceFee)||0):0}, this.items);
+      const result = await window.__store.createPrescription({record_id:'${record.id}',doctor_id:'${doc?.id}',patient_id:'${patient.id}',pharmacy_id:isLuar?null:this.pharmacy_id,notes:this.notes,rx_target:this.rxTarget,delivery_method:isLuar?'pickup':this.delivery_method,delivery_address:(!isLuar&&this.delivery_method==='delivery')?this.delivery_address:'',service_fee_enabled:this.serviceFeeEnabled,service_fee:this.serviceFeeEnabled?(parseInt(this.serviceFee)||0):0,kop_location_id:this.kopId||null}, this.items);
       this.sending = false;
       if (result.success) {
         this.sent = true;
@@ -1520,7 +1529,31 @@ export function doctorPrescriptionNew(params) {
             </div>
           </div>
         </div>
-        <div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
+                        <div class="bg-white border border-slate-100 rounded-3xl p-5 mb-4">
+          <label class="block text-sm font-semibold text-gray-800 mb-1">Kop Resep</label>
+          <p class="text-[11.5px] text-gray-500 mb-2 leading-relaxed">Kop menyatakan <b>di mana Anda menulis resep ini</b>. Satu dokter bisa berpraktik di lebih dari satu tempat, jadi pilih yang sesuai &mdash; pilihan ini menempel pada resep tersebut selamanya. Tidak ada hubungannya dengan apotek tujuan: resep ini tetap bisa ditebus di apotek mana pun.</p>
+          <select x-model="kopId" class="w-full sm:max-w-md px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+            <option value="">Bawaan (ikut tempat kunjungan / Klinik Prima)</option>
+            <template x-for="k in kopChoices" :key="k.id">
+              <option :value="k.id" x-text="(k.mine ? '\u2605 ' : '') + k.name + (k.kop_name ? ' — ' + k.kop_name : ' (kop belum diisi)')"></option>
+            </template>
+          </select>
+          <p class="text-[11px] text-gray-400 mt-1">&#9733; = tempat praktik Anda.</p>
+        </div>
+
+<div class="bg-white border border-slate-100 rounded-3xl p-5 mb-4">
+          <label class="block text-sm font-semibold text-gray-800 mb-1">Kop Resep</label>
+          <p class="text-[11.5px] text-gray-500 mb-2 leading-relaxed">Kop menyatakan <b>di mana Anda menulis resep ini</b>. Satu dokter bisa berpraktik di lebih dari satu tempat, jadi pilih yang sesuai &mdash; pilihan ini menempel pada resep tersebut selamanya. Tidak ada hubungannya dengan apotek tujuan: resep ini tetap bisa ditebus di apotek mana pun.</p>
+          <select x-model="kopId" class="w-full sm:max-w-md px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+            <option value="">Bawaan (ikut tempat kunjungan / Klinik Prima)</option>
+            <template x-for="k in kopChoices" :key="k.id">
+              <option :value="k.id" x-text="(k.mine ? '\u2605 ' : '') + k.name + (k.kop_name ? ' — ' + k.kop_name : ' (kop belum diisi)')"></option>
+            </template>
+          </select>
+          <p class="text-[11px] text-gray-400 mt-1">&#9733; = tempat praktik Anda.</p>
+        </div>
+
+<div class="bg-white border border-slate-100 rounded-3xl p-4 mt-4">
           <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" x-model="serviceFeeEnabled" class="w-4 h-4 rounded border-gray-300 text-teal-600 focus:ring-teal-400/50"><span class="font-semibold text-gray-800">Sertakan Jasa Dokter (jasa peresepan)</span></label>
           <p class="text-xs text-gray-400 mt-1 ml-6">Bila dicentang, apotek akan diminta menarik biaya jasa dokter dari pasien saat pengambilan obat.</p>
           <div x-show="serviceFeeEnabled" x-cloak class="mt-3 ml-6 max-w-xs">
@@ -1549,6 +1582,7 @@ export function doctorPrescriptionNew(params) {
 }
 
 export function doctorPrescriptionEdit(params) {
+  window.__kopChoices = store.getKopChoicesForDoctor((getDoctor() || {}).id);
   const doc = getDoctor();
   const rx = store.data.prescriptions.find(r => r.id === params.rxId);
   if (!rx) return '<div class="p-8 text-center text-gray-500">Resep tidak ditemukan</div>';
@@ -1567,6 +1601,7 @@ export function doctorPrescriptionEdit(params) {
     delivery_method: '${rx.delivery_method || 'pickup'}',
     delivery_address: '${qAttr(rx.delivery_address || patient?.address)}',
     rxTarget: '${rx.rx_target === 'luar' ? 'luar' : 'apotek'}',
+    kopId: '${rx.kop_location_id || ''}', kopChoices: window.__kopChoices || [],
     serviceFeeEnabled: ${rx.service_fee_enabled ? 'true' : 'false'}, serviceFee: '${rx.service_fee ? String(parseInt(rx.service_fee) || 0) : ''}',
     saving: false, saved: false, error: '',
     allergyTerms: window.__allergyTerms || [],
@@ -1576,7 +1611,7 @@ export function doctorPrescriptionEdit(params) {
       if (this.allergyConflicts.length && !confirm('PERINGATAN ALERGI\\n\\nAda obat yang cocok dengan alergi pasien (' + this.allergyConflicts.map(c=>'R/'+(c.i+1)+': '+c.term).join(', ') + ').\\n\\nTetap simpan resep ini?')) return;
       this.saving = true; this.error = '';
       const isLuar = this.rxTarget === 'luar';
-      const rxResult = await window.__store.updatePrescription('${rx.id}', { pharmacy_id: isLuar ? null : this.pharmacy_id, notes: this.notes, rx_target: this.rxTarget, delivery_method: isLuar ? 'pickup' : this.delivery_method, delivery_address: (!isLuar && this.delivery_method==='delivery') ? this.delivery_address : '', service_fee_enabled: this.serviceFeeEnabled, service_fee: this.serviceFeeEnabled ? (parseInt(this.serviceFee)||0) : 0, status: 'sent' });
+      const rxResult = await window.__store.updatePrescription('${rx.id}', { pharmacy_id: isLuar ? null : this.pharmacy_id, notes: this.notes, rx_target: this.rxTarget, delivery_method: isLuar ? 'pickup' : this.delivery_method, delivery_address: (!isLuar && this.delivery_method==='delivery') ? this.delivery_address : '', service_fee_enabled: this.serviceFeeEnabled, service_fee: this.serviceFeeEnabled ? (parseInt(this.serviceFee)||0) : 0, kop_location_id: this.kopId || null, status: 'sent' });
       if (rxResult.error) { this.saving = false; this.error = rxResult.error; return; }
       const itemsResult = await window.__store.updatePrescriptionItems('${rx.id}', this.items);
       this.saving = false;

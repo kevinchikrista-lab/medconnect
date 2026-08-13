@@ -1935,7 +1935,80 @@ class Store {
   //
   // Lihat supabase-doctor-letterhead.sql.
   // ==========================================================================
-  getKopFor(doctorId, practicePlace) {
+  // Daftar tempat praktik seorang dokter, BESERTA NOMOR SIP di tiap tempat.
+  // Bentuknya [{ location_id, sip_number }]. SIP memang diterbitkan per tempat
+  // praktik, jadi dokter yang praktik di dua tempat punya dua nomor berbeda.
+  doctorPracticePlaces(doctorId) {
+    const d = this.getDoctor(doctorId);
+    let v = d && d.practice_places;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = []; } }
+    if (!Array.isArray(v)) return [];
+    return v
+      .map(x => (typeof x === 'string'
+        // Bentuk lama (hanya daftar id) tetap terbaca, SIP-nya dianggap kosong.
+        ? { location_id: x, sip_number: '' }
+        : { location_id: (x && x.location_id) || '', sip_number: String((x && x.sip_number) || '').trim() }))
+      .filter(x => x.location_id);
+  }
+
+  doctorPracticeLocationIds(doctorId) {
+    return this.doctorPracticePlaces(doctorId).map(x => x.location_id);
+  }
+
+  async setDoctorPracticePlaces(doctorId, places) {
+    const d = this.getDoctor(doctorId);
+    if (!d) return { error: 'Dokter tidak ditemukan' };
+    const daftar = this.data.practice_locations || [];
+    const terlihat = new Set();
+    const bersih = (places || [])
+      .map(x => ({ location_id: (x && x.location_id) || '', sip_number: String((x && x.sip_number) || '').trim() }))
+      .filter(x => {
+        if (!x.location_id || terlihat.has(x.location_id)) return false;
+        if (!daftar.some(l => l.id === x.location_id)) return false;
+        terlihat.add(x.location_id);
+        return true;
+      });
+    d.practice_places = bersih;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(doctorId).startsWith('id_')) {
+      supabase.update('doctors', doctorId, { practice_places: bersih }).catch(() => {});
+    }
+    return { success: true, places: bersih };
+  }
+
+  // SIP yang berlaku untuk sebuah resep: SIP di tempat kop resep itu, kalau
+  // diisi; kalau tidak, SIP utama dokternya. Yang tercetak harus SIP di tempat
+  // resep itu ditulis — bukan sembarang satu.
+  doctorSipFor(doctorId, kopLocationId) {
+    const d = this.getDoctor(doctorId);
+    const utama = (d && d.sip_number) || '';
+    if (!kopLocationId) return utama;
+    const p = this.doctorPracticePlaces(doctorId).find(x => x.location_id === kopLocationId);
+    return (p && p.sip_number) || utama;
+  }
+
+  // Pilihan kop yang ditawarkan saat menulis resep. Tempat praktik dokternya
+  // ditaruh di depan (ditandai milik dia), sisanya tetap boleh dipilih —
+  // membatasi hanya akan memaksa orang mengakali sistem saat ada keadaan yang
+  // tidak terduga.
+  getKopChoicesForDoctor(doctorId) {
+    const milik = this.doctorPracticePlaces(doctorId);
+    return (this.data.practice_locations || [])
+      .filter(l => l.is_active !== false)
+      .map(l => {
+        const p = milik.find(x => x.location_id === l.id);
+        return {
+          id: l.id, name: l.name || '',
+          kop_name: String(l.kop_name || '').trim(),
+          mine: !!p,
+          sip: (p && p.sip_number) || '',
+        };
+      })
+      .sort((a, b) => (a.mine === b.mine ? a.name.localeCompare(b.name) : (a.mine ? -1 : 1)));
+  }
+
+  // kopLocationId = kop yang DIPILIH untuk resep itu; paling menentukan.
+  getKopFor(doctorId, practicePlace, kopLocationId) {
     const bawaan = {
       name: 'KLINIK KASIH ANUGERAH PRIMA',
       sub: '(PRIMA KLINIK)',
@@ -1947,6 +2020,9 @@ class Store {
     };
     const dokter = this.getDoctor(doctorId);
     const daftar = this.data.practice_locations || [];
+    // Pilihan pada resepnya menang atas apa pun. Dokter yang praktik di dua
+    // tempat memilih kop saat menulis, dan pilihannya menempel pada resep itu.
+    const dipilih = kopLocationId ? daftar.find(l => l.id === kopLocationId) : null;
     const dariDokter = dokter && dokter.kop_location_id
       ? daftar.find(l => l.id === dokter.kop_location_id)
       : null;
@@ -1956,22 +2032,23 @@ class Store {
     const dariTempat = practicePlace ? this.findLocationByName(practicePlace) : null;
     const utama = dariDokter || null;
 
-    // Bila dokternya SUDAH DIPATOK ke sebuah tempat, tempat itulah yang
-    // berlaku sepenuhnya — tempat pada resepnya tidak boleh menimpanya.
+    // Bila kopnya sudah DIPILIH pada resep, atau dokternya sudah DIPATOK ke
+    // sebuah tempat, tempat itulah yang berlaku sepenuhnya — tempat pada
+    // resepnya tidak boleh menimpanya.
     // Tanpa aturan ini, dr. Kevin yang dipatok ke Klinik Prima akan tercetak
     // berkop apotek hanya karena kebetulan menulis resep di sana.
-    const pakai = utama || dariTempat;
+    const pakai = dipilih || utama || dariTempat;
     const kop = { ...bawaan };
     if (pakai && String(pakai.kop_name || '').trim()) {
       kop.name = String(pakai.kop_name).trim();
       kop.sub = String(pakai.kop_sub || '').trim();
       kop.email = String(pakai.kop_email || '').trim();
       kop.logo = String(pakai.kop_logo_url || '').trim();
-      kop.source = utama ? 'dokter' : 'tempat';
-    } else if (utama) {
+      kop.source = dipilih ? 'resep' : (utama ? 'dokter' : 'tempat');
+    } else if (dipilih || utama) {
       // Dipatok ke tempat yang belum punya identitas kop: identitasnya tetap
       // Klinik Prima, tapi alamat & teleponnya ikut tempat itu.
-      kop.source = 'dokter';
+      kop.source = dipilih ? 'resep' : 'dokter';
     }
     if (pakai && (pakai.address || pakai.phone)) {
       kop.address = pakai.address || bawaan.address;
