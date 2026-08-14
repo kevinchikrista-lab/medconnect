@@ -23,13 +23,20 @@
 // ---------------------------------------------------------------------------
 // PERINGATAN YANG TIDAK BOLEH DIHAPUS
 //
-// Angka-angka di bawah ini SAYA AMBIL DARI SUMBER SEKUNDER, bukan dari tabel
-// resmi IDAI. Situs idai.or.id dan saripediatri.org tidak bisa dibuka dari
-// lingkungan tempat berkas ini ditulis (diblokir proxy jaringan), sehingga
-// yang tersedia hanya ringkasan dari halaman-halaman lain yang mengutip IDAI —
-// dan ringkasan itu SALING BERBEDA di beberapa titik (contoh paling nyata:
-// vaksin dengue, ada yang menulis CYD 9–16 tahun 3 dosis, ada yang menulis
-// TAK-003 6–16 tahun 2 dosis).
+// Angka di bawah ini disalin dari LEMBAR RESMI IDAI 2024 — tabelnya beserta
+// seluruh catatan kakinya. Versi pertama berkas ini sempat memakai sumber
+// sekunder (halaman-halaman yang mengutip IDAI) karena situs IDAI diblokir
+// dari lingkungan tempat kode ini ditulis; lembar aslinya kemudian diberikan
+// oleh dr. Kevin, dan angkanya sudah dicocokkan ulang. Yang sempat keliru dan
+// kini dibetulkan: BCG (bukan usia 2 bulan, melainkan segera setelah lahir),
+// batas dosis pertama rotavirus (12 minggu, bukan 15), dosis Hepatitis B &
+// Polio pada usia 18 bulan yang sebelumnya hilang, dan vaksin dengue (IDAI
+// 2024 hanya mencantumkan satu jenis, 2 dosis usia 6-45 tahun — varian CYD
+// 3 dosis yang saya cantumkan dari sumber sekunder ternyata tidak ada).
+//
+// MESKIPUN BEGITU, statusnya tetap BELUM DIVERIFIKASI. Menyalin tetap bisa
+// keliru, dan yang berhak menyatakan sebuah jadwal imunisasi layak dipakai
+// pada pasien adalah dokter, bukan penyalinnya.
 //
 // Untuk jadwal imunisasi bayi, angka yang meleset bukan perkara kosmetik:
 // terlalu cepat berarti dosisnya tidak sah dan harus diulang, terlalu lambat
@@ -39,8 +46,9 @@
 //   - setiap layar yang memakainya WAJIB menampilkan spanduk peringatan;
 //   - hasil hitungannya disebut "perkiraan", bukan anjuran;
 //   - dr. Kevin membuka Super Admin → Jadwal Vaksin IDAI, mencocokkan tiap
-//     baris dengan tabel IDAI asli, membetulkan yang perlu, lalu menekan
-//     "Saya sudah verifikasi". Baru sesudah itu ia berbicara sebagai anjuran.
+//     baris dengan lembar IDAI 2024 di sebelahnya, membetulkan bila ada yang
+//     salah salin, lalu menekan "Saya sudah verifikasi". Baru sesudah itu ia
+//     berbicara sebagai anjuran.
 //
 // Angka yang sudah diverifikasi disimpan di tabel vax_schedule (lihat
 // supabase-vax-schedule.sql) dan menimpa bibit di berkas ini. Jadi
@@ -48,12 +56,13 @@
 // =============================================================================
 
 export const IDAI_META = {
-  versi: 'bibit-2024',
-  sumber: 'Rekomendasi Jadwal Imunisasi Anak Usia 0-18 Tahun, Ikatan Dokter Anak Indonesia (IDAI) 2024',
+  versi: 'idai-2024',
+  sumber: 'Jadwal Imunisasi Anak Usia 0-18 Tahun, Rekomendasi Ikatan Dokter Anak Indonesia (IDAI) Tahun 2024',
   sumber_url: 'https://www.idai.or.id/professional-resources/rekomendasi/jadwal-imunisasi-anak-usia-0-18-tahun',
-  diambil: '2026-08-13',
-  // Dari sumber sekunder (halaman yang mengutip IDAI), bukan dari tabel resmi.
-  primer: false,
+  diambil: '2026-08-14',
+  // Kini disalin langsung dari lembar resmi IDAI 2024 (tabel + seluruh
+  // catatan kakinya), bukan lagi dari halaman yang mengutipnya.
+  primer: true,
   verified: false,
   verified_by: '',
   verified_at: '',
@@ -92,12 +101,13 @@ export const IDAI_SEED = [
     nama: 'Hepatitis B',
     alias: ['hepatitis b', 'hep b', 'hb', 'hbv', 'engerix', 'euvax', 'uniject', 'hepavax', 'pentabio', 'pentavalen', 'hexaxim'],
     wajib: true,
-    catatan: 'Dosis pertama diberikan dalam 24 jam pertama setelah lahir. Dosis berikutnya biasanya ikut dalam vaksin kombinasi (pentavalen) bersama DTP dan Hib.',
+    catatan: 'Vaksin monovalen disuntikkan segera setelah lahir, sebelum berumur 24 jam, didahului vitamin K minimal 30 menit sebelumnya. Bayi dengan berat lahir kurang dari 2000 g sebaiknya ditunda sampai usia 1 bulan, KECUALI bila ibunya HBsAg positif. Dosis berikutnya ikut vaksin kombinasi pentavalen.',
     dosis: [
       { ke: 1, usiaMin: { hari: 0 }, usiaAnjuran: { hari: 0 }, label: 'HB-0 (dalam 24 jam setelah lahir)' },
       { ke: 2, usiaMin: { minggu: 6 }, usiaAnjuran: { bulan: 2 }, jarakMin: { minggu: 4 } },
       { ke: 3, usiaAnjuran: { bulan: 3 }, jarakMin: { minggu: 4 } },
       { ke: 4, usiaAnjuran: { bulan: 4 }, jarakMin: { minggu: 4 } },
+      { ke: 5, usiaAnjuran: { bulan: 18 }, jarakMin: { bulan: 6 }, jenis: 'booster', label: 'HB-4 (ikut booster pentavalen usia 18 bulan)' },
     ],
   },
   {
@@ -105,7 +115,7 @@ export const IDAI_SEED = [
     nama: 'Polio',
     alias: ['polio', 'opv', 'ipv', 'bopv', 'poliomyelitis', 'imovax polio', 'hexaxim'],
     wajib: true,
-    catatan: 'IDAI meminta paling sedikit 2 dosis di antaranya berupa IPV (polio suntik) sebelum anak berusia 1 tahun.',
+    catatan: 'bOPV (tetes) saat lahir, lalu 3x bOPV pada usia 2, 3, 4 bulan, DAN minimal 2x IPV (suntik) — sesuai panduan Kemenkes pada usia 4 dan 9 bulan.',
     dosis: [
       { ke: 1, usiaMin: { hari: 0 }, usiaAnjuran: { hari: 0 }, label: 'Polio-0 (saat lahir)' },
       { ke: 2, usiaMin: { minggu: 6 }, usiaAnjuran: { bulan: 2 }, jarakMin: { minggu: 4 } },
@@ -119,10 +129,13 @@ export const IDAI_SEED = [
     nama: 'BCG',
     alias: ['bcg', 'tuberkulosis', 'tbc'],
     wajib: true,
-    batasUsia: { bulan: 3 },
-    catatan: 'Paling baik pada usia 2 bulan. Di atas usia 3 bulan perlu uji tuberkulin lebih dulu — jadi tidak dijadwalkan otomatis.',
+    // TIDAK diberi batasUsia. Di atas 3 bulan BCG masih boleh diberikan bila
+    // uji tuberkulin negatif — jadi menandainya "lewat batas" akan keliru dan
+    // membuat anak yang sebetulnya masih bisa divaksin terlihat tidak bisa.
+    // Yang benar: ia jatuh ke "perlu dinilai dokter", dan itu memang tepat.
+    catatan: 'Diberikan segera setelah lahir atau sebelum usia 1 bulan. Pada usia 3 bulan atau lebih, BCG baru diberikan bila uji tuberkulin negatif. Bayi dari ibu TB aktif: ditunda sampai terbukti tidak terinfeksi.',
     dosis: [
-      { ke: 1, usiaMin: { hari: 0 }, usiaAnjuran: { bulan: 2 }, batasUsia: { bulan: 3 } },
+      { ke: 1, usiaMin: { hari: 0 }, usiaAnjuran: { hari: 0 }, jenis: 'primer' },
     ],
   },
   {
@@ -130,7 +143,7 @@ export const IDAI_SEED = [
     nama: 'DTP (Difteri, Tetanus, Pertusis)',
     alias: ['dtp', 'dpt', 'dtap', 'dtwp', 'difteri', 'pentabio', 'pentavalen', 'infanrix', 'hexaxim', 'tetraxim', 'pediacel', 'td', 'tdap', 'boostrix', 'adacel', 'dt'],
     wajib: true,
-    catatan: 'Mulai usia 7 tahun memakai Td atau Tdap, bukan DTP anak.',
+    catatan: 'Boleh mulai usia 6 minggu. DTPa dapat diberikan pada usia 2, 3, 4 bulan atau 2, 4, 6 bulan. Booster pertama usia 18 bulan, berikutnya 5-7 tahun dan 10-18 tahun. Mulai usia 7 tahun memakai Td/Tdap.',
     dosis: [
       { ke: 1, usiaMin: { minggu: 6 }, usiaAnjuran: { bulan: 2 } },
       { ke: 2, usiaAnjuran: { bulan: 3 }, jarakMin: { minggu: 4 } },
@@ -145,7 +158,7 @@ export const IDAI_SEED = [
     nama: 'Hib (Haemophilus influenzae tipe b)',
     alias: ['hib', 'haemophilus', 'pentabio', 'pentavalen', 'hexaxim', 'act-hib'],
     wajib: true,
-    catatan: 'Umumnya ikut dalam vaksin kombinasi pentavalen bersama DTP dan Hepatitis B.',
+    catatan: 'Diberikan dalam bentuk kombinasi pentavalen atau heksavalen bersama DTP, pada usia 2, 4, 6 bulan atau 2, 3, 4 bulan, dan booster usia 18 bulan.',
     dosis: [
       { ke: 1, usiaMin: { minggu: 6 }, usiaAnjuran: { bulan: 2 } },
       { ke: 2, usiaAnjuran: { bulan: 3 }, jarakMin: { minggu: 4 } },
@@ -158,6 +171,7 @@ export const IDAI_SEED = [
     nama: 'PCV (Pneumokokus)',
     alias: ['pcv', 'pneumokokus', 'pneumococcal', 'prevenar', 'synflorix', 'pcv13', 'pcv15'],
     wajib: true,
+    catatan: 'Usia 2, 4, 6 bulan dengan booster 12-15 bulan. Jadwal kejar: belum diberikan pada usia 7-12 bulan -> 2 kali jarak minimal 1 bulan + booster 12-15 bulan; usia 1-2 tahun -> 2 kali jarak minimal 2 bulan; usia 2-5 tahun -> PCV10 2 kali jarak 2 bulan, PCV13/PCV15 cukup 1 kali. Program nasional memakai PCV13 pada usia 2, 3, dan 12 bulan.',
     dosis: [
       { ke: 1, usiaMin: { minggu: 6 }, usiaAnjuran: { bulan: 2 } },
       { ke: 2, usiaAnjuran: { bulan: 4 }, jarakMin: { minggu: 4 } },
@@ -172,11 +186,11 @@ export const IDAI_SEED = [
     alias: ['rotavirus', 'rotateq', 'rotavac', 'rota pentavalen'],
     wajib: true,
     batasUsia: { minggu: 32 },
-    catatan: 'Dosis pertama tidak boleh diberikan pada usia 15 minggu atau lebih, dan seluruh serinya harus selesai sebelum usia 32 minggu. Bila lewat, serinya tidak dilanjutkan.',
+    catatan: 'Dosis pertama pada usia 6-12 minggu, jarak antar dosis 4-10 minggu, dan dosis ketiga paling lambat usia 32 minggu. Program nasional memakai jadwal 2, 3, 4 bulan dengan dosis ketiga paling lambat usia 6 bulan 29 hari.',
     dosis: [
-      { ke: 1, usiaMin: { minggu: 6 }, usiaAnjuran: { bulan: 2 }, batasUsia: { minggu: 15 } },
-      { ke: 2, jarakMin: { minggu: 4 }, usiaAnjuran: { bulan: 3 }, batasUsia: { minggu: 32 } },
-      { ke: 3, jarakMin: { minggu: 4 }, usiaAnjuran: { bulan: 4 }, batasUsia: { minggu: 32 } },
+      { ke: 1, usiaMin: { minggu: 6 }, usiaAnjuran: { bulan: 2 }, batasUsia: { minggu: 12 }, jenis: 'primer' },
+      { ke: 2, jarakMin: { minggu: 4 }, usiaAnjuran: { bulan: 4 }, batasUsia: { minggu: 32 }, jenis: 'primer' },
+      { ke: 3, jarakMin: { minggu: 4 }, usiaAnjuran: { bulan: 6 }, batasUsia: { minggu: 32 }, jenis: 'primer' },
     ],
   },
   {
@@ -186,10 +200,10 @@ export const IDAI_SEED = [
     alias: ['rotarix', 'rota monovalen', 'bio rotavirus'],
     wajib: true,
     batasUsia: { minggu: 24 },
-    catatan: 'Dua dosis, dan harus selesai sebelum usia 24 minggu.',
+    catatan: 'Dua dosis. Dosis pertama usia 6-12 minggu, dosis kedua berjarak minimal 4 minggu, paling lambat usia 24 minggu.',
     dosis: [
-      { ke: 1, usiaMin: { minggu: 6 }, usiaAnjuran: { bulan: 2 }, batasUsia: { minggu: 15 } },
-      { ke: 2, jarakMin: { minggu: 4 }, usiaAnjuran: { bulan: 3 }, batasUsia: { minggu: 24 } },
+      { ke: 1, usiaMin: { minggu: 6 }, usiaAnjuran: { bulan: 2 }, batasUsia: { minggu: 12 }, jenis: 'primer' },
+      { ke: 2, jarakMin: { minggu: 4 }, usiaAnjuran: { bulan: 4 }, batasUsia: { minggu: 24 }, jenis: 'primer' },
     ],
   },
   {
@@ -197,7 +211,7 @@ export const IDAI_SEED = [
     nama: 'MR / MMR (Campak, Rubela, Gondongan)',
     alias: ['mr', 'mmr', 'campak', 'measles', 'rubela', 'rubella', 'trimovax', 'priorix'],
     wajib: true,
-    catatan: 'MMR boleh dipakai menggantikan MR. Bila MMR sudah diberikan pada usia 12 bulan, dosis 18 bulan tidak perlu diulang — ini termasuk yang perlu dinilai dokter.',
+    catatan: 'MR mulai umur 9 bulan, dosis kedua umur 15-18 bulan, dosis ketiga umur 5-7 tahun. Bila sampai usia 12 bulan belum mendapat MR, boleh diberikan MR/MMR dengan dosis kedua berjarak 6 bulan.',
     dosis: [
       { ke: 1, usiaMin: { bulan: 9 }, usiaAnjuran: { bulan: 9 } },
       { ke: 2, usiaMin: { bulan: 15 }, usiaAnjuran: { bulan: 18 }, jarakMin: { bulan: 6 } },
@@ -209,7 +223,7 @@ export const IDAI_SEED = [
     nama: 'Japanese Encephalitis (JE)',
     alias: ['je', 'japanese encephalitis', 'imojev'],
     wajib: false,
-    catatan: 'Hanya untuk anak yang tinggal di atau bepergian lama ke daerah endemis (mis. Bali). Tanya dokter dulu.',
+    catatan: 'Untuk anak yang tinggal di daerah endemis atau akan bepergian ke sana selama 1 bulan atau lebih. Dosis pertama mulai usia 9 bulan; booster 1-2 tahun kemudian untuk yang menetap di daerah endemis.',
     dosis: [
       { ke: 1, usiaMin: { bulan: 9 }, usiaAnjuran: { bulan: 10 } },
       { ke: 2, jarakMin: { bulan: 12 }, usiaAnjuran: { tahun: 2 }, label: 'Booster (1-2 tahun kemudian)' },
@@ -220,6 +234,7 @@ export const IDAI_SEED = [
     nama: 'Varisela (Cacar Air)',
     alias: ['varisela', 'varicella', 'cacar air', 'varilrix', 'varivax'],
     wajib: false,
+    catatan: 'Mulai usia 12 bulan. Usia 1-12 tahun: 2 dosis berjarak 6 minggu sampai 3 bulan. Usia 13 tahun ke atas: jarak 4-6 minggu. Anak 2 tahun ke atas yang belum mendapat MR/MMR dan varisela boleh memakai MMRV sebagai dosis primer.',
     dosis: [
       { ke: 1, usiaMin: { bulan: 12 }, usiaAnjuran: { bulan: 12 } },
       { ke: 2, jarakMin: { minggu: 6 }, usiaAnjuran: { bulan: 18 } },
@@ -230,6 +245,7 @@ export const IDAI_SEED = [
     nama: 'Hepatitis A',
     alias: ['hepatitis a', 'hep a', 'hav', 'havrix', 'avaxim'],
     wajib: false,
+    catatan: 'Mulai usia 12 bulan, 2 dosis dengan jarak 6-18 bulan.',
     dosis: [
       { ke: 1, usiaMin: { bulan: 12 }, usiaAnjuran: { bulan: 12 } },
       { ke: 2, jarakMin: { bulan: 6 }, usiaAnjuran: { bulan: 18 } },
@@ -241,7 +257,7 @@ export const IDAI_SEED = [
     alias: ['tifoid', 'typhoid', 'typhim', 'tifim', 'typbar'],
     wajib: false,
     ulang: { jarak: { tahun: 3 }, sampaiUsia: { tahun: 18 } },
-    catatan: 'Diulang setiap 3 tahun.',
+    catatan: 'Vaksin tifoid polisakarida, mulai usia 2 tahun, diulang tiap 3 tahun.',
     dosis: [
       { ke: 1, usiaMin: { tahun: 2 }, usiaAnjuran: { tahun: 2 } },
     ],
@@ -252,10 +268,10 @@ export const IDAI_SEED = [
     alias: ['influenza', 'flu', 'influvac', 'vaxigrip', 'fluarix', 'flubio'],
     wajib: false,
     ulang: { jarak: { bulan: 12 }, sampaiUsia: { tahun: 18 } },
-    catatan: 'Diulang setiap tahun. Pada pemberian pertama untuk anak di bawah 9 tahun, diberikan 2 dosis berjarak 4 minggu.',
+    catatan: 'Mulai usia 6 bulan. Pada seri pertama untuk usia 6 bulan sampai 8 tahun diberikan 2 dosis berjarak 4 minggu; usia 9 tahun ke atas cukup satu kali. Selanjutnya diulang setiap tahun satu kali.',
     dosis: [
       { ke: 1, usiaMin: { bulan: 6 }, usiaAnjuran: { bulan: 6 } },
-      { ke: 2, jarakMin: { minggu: 4 }, hanyaJika: { usiaKurangDari: { tahun: 9 } }, label: 'Dosis kedua pada pemberian pertama (usia di bawah 9 tahun)' },
+      { ke: 2, jarakMin: { minggu: 4 }, usiaAnjuran: { bulan: 7 }, hanyaJika: { usiaKurangDari: { tahun: 9 } }, jenis: 'primer', label: 'Dosis kedua pada pemberian pertama (usia di bawah 9 tahun)' },
     ],
   },
   {
@@ -263,35 +279,21 @@ export const IDAI_SEED = [
     nama: 'HPV',
     alias: ['hpv', 'gardasil', 'cervarix', 'human papilloma'],
     wajib: false,
-    catatan: 'Usia 9-14 tahun cukup 2 dosis. Mulai usia 15 tahun diperlukan 3 dosis — jadwal dosis ketiga ditentukan dokter.',
+    catatan: 'Anak perempuan usia 9-14 tahun: 2 dosis berjarak 6-12 bulan. Mulai usia 15 tahun: 3 dosis seperti dosis dewasa (bivalen 0, 1, 6 bulan; quadrivalen/nonavalen 0, 2, 6 bulan) — jadwal dosis ketiga ditentukan dokter.',
     dosis: [
       { ke: 1, usiaMin: { tahun: 9 }, usiaAnjuran: { tahun: 10 } },
-      { ke: 2, jarakMin: { bulan: 6 }, label: 'Jarak 6-15 bulan dari dosis pertama' },
+      { ke: 2, jarakMin: { bulan: 6 }, usiaAnjuran: { tahun: 11 }, jenis: 'primer', label: 'Jarak 6-12 bulan dari dosis pertama' },
     ],
   },
   {
-    key: 'dengue_tak',
-    nama: 'Dengue (TAK-003, 2 dosis)',
-    grup: 'dengue',
-    alias: ['dengue', 'qdenga', 'tak-003', 'tak003', 'demam berdarah'],
+    key: 'dengue',
+    nama: 'Dengue',
+    alias: ['dengue', 'qdenga', 'tak-003', 'tak003', 'dengvaxia', 'demam berdarah'],
     wajib: false,
-    catatan: 'Sumber yang saya baca berbeda-beda soal batas usia dan jumlah dosis vaksin dengue. Baris ini WAJIB dicocokkan dokter sebelum dipakai.',
+    catatan: 'Dua dosis dengan jarak 3 bulan, untuk usia 6-45 tahun. Tidak perlu pemeriksaan serologis sebagai pra-skrining.',
     dosis: [
-      { ke: 1, usiaMin: { tahun: 6 }, usiaAnjuran: { tahun: 6 } },
-      { ke: 2, jarakMin: { bulan: 3 } },
-    ],
-  },
-  {
-    key: 'dengue_cyd',
-    nama: 'Dengue (CYD, 3 dosis)',
-    grup: 'dengue',
-    alias: ['dengvaxia', 'cyd'],
-    wajib: false,
-    catatan: 'Hanya untuk anak yang terbukti pernah terinfeksi dengue. Penentuannya di tangan dokter.',
-    dosis: [
-      { ke: 1, usiaMin: { tahun: 9 }, usiaAnjuran: { tahun: 9 } },
-      { ke: 2, jarakMin: { bulan: 6 } },
-      { ke: 3, jarakMin: { bulan: 6 } },
+      { ke: 1, usiaMin: { tahun: 6 }, usiaAnjuran: { tahun: 6 }, jenis: 'primer' },
+      { ke: 2, jarakMin: { bulan: 3 }, usiaAnjuran: { tahun: 6 }, jenis: 'primer' },
     ],
   },
 ];
@@ -345,6 +347,70 @@ export function umurLabel(birthDate, sampai) {
   const th = Math.floor(bulan / 12), bl = bulan % 12;
   if (!th) return bl + ' bulan';
   return bl ? th + ' tahun ' + bl + ' bulan' : th + ' tahun';
+}
+
+// ---------------------------------------------------------------------------
+// SUMBU USIA — kolom-kolom pada tabel gaya IDAI.
+//
+// Disalin persis dari lembar resmi: bulan 0,1,2,3,4,5,6,9,12,15,18,24 lalu
+// tahun 3 sampai 18. Perhatikan lompatannya (tidak ada bulan 7, 8, 10, 11) —
+// itu memang begitu di lembar aslinya, dan menambah kolom yang tidak ada di
+// sana akan membuat tabel kita tidak lagi bisa dicocokkan dengan lembar yang
+// dipegang dokter.
+//
+// Cara membaca satu kolom, menurut catatan di lembar itu: "misal 2 berarti
+// mulai usia 2 bulan (60 hari) sampai dengan 2 bulan 29 hari (89 hari)".
+// ---------------------------------------------------------------------------
+export const KOLOM_USIA = [
+  { key: 'lahir', label: 'Lahir', bulan: 0, satuan: 'bulan' },
+  { key: 'b1', label: '1', bulan: 1, satuan: 'bulan' },
+  { key: 'b2', label: '2', bulan: 2, satuan: 'bulan' },
+  { key: 'b3', label: '3', bulan: 3, satuan: 'bulan' },
+  { key: 'b4', label: '4', bulan: 4, satuan: 'bulan' },
+  { key: 'b5', label: '5', bulan: 5, satuan: 'bulan' },
+  { key: 'b6', label: '6', bulan: 6, satuan: 'bulan' },
+  { key: 'b9', label: '9', bulan: 9, satuan: 'bulan' },
+  { key: 'b12', label: '12', bulan: 12, satuan: 'bulan' },
+  { key: 'b15', label: '15', bulan: 15, satuan: 'bulan' },
+  { key: 'b18', label: '18', bulan: 18, satuan: 'bulan' },
+  { key: 'b24', label: '24', bulan: 24, satuan: 'bulan' },
+  { key: 't3', label: '3', bulan: 36, satuan: 'tahun' },
+  { key: 't4', label: '4', bulan: 48, satuan: 'tahun' },
+  { key: 't5', label: '5', bulan: 60, satuan: 'tahun' },
+  { key: 't6', label: '6', bulan: 72, satuan: 'tahun' },
+  { key: 't7', label: '7', bulan: 84, satuan: 'tahun' },
+  { key: 't8', label: '8', bulan: 96, satuan: 'tahun' },
+  { key: 't9', label: '9', bulan: 108, satuan: 'tahun' },
+  { key: 't10', label: '10', bulan: 120, satuan: 'tahun' },
+  { key: 't11', label: '11', bulan: 132, satuan: 'tahun' },
+  { key: 't12', label: '12', bulan: 144, satuan: 'tahun' },
+  { key: 't13', label: '13', bulan: 156, satuan: 'tahun' },
+  { key: 't14', label: '14', bulan: 168, satuan: 'tahun' },
+  { key: 't15', label: '15', bulan: 180, satuan: 'tahun' },
+  { key: 't16', label: '16', bulan: 192, satuan: 'tahun' },
+  { key: 't17', label: '17', bulan: 204, satuan: 'tahun' },
+  { key: 't18', label: '18', bulan: 216, satuan: 'tahun' },
+];
+
+// Berapa bulan sebuah spesifikasi usia, untuk keperluan MENEMPATKAN KOLOM
+// saja. Minggu dan hari dibulatkan kasar di sini — dan itu memang tidak apa,
+// karena yang dihitung bukan tanggal suntikannya (itu tetap lewat tambahUsia
+// yang kalender-tepat), melainkan sel mana yang diwarnai.
+export function usiaKeBulan(spec) {
+  if (!spec) return 0;
+  return (Number(spec.tahun) || 0) * 12 + (Number(spec.bulan) || 0)
+    + (Number(spec.minggu) || 0) / 4.345 + (Number(spec.hari) || 0) / 30.44;
+}
+
+// Kolom terakhir yang usianya belum melewati nilai ini. 18 bulan jatuh di
+// kolom '18', 20 bulan tetap di kolom '18' (kolom berikutnya baru 24).
+export function kolomUntukBulan(bulan) {
+  const b = Number(bulan) || 0;
+  let idx = 0;
+  for (let i = 0; i < KOLOM_USIA.length; i++) {
+    if (KOLOM_USIA[i].bulan <= b) idx = i; else break;
+  }
+  return idx;
 }
 
 // Kebalikan dari usiaSpecLabel: '1 tahun 6 bulan' -> {tahun:1, bulan:6}.

@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { supabase } from './supabase.js';
-import { IDAI_META, IDAI_SEED, AMBANG_TELAT_HARI, tambahUsia, selisihHari as selisihHariIdai, umurLabel } from './idai.js';
+import { IDAI_META, IDAI_SEED, AMBANG_TELAT_HARI, KOLOM_USIA, tambahUsia, selisihHari as selisihHariIdai, umurLabel, usiaKeBulan, kolomUntukBulan } from './idai.js';
 
 function generateId() {
   return 'id_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -3035,6 +3035,113 @@ class Store {
         jatuhTempo: items.filter(i => i.status === 'jatuh_tempo').length,
         boleh: items.filter(i => i.status === 'boleh').length,
       },
+    };
+  }
+
+  // ==========================================================================
+  // TAMPILAN KEDUA: TABEL GAYA IDAI
+  //
+  // Kartu per vaksin (childVaxPlan) menjawab "apa langkah berikutnya untuk
+  // vaksin ini". Yang TIDAK dijawabnya: "apa saja yang seharusnya sudah masuk
+  // tapi belum" — untuk tahu itu, seseorang harus membaca semua kartu satu
+  // per satu lalu menyusun sendiri gambarannya di kepala. Itulah keluhan yang
+  // muncul saat memakainya.
+  //
+  // Tabel ini memakai kerangka yang sama persis dengan lembar IDAI yang sudah
+  // dikenal dokter — vaksin ke bawah, usia ke samping — lalu MENIMPAKAN
+  // keadaan anak ini di atasnya. Yang membuatnya langsung terbaca adalah
+  // GARIS HARI INI: semua sel di sebelah KIRI garis yang tidak hijau adalah
+  // yang terlewat. Tidak perlu membandingkan tanggal satu per satu lagi.
+  // ==========================================================================
+  childVaxGrid(patientId, opts) {
+    const o = opts || {};
+    const hariIni = o.today || todayLocal();
+    const plan = this.childVaxPlan(patientId, { today: hariIni });
+    if (plan.error) return { ...plan, kolom: [], baris: [], hariIniKolom: -1 };
+
+    const umurBulan = (() => {
+      const lahir = plan.lahir;
+      const [y1, m1, d1] = lahir.split('-').map(Number);
+      const [y2, m2, d2] = hariIni.split('-').map(Number);
+      let b = (y2 - y1) * 12 + (m2 - m1);
+      if (d2 < d1) b -= 1;
+      return Math.max(0, b);
+    })();
+
+    const hariIniKolomTmp = kolomUntukBulan(umurBulan);
+
+    const baris = [];
+    for (const it of plan.items) {
+      const seri = this.idaiSchedule().find(s => s.key === it.key);
+      if (!seri) continue;
+      const daftar = seri.dosis || [];
+      const sel = [];
+
+      for (let i = 0; i < daftar.length; i++) {
+        const d = daftar[i];
+        const kolom = kolomUntukBulan(usiaKeBulan(d.usiaAnjuran));
+        const nomor = i + 1;
+        const sudah = it.riwayat.find(r => r.ke === nomor) || null;
+
+        // Status per SEL, bukan per seri. Sebuah seri bisa punya dosis 1-2
+        // hijau dan dosis 3 merah sekaligus — dan justru perbedaan itulah
+        // yang dicari mata saat membaca tabel.
+        //
+        // 'tertinggal' adalah keadaan yang TIDAK ADA pada tampilan kartu, dan
+        // justru inilah yang membuat tabelnya berguna. Ambil bayi 5 bulan
+        // yang belum divaksin sama sekali: dosis 1 memang terlambat, tapi
+        // dosis 2 dan 3 tidak bisa disebut "terlambat" — keduanya belum boleh
+        // diberikan sebelum dosis 1 masuk. Menyebutnya "belum waktunya" pun
+        // menyesatkan: kotaknya berada di kiri garis hari ini, artinya slot
+        // usianya sudah lewat dan tetap kosong. Jadi ia diberi nama sendiri:
+        // slot yang terlewat, menunggu dosis sebelumnya.
+        let status;
+        if (sudah) status = 'sudah';
+        else if (it.berikut && it.berikut.ke === nomor) status = it.status;
+        else if (it.status === 'lewat_batas') status = 'lewat_batas';
+        else if (kolom <= hariIniKolomTmp) status = 'tertinggal';
+        else status = 'belum_waktunya';
+
+        sel.push({
+          kolom, ke: nomor, status,
+          jenis: d.jenis || (nomor === 1 ? 'primer' : 'booster'),
+          label: d.label || ('Dosis ' + nomor),
+          tanggal: sudah ? sudah.tanggal : '',
+          tempat: sudah ? sudah.tempat : '',
+          luar: sudah ? !!sudah.luar : false,
+          // Hanya sel yang SEDANG jadi giliran berikutnya yang membawa
+          // tanggal hitungan; sel lain tidak, supaya tidak ada tanggal
+          // menggantung yang terbaca sebagai anjuran padahal bukan.
+          berikut: (it.berikut && it.berikut.ke === nomor) ? it.berikut : null,
+        });
+      }
+
+      // Seri yang diulang seumur hidup (influenza tiap tahun, tifoid tiap 3
+      // tahun) tidak punya sel bernomor sesudah dosis awalnya. Digambar
+      // sebagai pita, seperti pada lembar IDAI.
+      let pita = null;
+      if (seri.ulang) {
+        const mulai = kolomUntukBulan(usiaKeBulan((daftar[0] || {}).usiaAnjuran));
+        const habis = seri.ulang.sampaiUsia
+          ? kolomUntukBulan(usiaKeBulan(seri.ulang.sampaiUsia))
+          : KOLOM_USIA.length - 1;
+        pita = { dari: mulai, sampai: habis, teks: seri.ulang.jarak && seri.ulang.jarak.tahun
+          ? 'diulang tiap ' + seri.ulang.jarak.tahun + ' tahun' : 'diulang tiap tahun' };
+      }
+
+      baris.push({
+        key: it.key, nama: it.nama, wajib: it.wajib, catatan: it.catatan,
+        status: it.status, statusLabel: it.statusLabel,
+        sudah: it.sudah, total: it.total, sel, pita,
+      });
+    }
+
+    return {
+      ...plan,
+      kolom: KOLOM_USIA,
+      baris,
+      hariIniKolom: hariIniKolomTmp,
+      umurBulan,
     };
   }
 

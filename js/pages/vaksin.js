@@ -56,8 +56,69 @@ export function vaxAnakXData(peran) {
       this.muatPlan();
     },
     muatPlan() {
-      if (!this.pasien) { this.plan = null; return; }
+      if (!this.pasien) { this.plan = null; this.grid = null; return; }
       this.plan = window.__store.childVaxPlan(this.pasien.id);
+      this.grid = window.__store.childVaxGrid(this.pasien.id);
+    },
+
+    // ---- Tampilan kedua: tabel gaya IDAI ----------------------------------
+    // Kartu menjawab 'apa langkah berikutnya untuk vaksin ini'. Yang tidak
+    // dijawabnya: 'apa saja yang seharusnya sudah masuk tapi belum' — untuk
+    // itu seseorang harus membaca semua kartu lalu menyusun sendiri
+    // gambarannya. Tabel ini memakai kerangka lembar IDAI yang sudah dikenal
+    // dokter, lalu menimpakan keadaan anak ini di atasnya.
+    lihat: 'tabel', grid: null,
+    selBuka: null,
+    // Warna sel = keadaan anak, BUKAN kategori IDAI (primer/booster). Yang
+    // dicari mata saat membuka layar ini adalah 'mana yang bolong', dan dua
+    // sistem warna sekaligus membuat keduanya sama-sama tidak terbaca.
+    warnaSel: {
+      sudah: 'bg-emerald-500 text-white border-emerald-600',
+      terlambat: 'bg-red-500 text-white border-red-600',
+      // Merah berongga, bukan merah penuh: slotnya memang sudah lewat, tapi
+      // dosis ini belum bisa diberikan sekarang karena dosis sebelumnya
+      // belum masuk. Yang merah penuh adalah yang bisa dikerjakan hari ini.
+      tertinggal: 'bg-red-100 text-red-700 border-red-300',
+      perlu_dinilai_dokter: 'bg-amber-400 text-amber-950 border-amber-500',
+      jatuh_tempo: 'bg-orange-500 text-white border-orange-600',
+      boleh: 'bg-sky-500 text-white border-sky-600',
+      belum_waktunya: 'bg-slate-100 text-slate-400 border-slate-200',
+      lewat_batas: 'bg-slate-200 text-slate-400 border-slate-300 line-through',
+      selesai: 'bg-emerald-500 text-white border-emerald-600'
+    },
+    artiSel: {
+      sudah: 'Sudah diberikan',
+      terlambat: 'Terlambat — bisa diberikan sekarang',
+      tertinggal: 'Tertinggal — menunggu dosis sebelumnya',
+      perlu_dinilai_dokter: 'Perlu dinilai dokter',
+      jatuh_tempo: 'Jatuh tempo hari ini',
+      boleh: 'Sudah boleh diberikan',
+      belum_waktunya: 'Belum waktunya',
+      lewat_batas: 'Lewat batas usia',
+      selesai: 'Lengkap'
+    },
+    // Yang bolong: sel di sebelah KIRI garis hari ini yang belum hijau.
+    // Ini angka yang dicari saat membuka layar, jadi ditaruh paling atas.
+    get bolong() {
+      if (!this.grid || !this.grid.baris) return [];
+      const out = [];
+      this.grid.baris.forEach(b => (b.sel || []).forEach(c => {
+        if (c.status !== 'sudah' && c.kolom <= this.grid.hariIniKolom
+            && c.status !== 'belum_waktunya' && c.status !== 'lewat_batas') {
+          out.push({ ...c, nama: b.nama, key: b.key, wajib: b.wajib, catatan: b.catatan });
+        }
+      }));
+      return out;
+    },
+    get bolongWajib() { return this.bolong.filter(c => c.wajib).length; },
+    bukaSel(baris, c) {
+      this.selBuka = { ...c, nama: baris.nama, key: baris.key, catatan: baris.catatan, wajib: baris.wajib };
+    },
+    // Tombol aksi di panel rincian dipakaikan ulang dari tampilan kartu,
+    // supaya keduanya tidak menjadi dua perilaku yang berbeda.
+    itemUntukSel(c) {
+      if (!this.plan || !c) return null;
+      return this.plan.items.find(i => i.key === c.key) || null;
     },
     // ---- Sarankan vaksin di tempat lain -----------------------------------
     // Dipakai justru ketika vaksinnya TIDAK ada di sini. Menahan orang tua
@@ -200,9 +261,115 @@ export function vaxAnakBody() {
       <template x-if="pasien && plan && !plan.error">
         <div>
           <div class="bg-white rounded-2xl border border-slate-100 p-4 mb-3">
-            <p class="font-bold text-ink" x-text="plan.patient.full_name"></p>
-            <p class="text-[12px] text-gray-500 mt-0.5" x-text="'Lahir ' + tglId(plan.lahir) + ' · usia ' + plan.umur"></p>
+            <div class="flex items-start justify-between gap-3 flex-wrap">
+              <div class="min-w-0">
+                <p class="font-bold text-ink" x-text="plan.patient.full_name"></p>
+                <p class="text-[12px] text-gray-500 mt-0.5" x-text="'Lahir ' + tglId(plan.lahir) + ' · usia ' + plan.umur"></p>
+              </div>
+              <!-- Dua sudut pandang atas data yang sama. Tabel menjawab
+                   'mana yang bolong'; kartu menjawab 'apa langkah berikutnya
+                   untuk vaksin ini'. Keduanya perlu, dan tidak ada satu
+                   tampilan yang mengerjakan keduanya dengan baik. -->
+              <div class="flex gap-1 p-1 rounded-xl bg-slate-100 shrink-0">
+                <button @click="lihat='tabel'" :class="lihat==='tabel' ? 'bg-white shadow-sm text-ink' : 'text-slate-500'" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1"><span class="ms text-[15px]">grid_on</span>Tabel IDAI</button>
+                <button @click="lihat='kartu'" :class="lihat==='kartu' ? 'bg-white shadow-sm text-ink' : 'text-slate-500'" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1"><span class="ms text-[15px]">view_agenda</span>Kartu</button>
+              </div>
+            </div>
           </div>
+
+          <!-- ================= TAMPILAN TABEL ================= -->
+          <div x-show="lihat==='tabel'" x-cloak>
+            <template x-if="grid && !grid.error">
+              <div>
+                <!-- Angka yang dicari saat membuka layar ini, ditaruh paling
+                     atas supaya tidak perlu dihitung sendiri dari tabelnya. -->
+                <div class="rounded-2xl border p-4 mb-3" :class="bolongWajib ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'">
+                  <div class="flex items-start gap-3">
+                    <span class="ms text-[20px] mt-0.5" :class="bolongWajib ? 'text-red-600' : 'text-emerald-600'" x-text="bolongWajib ? 'error' : 'check_circle'"></span>
+                    <div class="min-w-0">
+                      <p class="text-sm font-bold" :class="bolongWajib ? 'text-red-900' : 'text-emerald-900'"
+                         x-text="bolongWajib ? (bolongWajib + ' dosis imunisasi dasar belum diberikan') : 'Imunisasi dasar tidak ada yang tertinggal'"></p>
+                      <div x-show="bolong.length" x-cloak class="flex flex-wrap gap-1.5 mt-2">
+                        <template x-for="c in bolong" :key="c.key + '-' + c.ke">
+                          <button @click="selBuka = c" class="px-2 py-0.5 rounded-full text-[11px] font-semibold border transition hover:brightness-95" :class="warnaSel[c.status] || 'bg-gray-100 text-gray-600 border-gray-200'" x-text="c.nama + ' #' + c.ke"></button>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- TABEL. Kerangkanya sengaja sama persis dengan lembar IDAI
+                     yang sudah dikenal dokter — vaksin ke bawah, usia ke
+                     samping, termasuk lompatan kolomnya (tidak ada bulan 7,
+                     8, 10, 11). Yang berbeda: warnanya keadaan anak INI. -->
+                <div class="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+                  <div class="overflow-x-auto">
+                    <table class="border-collapse text-[11px] min-w-[900px] w-full">
+                      <thead>
+                        <tr>
+                          <th class="sticky left-0 z-20 bg-white text-left font-bold text-gray-500 px-3 py-2 border-b border-slate-100 min-w-[150px]">Vaksin</th>
+                          <template x-for="(k, ki) in grid.kolom" :key="k.key">
+                            <th class="px-0.5 py-2 border-b border-slate-100 font-semibold text-center relative"
+                                :class="ki === grid.hariIniKolom ? 'bg-brand/10 text-brand-dark' : (k.satuan === 'tahun' ? 'text-slate-400' : 'text-slate-600')">
+                              <span x-text="k.label"></span>
+                            </th>
+                          </template>
+                        </tr>
+                        <tr>
+                          <th class="sticky left-0 z-20 bg-white px-3 pb-1.5 text-left text-[9.5px] font-semibold text-slate-400 uppercase">&nbsp;</th>
+                          <th :colspan="12" class="pb-1.5 text-[9.5px] font-semibold text-slate-400 uppercase border-r border-slate-100">bulan</th>
+                          <th :colspan="grid.kolom.length - 12" class="pb-1.5 text-[9.5px] font-semibold text-slate-400 uppercase">tahun</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <template x-for="b in grid.baris" :key="b.key">
+                          <tr class="border-t border-slate-50 hover:bg-wash/60">
+                            <td class="sticky left-0 z-10 bg-white px-3 py-1.5 align-middle">
+                              <span class="font-semibold text-gray-800 text-[11.5px]" x-text="b.nama"></span>
+                              <span x-show="!b.wajib" class="ms-1 text-[9.5px] text-slate-400">pilihan</span>
+                            </td>
+                            <template x-for="(k, ki) in grid.kolom" :key="k.key">
+                              <td class="px-0.5 py-1 text-center align-middle"
+                                  :class="ki === grid.hariIniKolom ? 'bg-brand/5' : ''">
+                                <!-- Pita untuk seri yang diulang seumur hidup
+                                     (influenza tiap tahun, tifoid tiap 3 tahun),
+                                     seperti pada lembar aslinya. -->
+                                <div x-show="b.pita && ki >= b.pita.dari && ki <= b.pita.sampai && !(b.sel || []).some(c => c.kolom === ki)" x-cloak
+                                     class="h-4 bg-slate-100 border-y border-slate-200"></div>
+                                <template x-for="c in (b.sel || []).filter(x => x.kolom === ki)" :key="c.ke">
+                                  <button @click="bukaSel(b, c)"
+                                    class="w-6 h-6 rounded-md border text-[10px] font-bold leading-none transition hover:scale-110 hover:shadow"
+                                    :class="warnaSel[c.status] || 'bg-gray-100 text-gray-500 border-gray-200'"
+                                    :title="b.nama + ' dosis ' + c.ke + ' — ' + (artiSel[c.status] || c.status)"
+                                    x-text="c.ke"></button>
+                                </template>
+                              </td>
+                            </template>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="px-3 py-2 border-t border-slate-100 bg-wash/40">
+                    <p class="text-[10.5px] text-slate-500">Kolom bertanda biru adalah usia ananda <b>sekarang</b>. Semua kotak di sebelah kirinya yang belum hijau berarti belum diberikan. Klik kotak mana pun untuk rinciannya.</p>
+                  </div>
+                </div>
+
+                <!-- Keterangan warna. -->
+                <div class="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 px-1">
+                  <template x-for="st in ['sudah','terlambat','tertinggal','jatuh_tempo','boleh','perlu_dinilai_dokter','belum_waktunya','lewat_batas']" :key="st">
+                    <span class="inline-flex items-center gap-1.5 text-[10.5px] text-slate-600">
+                      <span class="w-3.5 h-3.5 rounded border" :class="warnaSel[st]"></span>
+                      <span x-text="artiSel[st]"></span>
+                    </span>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- ================= TAMPILAN KARTU ================= -->
+          <div x-show="lihat==='kartu'" x-cloak>
           <div class="space-y-3">
             <template x-for="it in plan.items" :key="it.key">
               <div class="bg-white rounded-2xl border border-slate-100 p-4">
@@ -255,6 +422,55 @@ export function vaxAnakBody() {
                 </div>
               </div>
             </template>
+          </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ---- Panel rincian satu kotak pada tabel --------------------------- -->
+  <!-- Sengaja panel, bukan tooltip: isinya perlu dibaca pelan (tanggal
+       paling cepat, batas akhir, catatan IDAI) dan perlu punya tombol
+       tindakan — dua hal yang tidak bisa dilakukan pada tooltip. -->
+  <div x-show="selBuka" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/50" @click.self="selBuka=null">
+    <div class="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[85vh] overflow-y-auto p-5">
+      <template x-if="selBuka">
+        <div>
+          <div class="flex items-start justify-between gap-3 mb-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h3 class="text-lg font-bold text-ink" x-text="selBuka.nama"></h3>
+                <span x-show="!selBuka.wajib" class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500">pilihan</span>
+              </div>
+              <p class="text-[12px] text-gray-500 mt-0.5" x-text="selBuka.label + ' · ' + (selBuka.jenis === 'booster' ? 'booster' : 'dosis primer')"></p>
+            </div>
+            <button @click="selBuka=null" class="text-gray-400 hover:text-gray-600 text-2xl leading-none shrink-0">&times;</button>
+          </div>
+
+          <div class="rounded-xl p-3 mb-3 border" :class="warnaSel[selBuka.status] || 'bg-gray-100 border-gray-200'">
+            <p class="text-sm font-bold" x-text="artiSel[selBuka.status] || selBuka.status"></p>
+            <p x-show="selBuka.tanggal" x-cloak class="text-[12px] mt-0.5 opacity-90"
+               x-text="tglId(selBuka.tanggal) + (selBuka.tempat ? ' · ' + selBuka.tempat : '') + (selBuka.luar ? ' (diberikan di luar)' : '')"></p>
+          </div>
+
+          <template x-if="selBuka.berikut">
+            <div class="rounded-xl bg-wash p-3 mb-3">
+              <div class="grid sm:grid-cols-3 gap-2">
+                <div><span class="block text-[10.5px] text-gray-400">Paling cepat boleh</span><span class="block text-[12.5px] font-semibold text-ink" x-text="tglId(selBuka.berikut.palingCepat)"></span></div>
+                <div x-show="selBuka.status !== 'perlu_dinilai_dokter'"><span class="block text-[10.5px] text-gray-400">Sebaiknya</span><span class="block text-[12.5px] font-semibold text-ink" x-text="tglId(selBuka.berikut.dianjurkan)"></span></div>
+                <div x-show="selBuka.berikut.batasAkhir" x-cloak><span class="block text-[10.5px] text-gray-400">Tidak boleh lewat</span><span class="block text-[12.5px] font-semibold text-red-600" x-text="tglId(selBuka.berikut.batasAkhir)"></span></div>
+              </div>
+            </div>
+          </template>
+
+          <p x-show="selBuka.catatan" x-cloak class="text-[11.5px] text-gray-600 leading-relaxed mb-3" x-text="selBuka.catatan"></p>
+
+          <!-- Tombolnya memanggil fungsi yang sama dengan tampilan kartu,
+               supaya keduanya tidak menjadi dua perilaku yang berbeda. -->
+          <div x-show="itemUntukSel(selBuka) && itemUntukSel(selBuka).berikut && selBuka.status !== 'sudah' && selBuka.status !== 'belum_waktunya'" x-cloak class="flex flex-wrap gap-2">
+            <button @click="bukaRujuk(itemUntukSel(selBuka)); selBuka=null" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 transition flex items-center gap-1"><span class="ms text-[15px]">share_location</span>Sarankan Tempat Lain</button>
+            <button @click="bukaLuar(itemUntukSel(selBuka)); selBuka=null" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition flex items-center gap-1"><span class="ms text-[15px]">how_to_reg</span>Catat Sudah Divaksin di Luar</button>
           </div>
         </div>
       </template>
