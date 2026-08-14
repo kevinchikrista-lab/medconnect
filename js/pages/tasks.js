@@ -52,6 +52,12 @@ const RECURRENCES = [
 // sudut pandang — isinya tugas yang dikerjakan orang lain. Lihat
 // store.groupTasksByColumn.
 const COLUMNS = [
+  // Inbox sengaja di paling depan dan boleh menerima apa saja hanya dengan
+  // judulnya. Lihat store.taskIsClarified: yang membedakannya dari To-Do
+  // bukan tingkat kepentingan, melainkan apakah tugasnya sudah punya kapan
+  // atau siapa.
+  { key: 'inbox', label: 'Inbox', icon: 'inbox', tone: 'text-purple-600', bar: 'bg-purple-400',
+    empty: 'Inbox kosong. Semua yang tercatat sudah punya tanggal atau penerima.' },
   { key: 'todo', label: 'To-Do', icon: 'radio_button_unchecked', tone: 'text-slate-600', bar: 'bg-slate-300',
     empty: 'Belum ada tugas di daftar.' },
   { key: 'focus', label: 'Fokus Sekarang', icon: 'bolt', tone: 'text-amber-600', bar: 'bg-amber-400',
@@ -68,6 +74,11 @@ const COLUMNS = [
 // hanya pengingat, karena kolom Fokus kehilangan gunanya kalau isinya sama
 // panjang dengan To-Do.
 const FOCUS_SOFT_LIMIT = 3;
+
+// Sesudah berapa hari sebuah catatan di Inbox pantas disebut mengendap.
+// Bukan larangan — hanya penanda, karena inbox yang tidak pernah dikosongkan
+// berhenti menjadi penampungan dan berubah menjadi kuburan.
+const INBOX_STALE_DAYS = 7;
 
 // Kolom Selesai hanya memuat sekian hari terakhir secara bawaan.
 const DONE_WINDOW_DAYS = 30;
@@ -93,6 +104,38 @@ export function tasksXData(mode) {
     form: { kind:'task', title:'', notes:'', category:'', priority:'normal', due_date:'', due_time:'', end_time:'', location:'', assignee_id:'', attendee_ids:[], recurrence:'none', recurrence_interval:1, subtasks:[], is_private:false },
     bolehPribadi: window.__taskBolehPribadi === true,
     isPrivate(t) { return !!(t && t.is_private); },
+
+    // ---- Inbox: tangkap cepat --------------------------------------------
+    // Satu kotak, satu Enter. Kalau menambah ke Inbox menuntut membuka
+    // formulir, yang terjadi bukan catatan yang lebih rapi — yang terjadi
+    // adalah tidak dicatat sama sekali, karena idenya datang justru saat
+    // sedang tidak sempat.
+    tangkap: '', menangkap: false,
+    async tangkapCepat() {
+      const judul = (this.tangkap || '').trim();
+      if (!judul || this.menangkap) return;
+      this.menangkap = true;
+      const r = await window.__store.quickCaptureTask(judul, this.me);
+      this.menangkap = false;
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      this.tangkap = '';
+      this.refresh();
+      if (r && r.warning) alert(r.warning);
+    },
+    isInbox(t) { return window.__store.isInbox(t); },
+    sudahJelas(t) { return window.__store.taskIsClarified(t); },
+    kurangApa(t) { return window.__store.taskMissingLabel(t); },
+    umurInbox(t) { return window.__store.inboxAgeDays(t); },
+    umurInboxLabel(t) {
+      const n = this.umurInbox(t);
+      if (n <= 0) return 'baru saja';
+      return n + ' hari di Inbox';
+    },
+    mengendap(t) { return this.isInbox(t) && this.umurInbox(t) >= ${INBOX_STALE_DAYS}; },
+    get inboxMengendap() { return this.colList('inbox').filter(t => this.mengendap(t)).length; },
+    // Membuka formulir dari kartu Inbox: isinya sama, tapi maksudnya jelas —
+    // yang dicari adalah tanggal atau penerimanya, bukan menyunting judul.
+    rapikan(t) { this.openEdit(t); },
 
     now: Date.now(), timerId: '', timerOpen: false, beeped: {},
 
@@ -150,7 +193,7 @@ export function tasksXData(mode) {
       return all.length - window.__store.recentlyDone(all, ${DONE_WINDOW_DAYS}).length;
     },
     get focusOverload() { return this.colCount('focus') > ${FOCUS_SOFT_LIMIT}; },
-    get openCount() { return this.colCount('todo') + this.colCount('focus') + this.colCount('review') + this.colCount('delegated'); },
+    get openCount() { return this.colCount('inbox') + this.colCount('todo') + this.colCount('focus') + this.colCount('review') + this.colCount('delegated'); },
     get overdueCount() {
       return ['todo', 'focus', 'review', 'delegated'].reduce((s, k) => s + this.colTimeCount(k, 'overdue'), 0);
     },
@@ -447,6 +490,11 @@ function taskCard(mode, source) {
             </span>
           </div>
           <div class="flex items-center gap-2 flex-wrap mt-1.5 text-[11px]">
+            <!-- Umur di Inbox ditampilkan apa adanya. Yang tidak terlihat
+                 umurnya akan mengendap tanpa ada yang merasa bersalah. -->
+            <span class="px-2 py-0.5 rounded-full font-semibold inline-flex items-center gap-1"
+              :class="mengendap(t) ? 'bg-amber-100 text-amber-800' : 'bg-purple-50 text-purple-700'"
+              x-show="isInbox(t)" x-cloak><span class="ms text-[12px]">inbox</span><span x-text="umurInboxLabel(t)"></span></span>
             <span class="px-2 py-0.5 rounded-full font-bold bg-slate-800 text-white inline-flex items-center gap-1" x-show="isPrivate(t)" x-cloak title="Hanya Anda yang bisa melihat tugas ini"><span class="ms text-[12px]">lock</span>Pribadi</span>
             <span class="px-2 py-0.5 rounded-full font-bold bg-violet-100 text-violet-700 inline-flex items-center gap-1" x-show="isEvent(t)" x-cloak><span class="ms text-[12px]">groups</span>Acara</span>
             <span class="px-2 py-0.5 rounded-full font-semibold" :class="prioChip(t.priority)" x-text="prioLabel(t.priority)"></span>
@@ -490,10 +538,17 @@ function taskCard(mode, source) {
           </div>
 
           <div class="flex items-center gap-1.5 mt-2 flex-wrap">
+            <!-- PINTU KELUAR INBOX. Yang dicari saat menekannya bukan
+                 menyunting judul, melainkan mengisi tanggal atau penerimanya —
+                 dan begitu salah satunya terisi, tugasnya pindah sendiri ke
+                 To-Do tanpa perlu ditekan lagi (lihat store.updateTask). -->
+            ${canManage ? `<button @click="rapikan(t)" x-show="isInbox(t)" x-cloak
+              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 transition flex items-center gap-1">
+              <span class="ms text-[13px]">edit_calendar</span>Rapikan &mdash; isi <span x-text="kurangApa(t)"></span></button>` : ''}
             <!-- Perpindahan tahap. Hanya untuk tugas sendiri: yang memutuskan
                  sebuah tugas "sedang dikerjakan" adalah orang yang benar-benar
                  mengerjakannya, bukan yang menugaskan. -->
-            <button @click="move(t, 'focus')" x-show="!isEvent(t) && isMine(t) && status(t) === 'todo'" x-cloak
+            <button @click="move(t, 'focus')" x-show="!isEvent(t) && isMine(t) && (status(t) === 'todo' || status(t) === 'inbox')" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Kerjakan sekarang</button>
             <button @click="openTimer(t)" x-show="!isEvent(t) && isMine(t) && status(t) === 'focus'" x-cloak
               class="px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition flex items-center gap-1">
@@ -737,6 +792,25 @@ export function tasksBody(mode) {
         <h3 class="font-bold text-sm ${col.tone}">${col.label}</h3>
         <span class="text-xs font-semibold text-gray-400" x-text="colCount('${col.key}')"></span>
       </div>
+      ${col.key === 'inbox' ? `
+      <!-- TANGKAP CEPAT. Satu baris, satu Enter, tanpa tanggal dan tanpa
+           penerima. Inilah seluruh alasan kolom ini ada: yang menuntut
+           formulir tidak akan sempat dicatat saat sedang praktik. -->
+      <div class="mb-3">
+        <div class="flex gap-2">
+          <input type="text" x-model="tangkap" @keydown.enter.prevent="tangkapCepat()"
+            :disabled="menangkap" placeholder="Tulis apa saja, tekan Enter..."
+            class="flex-1 min-w-0 px-3 py-2.5 border border-purple-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50 placeholder:text-purple-300">
+          <button @click="tangkapCepat()" :disabled="menangkap || !tangkap.trim()"
+            class="px-3 py-2.5 rounded-xl text-sm font-semibold text-white bg-purple-600 hover:bg-purple-700 transition disabled:opacity-40 shrink-0">
+            <span class="ms text-[18px] align-middle">add</span>
+          </button>
+        </div>
+        <p class="text-[10.5px] text-gray-400 mt-1.5 leading-relaxed">Belum perlu tanggal atau penerima. Rapikan nanti &mdash; yang penting tidak terlupa.</p>
+      </div>
+      <div x-show="inboxMengendap" x-cloak class="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+        <p class="text-[11px] text-amber-800 leading-relaxed"><b><span x-text="inboxMengendap"></span> catatan</b> sudah lebih dari ${INBOX_STALE_DAYS} hari mengendap di sini. Inbox yang tidak pernah dikosongkan berhenti jadi penampungan dan berubah jadi tempat lupa.</p>
+      </div>` : ''}
       ${col.key === 'focus' ? `<div x-show="focusOverload" x-cloak class="mb-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
         <p class="text-[11px] text-amber-800 leading-relaxed">Kolom Fokus sudah berisi <b><span x-text="colCount('focus')"></span> tugas</b>. Kalau semuanya "sedang dikerjakan", kolom ini berubah jadi To-Do kedua &mdash; pertimbangkan menunda sebagian.</p>
       </div>` : ''}
@@ -786,7 +860,10 @@ export function tasksBody(mode) {
   <div x-show="loading" class="bg-white rounded-2xl border border-slate-100 p-8 text-center text-sm text-gray-400">Memuat tugas...</div>
 
   <div x-show="!loading" x-cloak>
-    <div class="grid grid-cols-1 ${canManage ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4 items-start">
+    <!-- Enam kolom berjejer hanya muat di layar sangat lebar. Di laptop biasa
+         dipecah dua baris bertiga, bukan dipepetkan sampai judul tugasnya
+         terpotong — papan yang tidak terbaca sama saja dengan tidak ada. -->
+    <div class="grid grid-cols-1 ${canManage ? 'lg:grid-cols-3 xl:grid-cols-6' : 'lg:grid-cols-5'} gap-4 items-start">
       ${columns}
     </div>
 
