@@ -3530,6 +3530,62 @@ class Store {
     return s === 'open' ? 'todo' : s;
   }
 
+  // ==========================================================================
+  // INBOX — tempat menampung yang belum sempat dipikirkan
+  //
+  // Ide datang pada saat yang tidak menyenangkan: di tengah praktik, di
+  // perjalanan, sedetik sebelum tidur. Kalau mencatatnya menuntut tanggal dan
+  // penerima lebih dulu, yang terjadi bukan catatan yang rapi — yang terjadi
+  // adalah tidak dicatat sama sekali. Maka ada satu kolom yang boleh menerima
+  // apa saja hanya dengan judulnya.
+  //
+  // Harganya dibayar di pintu keluar, bukan di pintu masuk: sebuah tugas baru
+  // boleh meninggalkan Inbox setelah punya SETIDAKNYA tanggal ATAU penerima.
+  // Dengan begitu papan di luar Inbox tetap berarti — setiap kartu di sana
+  // sudah punya kapan atau siapa, dan "To-Do" tidak pelan-pelan berubah
+  // menjadi tumpukan niat tanpa bentuk.
+  // ==========================================================================
+
+  isInbox(t) { return this.taskStatus(t) === 'inbox'; }
+
+  // Aturannya sengaja satu tempat: kalau nanti syaratnya mau diperketat
+  // (mis. harus ada prioritas juga), yang diubah cukup fungsi ini dan
+  // seluruh jalan keluar dari Inbox ikut berubah bersamanya.
+  taskIsClarified(t) {
+    if (!t) return false;
+    if (t.due_date) return true;
+    if (this.isEvent(t)) return this.attendeeIds(t).length > 0;
+    return !!t.assignee_id;
+  }
+
+  // Apa yang masih kurang — dipakai untuk menjelaskan penolakan, bukan
+  // sekadar menolak. Orang yang ditolak tanpa tahu apa yang kurang akan
+  // mencoba hal yang sama sekali lagi.
+  taskMissingLabel(t) {
+    if (this.taskIsClarified(t)) return '';
+    return this.isEvent(t) ? 'tanggal atau peserta' : 'tanggal atau penerima';
+  }
+
+  // Sudah berapa lama mengendap. Bahaya terbesar sebuah inbox bukan penuh,
+  // melainkan berubah menjadi kuburan yang tidak pernah dibuka lagi — dan itu
+  // hanya terlihat kalau umurnya ditampilkan.
+  inboxAgeDays(t) {
+    const dari = (t && (t.created_at || '')) || '';
+    if (!dari) return 0;
+    const ms = Date.now() - Date.parse(dari);
+    if (!isFinite(ms) || ms < 0) return 0;
+    return Math.floor(ms / 86400000);
+  }
+
+  // Tangkap cepat: judulnya saja. Sengaja TIDAK menerima tanggal maupun
+  // penerima — kalau keduanya sudah diketahui, yang dipakai adalah formulir
+  // biasa dan tugasnya tidak perlu singgah di Inbox sama sekali.
+  async quickCaptureTask(title, userId) {
+    const judul = String(title || '').trim();
+    if (!judul) return { error: 'Judulnya belum diisi.' };
+    return this.createTask({ title: judul, created_by: userId || null });
+  }
+
   // ---- Peninjauan hasil kerja (lihat supabase-task-review.sql) -------------
   //
   // Pekerjaan yang DIDELEGASIKAN tidak boleh ditutup sendiri oleh yang
@@ -3726,6 +3782,10 @@ class Store {
       priority: ['urgent', 'high', 'normal', 'low'].includes(data.priority) ? data.priority : 'normal',
       due_date: data.due_date || null,
       due_time: data.due_time || '',
+      // Yang menentukan kolomnya bukan tombol mana yang ditekan, melainkan
+      // apakah tugasnya sudah punya kapan atau siapa. Tanpa aturan ini,
+      // janji 'semua di luar Inbox sudah jelas' hanya bergantung pada
+      // disiplin — dan yang bergantung pada disiplin akan bocor.
       status: 'todo',
       assignee_id: kind === 'event' ? null : (data.assignee_id || null),
       created_by: data.created_by || null,
@@ -3736,6 +3796,7 @@ class Store {
         : [],
       sort_order: Number(data.sort_order) || 100,
     };
+    if (!this.taskIsClarified(payload)) payload.status = 'inbox';
 
     let rec;
     if (CONFIG.DEMO_MODE) {
@@ -3795,6 +3856,24 @@ class Store {
       ? !!updates.assignee_id : !!t.assignee_id;
     if (akanPribadi && akanPunyaPenerima && !this.isEvent(t)) {
       return { error: 'Tugas pribadi tidak bisa didelegasikan — penerimanya tidak akan bisa melihatnya.' };
+    }
+
+    // ---- Lulus / turun dari Inbox dengan sendirinya ------------------------
+    // Mengisi tanggal atau penerima ADALAH tindakan merapikannya. Menuntut
+    // satu tekanan tombol lagi sesudah itu hanya menambah langkah yang bisa
+    // terlupa, dan tugas yang sudah jelas akan tetap tertinggal di Inbox.
+    //
+    // Arah sebaliknya juga berlaku, tapi hanya untuk yang masih di To-Do:
+    // mengosongkan tanggal DAN penerima membuatnya tidak jelas lagi, jadi ia
+    // kembali ke Inbox. Yang sedang dikerjakan atau menunggu tinjauan tidak
+    // ikut ditarik mundur — pekerjaannya sudah berjalan, dan menyeretnya
+    // kembali ke penampungan hanya akan membuatnya hilang dari pandangan.
+    if (updates && !Object.prototype.hasOwnProperty.call(updates, 'status')) {
+      const sesudah = { ...t, ...updates };
+      const jelas = this.taskIsClarified(sesudah);
+      const st = this.taskStatus(t);
+      if (st === 'inbox' && jelas) updates = { ...updates, status: 'todo' };
+      else if (st === 'todo' && !jelas) updates = { ...updates, status: 'inbox' };
     }
 
     const prevAssignee = t.assignee_id || null;
@@ -4211,7 +4290,21 @@ class Store {
   async setTaskStatus(id, status, userId) {
     const t = this.getTask(id);
     if (!t) return { error: 'Tugas tidak ditemukan' };
-    const next_ = ['todo', 'focus', 'review', 'done'].includes(status) ? status : 'todo';
+    const next_ = ['inbox', 'todo', 'focus', 'review', 'done'].includes(status) ? status : 'todo';
+
+    // PINTU KELUAR INBOX. Ditolak di sini — bukan di tombolnya — supaya
+    // seret-lepas, menu, dan jalan mana pun ke depan ikut terjaga tanpa
+    // perlu diingat lagi satu per satu.
+    //
+    // Kecuali 'focus': menekan Kerjakan Sekarang berarti dikerjakan hari
+    // ini, jadi tanggalnya diisikan hari ini dan syaratnya terpenuhi dengan
+    // sendirinya. Memaksa orang mengisi tanggal untuk sesuatu yang sedang
+    // dikerjakan detik itu juga hanya menghalangi tanpa menjaga apa pun.
+    let isiTanggal = null;
+    if (this.isInbox(t) && next_ !== 'inbox' && next_ !== 'done' && !this.taskIsClarified(t)) {
+      if (next_ === 'focus') isiTanggal = todayLocal();
+      else return { error: 'Tugas ini masih di Inbox. Isi dulu ' + this.taskMissingLabel(t) + ' lewat tombol Rapikan, baru bisa dipindahkan.' };
+    }
     // Satu pintu untuk aturan "yang didelegasikan tidak ditutup sendiri" —
     // dijaga di sini, bukan di tombolnya, supaya centang cepat, layar timer,
     // dan jalan mana pun ke depan ikut terjaga tanpa perlu diingat lagi.
@@ -4237,7 +4330,8 @@ class Store {
         // kali di riwayat. Masuk ke 'focus' langsung menyalakan timernya.
         : { status: next_, completed_at: null, completed_by: null,
             focus_seconds: banked, focus_at: next_ === 'focus' ? nowIso : null,
-            review_requested_at: null };
+            review_requested_at: null,
+            ...(isiTanggal ? { due_date: isiTanggal } : {}) };
     const res = await this.updateTask(id, updates);
     if (res && res.error) return res;
 
@@ -4386,10 +4480,15 @@ class Store {
   // pemberi tugas dan di kolom To-Do/Fokus pada papan penerimanya — tanpa
   // pernah muncul dua kali di papan yang sama.
   groupTasksByColumn(tasks, userId) {
-    const cols = { todo: [], focus: [], review: [], delegated: [], done: [] };
+    const cols = { inbox: [], todo: [], focus: [], review: [], delegated: [], done: [] };
     (tasks || []).forEach(t => {
       const s = this.taskStatus(t);
       if (s === 'done') { cols.done.push(t); return; }
+      // Inbox diperiksa SEBELUM 'delegasi'. Tugas di Inbox belum punya
+      // penerima, jadi bagi mata orang lain ia tampak 'bukan tugas saya' dan
+      // akan tersapu ke kolom Delegasi — padahal ia belum diberikan kepada
+      // siapa pun. Itu justru kebalikan dari maksudnya.
+      if (s === 'inbox') { cols.inbox.push(t); return; }
       // Menunggu tinjauan berlaku untuk kedua belah pihak: yang mengajukan
       // dan yang meninjau sama-sama melihatnya di satu kolom, jadi tidak ada
       // pekerjaan yang mengendap tanpa ada yang merasa memegangnya.
