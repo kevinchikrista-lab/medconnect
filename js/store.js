@@ -844,6 +844,34 @@ class Store {
     return { success: true };
   }
 
+  // Menerjemahkan galat Supabase Storage menjadi kalimat yang bisa
+  // DIKERJAKAN orang yang membacanya.
+  //
+  // "Bucket not found" itu benar, tapi tidak memberi tahu siapa pun apa yang
+  // harus dilakukan — yang membacanya tetap harus bertanya kepada orang lain
+  // dulu. Di tempat lain aplikasi ini sudah menyebut nama berkas SQL-nya
+  // langsung di pesan galat; penyimpanan berkas seharusnya sama.
+  _pesanGalatStorage(galat, bucket, langkah) {
+    const g = String(galat || '');
+    if (/bucket not found/i.test(g)) {
+      return 'Tempat penyimpanan belum dibuat di Supabase. Buka Storage → New bucket, '
+        + 'beri nama ' + bucket + ' (' + langkah + '), lalu coba lagi.';
+    }
+    // 403 / RLS: embernya ada, tapi kebijakannya menolak. Penyebab tersering:
+    // sesinya sudah kedaluwarsa, bukan kebijakannya yang salah.
+    if (/row-level security|not authorized|403|permission denied/i.test(g)) {
+      return 'Tidak diizinkan mengunggah ke ' + bucket + '. Coba keluar lalu masuk lagi; '
+        + 'bila masih ditolak, periksa kebijakan Storage untuk bucket itu di Supabase.';
+    }
+    if (/413|payload too large|exceeded the maximum/i.test(g)) {
+      return 'Berkasnya melebihi batas ukuran yang diizinkan server. Perkecil dulu berkasnya.';
+    }
+    if (/failed to fetch|networkerror|timeout|aborted/i.test(g)) {
+      return 'Sambungan ke server terputus saat mengunggah. Periksa jaringan lalu coba lagi.';
+    }
+    return g;
+  }
+
   async addLabResult(data, file) {
     let file_path = '', file_name = '';
     if (file) {
@@ -852,7 +880,10 @@ class Store {
       file_path = `${data.patient_id}/${Date.now()}_${safeName}`;
       if (!CONFIG.DEMO_MODE) {
         const up = await supabase.uploadFile('lab-files', file_path, file);
-        if (up && up.error) return { error: 'Upload berkas gagal: ' + up.error };
+        if (up && up.error) {
+          return { error: 'Gagal mengunggah berkas: '
+            + this._pesanGalatStorage(up.error, 'lab-files', 'JANGAN dicentang Public — isinya hasil pemeriksaan pasien') };
+        }
       }
     }
     const payload = { ...data, file_path, file_name };
@@ -3401,7 +3432,10 @@ class Store {
     const aman = String(file.name || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = `${locationId || 'umum'}/${Date.now()}_${aman}`;
     const up = await supabase.uploadFile('letterheads', path, file);
-    if (up && up.error) return { error: 'Gagal mengunggah logo: ' + up.error };
+    if (up && up.error) {
+      return { error: 'Gagal mengunggah logo: '
+        + this._pesanGalatStorage(up.error, 'letterheads', 'centang Public, supaya logonya tetap tampil saat resep dicetak ulang') };
+    }
     const url = supabase.publicUrl('letterheads', path);
     if (!url) return { error: 'Logo terunggah tapi tautannya tidak terbentuk.' };
     return { success: true, url, path };
