@@ -1942,6 +1942,26 @@ class Store {
     return this.normalizeName(cert.doctor_name) === this.normalizeName(d.full_name);
   }
 
+  // Surat yang lahir dari sebuah kunjungan. Dipakai kartu kunjungan untuk
+  // menunjukkan apa saja yang sudah diterbitkan dari situ — supaya dokter
+  // tidak menerbitkan surat sakit kedua hanya karena yang pertama tidak
+  // terlihat di layar yang sedang dibukanya.
+  getCertificatesByRecord(recordId) {
+    if (!recordId) return [];
+    return (this.data.certificates || [])
+      .filter(c => c.record_id === recordId || (c.details && c.details.record_id === recordId))
+      .sort((a, b) => String(b.issued_at || '').localeCompare(String(a.issued_at || '')));
+  }
+
+  // Label jenis surat — satu tempat, supaya 'RUJUKAN' tidak muncul sebagai
+  // 'Sakit' di layar mana pun hanya karena ada perbandingan yang lupa diubah.
+  suratJenisLabel(cert) {
+    const p = String((cert && cert.perihal) || '').toUpperCase();
+    if (p === 'RUJUKAN') return 'Rujukan';
+    if (p === 'SEHAT') return 'Sehat';
+    return 'Sakit';
+  }
+
   // Resep & surat SAH milik dokter ini yang belum punya rekam medis.
   rmDebtsForDoctor(doctorId) {
     if (!doctorId) return [];
@@ -1976,8 +1996,8 @@ class Store {
         patient_id: c.patient_id,
         patient_name: c.patient_name || 'Pasien',
         date: String(d.letter_date || c.issued_at || '').slice(0, 10),
-        label: 'Surat ' + ((c.perihal || '').toUpperCase() === 'SEHAT' ? 'Sehat' : 'Sakit') + ' ' + (c.cert_number || ''),
-        detail: d.diagnosis || d.keperluan || '(tanpa keterangan)',
+        label: 'Surat ' + this.suratJenisLabel(c) + ' ' + (c.cert_number || ''),
+        detail: d.diagnosis || d.keperluan || d.tujuan_faskes || '(tanpa keterangan)',
         from_pharmacy: !!(d.approval && d.approval.by_pharmacy),
       });
     }

@@ -417,18 +417,49 @@ export function doctorEMR(params) {
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, activeTab: 'records',
     skdOpen: false, skdType: 'sehat',
+    // KUNJUNGAN YANG MENDASARI SURAT INI. Surat keterangan sakit tanpa rekam
+    // medis adalah pernyataan tentang pemeriksaan yang tidak ada catatannya —
+    // dan itu yang pertama dicari saat suratnya dipertanyakan. Diisi saat
+    // surat dibuka DARI kartu kunjungan; kosong bila dibuka dari tombol umum
+    // di atas, dan surat itu langsung masuk daftar Kewajiban RM.
+    skdRecordId: '',
     skd: { no_rm: '${skdPrefill.no_rm}', letter_date: '${skdPrefill.today}',
       birth_date: '${skdPrefill.birth_date}', gender: '${skdPrefill.gender}', address: '${skdPrefill.address}',
       berat_badan: '${skdPrefill.bb}', tinggi_badan: '${skdPrefill.tb}', tekanan_darah: '${skdPrefill.td}', nadi: '${skdPrefill.nadi}',
       keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
-      diagnosis: '${skdPrefill.diagnosis}', rest_days: '', from_date: '${skdPrefill.today}', to_date: '' },
+      diagnosis: '${skdPrefill.diagnosis}', rest_days: '', from_date: '${skdPrefill.today}', to_date: '',
+      tujuan_faskes: '', tujuan_dokter: '', anamnesis: '', pemeriksaan: '', penunjang: '',
+      terapi: '', alasan: '', harapan: 'Mohon pemeriksaan dan penanganan lebih lanjut sesuai kompetensi.',
+      icd10: '', suhu: '', rr: '' },
+    // Membuka formulir surat DARI sebuah kunjungan: isinya diambil dari
+    // kunjungan itu, bukan dari kunjungan terakhir. Rujukan yang memuat
+    // anamnesis kunjungan lain lebih berbahaya daripada rujukan yang kosong.
+    suratDari(rec, jenis) {
+      this.skdRecordId = rec.id || '';
+      this.skdType = jenis;
+      const v = rec.vital_signs || {};
+      this.skd.diagnosis = rec.diagnosis || '';
+      this.skd.anamnesis = rec.anamnesis || '';
+      this.skd.pemeriksaan = rec.examination || '';
+      this.skd.terapi = rec.therapy || '';
+      this.skd.icd10 = rec.icd10_code || '';
+      this.skd.berat_badan = v.bb || ''; this.skd.tinggi_badan = v.tb || '';
+      this.skd.tekanan_darah = v.td || ''; this.skd.nadi = v.nadi || '';
+      this.skd.suhu = v.suhu || ''; this.skd.rr = v.rr || '';
+      if (jenis === 'sakit') { this.skd.from_date = rec.visit_date || this.skd.from_date; this.syncSuratDate(); }
+      this.skdOpen = true;
+    },
+    // Tombol umum di atas halaman: tidak terikat kunjungan mana pun.
+    suratLepas() { this.skdRecordId = ''; this.skdType = 'sehat'; this.skdOpen = true; },
     submitSKD() {
       // Merge the identity fields back into the patient record (and persist)
       // so they're saved for next time, then print the letter. The RM number is
       // assigned automatically by the system (see ensureRmNumber), not typed.
       window.__store.updatePatientProfile('${patient.id}', { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address });
-      window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, ...this.skd });
+      window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, recordId: this.skdRecordId, ...this.skd });
       this.skdOpen = false;
+      this.skdRecordId = '';
+      setTimeout(() => this.loadSKD && this.loadSKD(), 600);
     },
     labList: [], labLoading: true, labOpen: false, labFile: null, labSaving: false,
     lab: { category: 'lab', test_name: '', result_date: '${skdPrefill.today}', interpretation: '', notes: '', params: [{name:'',value:'',unit:'',ref:''}] },
@@ -504,7 +535,7 @@ export function doctorEMR(params) {
           <button @click="activeTab='penunjang'" :class="activeTab==='penunjang' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Penunjang (<span x-text="labList.length"></span>)</button>
           <button @click="activeTab='surat'" :class="activeTab==='surat' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Surat (<span x-text="skdList.length"></span>)</button>
           <span class="ml-auto flex items-center">${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp', { patientId: patient.id })}</span>
-          <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition">Surat Keterangan</button>
+          <button @click="suratLepas()" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition">Surat Keterangan</button>
           <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
         </div>
         <div x-show="activeTab==='records'">
@@ -512,6 +543,18 @@ export function doctorEMR(params) {
           records.map(r => {
             const doctor = store.getDoctor(r.doctor_id);
             const rxList = store.getPrescriptionsByRecord(r.id);
+            const suratList = store.getCertificatesByRecord(r.id);
+            // Dikirim ke suratDari() lewat window, bukan ditulis ke dalam
+            // atribut x-data: isinya teks bebas dari rekam medis, dan satu
+            // tanda kutip ganda di dalam x-data memutus atributnya sehingga
+            // Alpine mati untuk seluruh halaman.
+            window.__recForSurat = window.__recForSurat || {};
+            window.__recForSurat[r.id] = {
+              id: r.id, visit_date: r.visit_date || '', diagnosis: r.diagnosis || '',
+              anamnesis: r.anamnesis || '', examination: r.examination || '',
+              therapy: r.therapy || '', icd10_code: r.icd10_code || '',
+              vital_signs: r.vital_signs || {},
+            };
             return `<div class="bg-white border border-slate-100 rounded-3xl mb-4 overflow-hidden" x-data="{open:false}">
               <div class="p-4 cursor-pointer hover:bg-gray-50 transition flex items-center justify-between" @click="open=!open">
                 <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center"><svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div><div><p class="font-medium text-gray-800">${formatDate(r.visit_date)}</p><p class="text-sm text-gray-500">${r.diagnosis} — ${doctor?.full_name || ''}</p></div></div>
@@ -546,7 +589,48 @@ export function doctorEMR(params) {
                     </div>`;
                   }).join('')}
                 </div>
-                <div class="flex gap-2 mt-4 flex-wrap"><a href="#/doctor/emr/edit/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit Rekam Medis</a><a href="#/doctor/prescriptions/new/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 transition">Buat E-Resep</a><button onclick="window.__hapusRekam('${r.id}', '${qAttr(formatDate(r.visit_date))}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition ml-auto">Hapus Kunjungan</button></div>
+                <!-- SURAT YANG SUDAH TERBIT DARI KUNJUNGAN INI. Ditampilkan
+                     di sini, bukan hanya di tab Surat, supaya dokter tidak
+                     menerbitkan surat sakit kedua hanya karena yang pertama
+                     tidak terlihat di layar yang sedang dibukanya. -->
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                  <h4 class="font-semibold text-gray-700 mb-2 text-sm">Surat dari Kunjungan Ini</h4>
+                  ${suratList.length === 0
+                    ? '<p class="text-sm text-gray-400">Belum ada surat diterbitkan dari kunjungan ini</p>'
+                    : `<div class="space-y-1.5">${suratList.map(c => {
+                        const st = (c.details && c.details.approval && c.details.approval.status) || 'approved';
+                        const warna = st === 'approved' ? 'bg-green-100 text-green-700' : (st === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700');
+                        const label = { approved: 'Sah', pending: 'Menunggu ACC', rejected: 'Ditolak' }[st] || st;
+                        const jenis = store.suratJenisLabel(c);
+                        const jw = jenis === 'Rujukan' ? 'bg-indigo-100 text-indigo-700' : (jenis === 'Sehat' ? 'bg-teal-100 text-teal-700' : 'bg-amber-100 text-amber-700');
+                        return `<div class="bg-white border border-gray-100 rounded-xl p-2.5 flex items-center justify-between gap-2 flex-wrap">
+                          <div class="min-w-0">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                              <span class="px-2 py-0.5 rounded-full text-xs font-medium ${jw}">Surat ${jenis}</span>
+                              <span class="px-2 py-0.5 rounded-full text-xs font-medium ${warna}">${label}</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-0.5">No. ${escHtml(c.cert_number || '-')}</p>
+                          </div>
+                          <button onclick="window.__printSKD('${c.id}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition shrink-0">${st === 'approved' ? 'Cetak Ulang' : 'Lihat'}</button>
+                        </div>`;
+                      }).join('')}</div>`}
+                </div>
+
+                <!-- TITIK BERANGKAT. Surat & resep lahir DARI kunjungan, bukan
+                     berdiri sendiri lalu ditagih rekam medisnya belakangan —
+                     tombol-tombol ini yang membuat urutan itu menjadi jalan
+                     yang paling mudah, bukan sekadar yang dianjurkan. -->
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                  <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Terbitkan dari kunjungan ini</p>
+                  <div class="flex gap-2 flex-wrap">
+                    <a href="#/doctor/prescriptions/new/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 transition inline-flex items-center gap-1"><span class="ms text-[15px]">prescriptions</span>E-Resep</a>
+                    <button @click="suratDari(window.__recForSurat['${r.id}'], 'sehat')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition">Surat Sehat</button>
+                    <button @click="suratDari(window.__recForSurat['${r.id}'], 'sakit')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition">Surat Sakit</button>
+                    <button @click="suratDari(window.__recForSurat['${r.id}'], 'rujukan')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition inline-flex items-center gap-1"><span class="ms text-[15px]">forward_to_inbox</span>Surat Rujukan</button>
+                  </div>
+                </div>
+
+                <div class="flex gap-2 mt-4 pt-4 border-t border-gray-100 flex-wrap"><a href="#/doctor/emr/edit/${r.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition">Edit Rekam Medis</a><button onclick="window.__hapusRekam('${r.id}', '${qAttr(formatDate(r.visit_date))}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition ml-auto">Hapus Kunjungan</button></div>
               </div>
             </div>`;
           }).join('')}
@@ -742,7 +826,7 @@ export function doctorEMR(params) {
         <!-- SURAT KETERANGAN (daftar + edit) -->
         <div x-show="activeTab==='surat'" x-cloak>
           <div class="flex justify-end mb-3">
-            <button @click="skdOpen=true" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
+            <button @click="suratLepas()" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Buat Surat Keterangan</button>
           </div>
           <div x-show="skdLoading" class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Memuat surat...</div>
           <template x-if="!skdLoading && skdList.length===0"><div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Belum ada surat keterangan untuk pasien ini.</div></template>
@@ -751,7 +835,11 @@ export function doctorEMR(params) {
               <div class="bg-white border border-slate-100 rounded-2xl p-3 flex items-center justify-between gap-3 flex-wrap">
                 <div>
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="((s.perihal||'')==='SEHAT')?'bg-teal-100 text-teal-700':'bg-amber-100 text-amber-700'" x-text="'Surat '+((s.perihal||'').charAt(0)+(s.perihal||'').slice(1).toLowerCase())"></span>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="((s.perihal||'')==='RUJUKAN')?'bg-indigo-100 text-indigo-700':(((s.perihal||'')==='SEHAT')?'bg-teal-100 text-teal-700':'bg-amber-100 text-amber-700')" x-text="'Surat '+((s.perihal||'').charAt(0)+(s.perihal||'').slice(1).toLowerCase())"></span>
+                    <!-- Surat tanpa rekam medis ditandai DI DAFTARNYA, bukan
+                         hanya di halaman Kewajiban RM: yang membuka daftar ini
+                         adalah orang yang sedang memeriksa suratnya. -->
+                    <span x-show="!s.record_id && !(s.details && s.details.record_id)" x-cloak class="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-white" title="Surat ini belum tertaut ke kunjungan mana pun">tanpa RM</span>
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="{ 'bg-green-100 text-green-700': skdStat(s)==='approved', 'bg-orange-100 text-orange-700': skdStat(s)==='pending', 'bg-red-100 text-red-700': skdStat(s)==='rejected' }" x-text="({ approved:'Sah', pending:'Menunggu ACC', rejected:'Ditolak' })[skdStat(s)]"></span>
                   </div>
                   <p class="text-sm font-medium text-gray-800 mt-1" x-text="'No. '+s.cert_number"></p>
@@ -838,9 +926,25 @@ export function doctorEMR(params) {
             </div>
             <p class="text-xs text-gray-500 mb-4">Untuk pasien: <span class="font-medium text-gray-700">${patient.full_name}</span>. Data terisi otomatis dari kunjungan terakhir &mdash; silakan periksa & edit sebelum cetak.</p>
 
-            <div class="flex gap-2 mb-4">
-              <button @click="skdType='sehat'" :class="skdType==='sehat' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sehat</button>
-              <button @click="skdType='sakit'; syncSuratDate()" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Surat Keterangan Sakit</button>
+            <div class="flex gap-2 mb-3 flex-wrap">
+              <button @click="skdType='sehat'" :class="skdType==='sehat' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 min-w-[140px] px-3 py-2 rounded-lg text-sm font-medium transition">Keterangan Sehat</button>
+              <button @click="skdType='sakit'; syncSuratDate()" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 min-w-[140px] px-3 py-2 rounded-lg text-sm font-medium transition">Keterangan Sakit</button>
+              <button @click="skdType='rujukan'" :class="skdType==='rujukan' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 min-w-[140px] px-3 py-2 rounded-lg text-sm font-medium transition">Surat Rujukan</button>
+            </div>
+
+            <!-- KUNJUNGAN YANG MENDASARI SURAT INI. Ditampilkan apa adanya,
+                 termasuk saat kosong: surat keterangan sakit tanpa rekam medis
+                 adalah pernyataan tentang pemeriksaan yang tidak ada
+                 catatannya, dan itu harus terlihat SEBELUM dicetak, bukan baru
+                 ketahuan saat suratnya dipertanyakan. -->
+            <div class="mb-4 px-3 py-2 rounded-lg border text-[11.5px] leading-relaxed"
+                 :class="skdRecordId ? 'bg-teal-50 border-teal-200 text-teal-900' : 'bg-amber-50 border-amber-200 text-amber-900'">
+              <template x-if="skdRecordId">
+                <span>Surat ini akan tertaut ke kunjungan yang Anda pilih. Rekam medisnya sudah ada.</span>
+              </template>
+              <template x-if="!skdRecordId">
+                <span><b>Belum tertaut kunjungan.</b> Surat tetap bisa terbit, tapi akan masuk daftar <b>Kewajiban RM</b> Anda sampai ditautkan ke sebuah kunjungan. Untuk menautkannya sejak awal, tutup jendela ini lalu tekan tombol surat pada kartu kunjungannya.</span>
+              </template>
             </div>
 
             <div class="grid grid-cols-2 gap-3 mb-3">
@@ -876,6 +980,48 @@ export function doctorEMR(params) {
                 <div><label class="block text-xs text-gray-600 mb-1">Dari Tanggal</label><input type="date" x-model="skd.from_date" @change="syncSuratDate()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div><p class="text-[11px] text-teal-700 mt-1 sm:col-span-3" x-show="skdType==='sakit' && skd.from_date" x-cloak>Tanggal surat mengikuti hari pertama sakit (<span x-text="skd.from_date"></span>) &mdash; supaya tanggal suratnya tidak jatuh sesudah izin yang diterangkannya.</p>
                 <div><label class="block text-xs text-gray-600 mb-1">Hingga Tanggal</label><input type="date" x-model="skd.to_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
+            </div>
+
+            <!-- Rujukan. Empat kelompok, mengikuti apa yang benar-benar
+                 dibaca dokter penerima: ke mana ditujukan, apa yang sudah
+                 diketahui, apa yang sudah dikerjakan, dan apa yang diharapkan.
+                 Rujukan tanpa kelompok ketiga membuat dokter penerima
+                 mengulang dari nol — termasuk mengulang obat yang sudah
+                 masuk. -->
+            <div x-show="skdType==='rujukan'" x-cloak class="space-y-3">
+              <div class="p-3 rounded-lg bg-indigo-50 border border-indigo-100">
+                <p class="text-xs font-semibold text-indigo-900 mb-2">Tujuan Rujukan</p>
+                <div class="grid sm:grid-cols-2 gap-3">
+                  <div><label class="block text-xs text-gray-600 mb-1">Fasilitas / Rumah Sakit</label><input type="text" x-model="skd.tujuan_faskes" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="cth: RSUD Sultan Syarif Mohamad Alkadrie"></div>
+                  <div><label class="block text-xs text-gray-600 mb-1">Kepada (dokter / bagian)</label><input type="text" x-model="skd.tujuan_dokter" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400/50" placeholder="cth: TS dr. Sp.PD"></div>
+                </div>
+              </div>
+
+              <div><label class="block text-xs text-gray-600 mb-1">Anamnesis</label><textarea x-model="skd.anamnesis" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Keluhan utama & perjalanan penyakit"></textarea></div>
+
+              <div>
+                <p class="text-xs text-gray-600 mb-1">Tanda Vital <span class="text-gray-400">(yang kosong tidak ikut dicetak)</span></p>
+                <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                  <input type="text" x-model="skd.tekanan_darah" class="px-2 py-2 border border-gray-200 rounded-lg text-sm" placeholder="TD">
+                  <input type="text" x-model="skd.nadi" class="px-2 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Nadi">
+                  <input type="text" x-model="skd.rr" class="px-2 py-2 border border-gray-200 rounded-lg text-sm" placeholder="RR">
+                  <input type="text" x-model="skd.suhu" class="px-2 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Suhu">
+                  <input type="text" x-model="skd.berat_badan" class="px-2 py-2 border border-gray-200 rounded-lg text-sm" placeholder="BB">
+                  <input type="text" x-model="skd.tinggi_badan" class="px-2 py-2 border border-gray-200 rounded-lg text-sm" placeholder="TB">
+                </div>
+              </div>
+
+              <div><label class="block text-xs text-gray-600 mb-1">Pemeriksaan Fisik</label><textarea x-model="skd.pemeriksaan" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Temuan pemeriksaan"></textarea></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Pemeriksaan Penunjang <span class="text-gray-400">(bila ada)</span></label><textarea x-model="skd.penunjang" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="cth: Hb 9,2 g/dL; Rontgen thorax: infiltrat lapang paru kanan"></textarea></div>
+
+              <div class="grid sm:grid-cols-3 gap-3">
+                <div class="sm:col-span-2"><label class="block text-xs text-gray-600 mb-1">Diagnosis Kerja</label><input type="text" x-model="skd.diagnosis" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Anemia gravis suspek perdarahan saluran cerna"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Kode ICD-10</label><input type="text" x-model="skd.icd10" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: D50.0"></div>
+              </div>
+
+              <div><label class="block text-xs text-gray-600 mb-1">Terapi yang Sudah Diberikan</label><textarea x-model="skd.terapi" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="Obat & tindakan yang sudah dikerjakan sebelum dirujuk"></textarea></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Alasan Rujukan</label><textarea x-model="skd.alasan" rows="2" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 resize-none" placeholder="cth: Keterbatasan sarana pemeriksaan endoskopi"></textarea></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Harapan Kami</label><input type="text" x-model="skd.harapan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
             </div>
 
             <div class="flex gap-2 justify-end mt-5">
