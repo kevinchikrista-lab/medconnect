@@ -1,6 +1,6 @@
 import { store } from './store.js';
 
-// Surat Keterangan Dokter (SKD) — Sehat & Sakit.
+// Surat Keterangan Dokter (SKD) — Sehat, Sakit, & Rujukan.
 // Same anti-duplication model as the vaccination certificate: mint a unique
 // sequential number, log the letter to Supabase, and stamp a QR that points at
 // the public /verify page so a scanner always sees the real server-side data.
@@ -58,6 +58,7 @@ export async function createSKD(opts) {
   // Signing/ACC doctor: an explicit one (admin picks the responsible doctor)
   // takes precedence over the logged-in doctor's own profile.
   const doctor = (opts.doctor && opts.doctor.full_name) ? opts.doctor : (JSON.parse(sessionStorage.getItem('medconnect_profile') || 'null') || {});
+  const isRujukan = opts.type === 'rujukan';
   const isSehat = opts.type === 'sehat';
 
   // No. RM is assigned by the system (a continuous sequence), never typed.
@@ -77,19 +78,27 @@ export async function createSKD(opts) {
   // penomorannya pun tetap runtut dengan tanggal suratnya.
   // Berlaku untuk semua jalur penerbitan (dokter, admin, cetak ulang).
   // Surat keterangan sehat tidak punya rentang sakit, jadi tidak terpengaruh.
-  const letterDate = (!isSehat && opts.from_date)
+  // Surat rujukan bertanggal hari ia ditulis — tidak ada rentang sakit yang
+  // perlu diikutinya.
+  const letterDate = (!isSehat && !isRujukan && opts.from_date)
     ? opts.from_date
     : (opts.letter_date || new Date().toISOString().split('T')[0]);
   const year = new Date(letterDate).getFullYear();
   const monthRoman = ROMAN[new Date(letterDate).getMonth()];
   const initials = doctorInitials(doctor.full_name);
 
+  // Rujukan punya BUKU NOMOR SENDIRI, seperti di praktik nyata: surat rujukan
+  // dan surat keterangan tidak pernah berbagi satu urutan. Menggabungkannya
+  // membuat nomor rujukan melompat-lompat mengikuti surat sakit yang terbit di
+  // sela-selanya, dan itu yang pertama kali dipertanyakan saat diaudit.
+  const kunciSeri = isRujukan ? 'RUJUKAN' : 'SKD';
+  const kodeSurat = isRujukan ? 'RUJ' : 'SKD';
   let certNum, certRecord;
   try {
-    const seq = await store.getNextDocNumber('SKD', year);
-    certNum = `${pad4(seq)}/${monthRoman}/SKD/${initials}/${String(year).slice(2)}`;
+    const seq = await store.getNextDocNumber(kunciSeri, year);
+    certNum = `${pad4(seq)}/${monthRoman}/${kodeSurat}/${initials}/${String(year).slice(2)}`;
   } catch (e) {
-    certNum = `0001/${monthRoman}/SKD/${initials}/${String(year).slice(2)}`;
+    certNum = `0001/${monthRoman}/${kodeSurat}/${initials}/${String(year).slice(2)}`;
   }
 
   // Everything needed to re-render the letter later (e.g. after ACC) lives in
@@ -104,9 +113,29 @@ export async function createSKD(opts) {
     tekanan_darah: isSehat ? (opts.tekanan_darah || '') : '',
     nadi: isSehat ? (opts.nadi || '') : '',
     diagnosis: isSehat ? '' : (opts.diagnosis || ''),
-    rest_days: isSehat ? '' : (opts.rest_days || ''),
-    from_date: isSehat ? '' : (opts.from_date || ''),
-    to_date: isSehat ? '' : (opts.to_date || ''),
+    rest_days: (isSehat || isRujukan) ? '' : (opts.rest_days || ''),
+    from_date: (isSehat || isRujukan) ? '' : (opts.from_date || ''),
+    to_date: (isSehat || isRujukan) ? '' : (opts.to_date || ''),
+    // ---- Khusus surat rujukan -------------------------------------------
+    // Empat kelompok, mengikuti apa yang benar-benar dibaca dokter penerima:
+    // ke mana ditujukan, apa yang sudah diketahui, apa yang sudah dikerjakan,
+    // dan apa yang diharapkan. Rujukan tanpa kelompok ketiga membuat dokter
+    // penerima mengulang dari nol — termasuk mengulang obat yang sudah masuk.
+    tujuan_faskes: isRujukan ? (opts.tujuan_faskes || '') : '',
+    tujuan_dokter: isRujukan ? (opts.tujuan_dokter || '') : '',
+    anamnesis: isRujukan ? (opts.anamnesis || '') : '',
+    pemeriksaan: isRujukan ? (opts.pemeriksaan || '') : '',
+    penunjang: isRujukan ? (opts.penunjang || '') : '',
+    terapi: isRujukan ? (opts.terapi || '') : '',
+    alasan: isRujukan ? (opts.alasan || '') : '',
+    harapan: isRujukan ? (opts.harapan || '') : '',
+    icd10: isRujukan ? (opts.icd10 || '') : '',
+    // Tanda vital ikut dibawa untuk rujukan — dokter penerima membacanya
+    // lebih dulu daripada narasi mana pun.
+    vital: isRujukan ? {
+      td: opts.tekanan_darah || '', nadi: opts.nadi || '', suhu: opts.suhu || '',
+      rr: opts.rr || '', bb: opts.berat_badan || '', tb: opts.tinggi_badan || '',
+    } : null,
     approval: { status: opts.status || 'approved', doctor_id: opts.approvalDoctorId || '', reject_reason: '', created_by: opts.createdBy || '', by_pharmacy: opts.byPharmacyId || '' },
     // KOP SURAT MENGIKUTI TEMPAT PRAKTIK DOKTERNYA, bukan dipaku ke Klinik
     // Prima. Aplikasi ini menghubungkan banyak fasilitas: surat dr. Niko yang
@@ -124,19 +153,38 @@ export async function createSKD(opts) {
   // certificates.patient_id is a UUID column, so never send a client
   // placeholder id ('id_...') from an unsynced patient.
   const safePatientId = String(opts.patientId).startsWith('id_') ? null : opts.patientId;
+  const perihal = isRujukan ? 'RUJUKAN' : (isSehat ? 'SEHAT' : 'SAKIT');
+  // KUNJUNGAN YANG MENDASARI SURAT INI. Surat keterangan sakit tanpa rekam
+  // medis adalah pernyataan tentang pemeriksaan yang tidak ada catatannya —
+  // dan itu yang pertama dicari saat surat dipertanyakan. Karena itu surat
+  // yang lahir dari sebuah kunjungan membawa tautannya sejak detik pertama,
+  // bukan ditautkan belakangan lewat halaman Kewajiban RM.
+  // Kolom record_id bertipe UUID, jadi id kunjungan yang belum tersinkron
+  // ('id_...') tidak boleh dikirim ke sana — Postgres akan menolak SELURUH
+  // barisnya dan suratnya hilang.
+  //
+  // Tapi tautannya sendiri TIDAK BOLEH ikut hilang. Kalau hanya kolomnya yang
+  // diisi, surat yang dibuat dari kunjungan yang baru saja diketik akan
+  // muncul sebagai "tanpa RM" di layar dokter yang baru saja membuatnya dari
+  // kunjungan itu — dan ia akan mengira fiturnya rusak. Karena itu id
+  // apa adanya tetap disimpan di details, dan semua pembacanya
+  // (getCertificatesByRecord, rmDebtsForDoctor) memeriksa keduanya.
+  const safeRecordId = String(opts.recordId || '').startsWith('id_') ? null : (opts.recordId || null);
+  details.record_id = opts.recordId || '';
   try {
     certRecord = await store.logCertificate({
-      cert_number: certNum, cert_type: 'skd', perihal: isSehat ? 'SEHAT' : 'SAKIT',
-      patient_id: safePatientId, patient_name: patient.full_name,
+      cert_number: certNum, cert_type: 'skd', perihal,
+      patient_id: safePatientId, record_id: safeRecordId,
+      patient_name: patient.full_name,
       doctor_name: doctor.full_name || '', details,
     });
   } catch (e) {
-    certRecord = { id: 'local-' + Date.now(), cert_number: certNum, cert_type: 'skd', perihal: isSehat ? 'SEHAT' : 'SAKIT', patient_name: patient.full_name, doctor_name: doctor.full_name || '', details, issued_at: new Date().toISOString() };
+    certRecord = { id: 'local-' + Date.now(), cert_number: certNum, cert_type: 'skd', perihal, patient_name: patient.full_name, record_id: safeRecordId, doctor_name: doctor.full_name || '', details, issued_at: new Date().toISOString() };
   }
 
   // Notify the assigned doctor when a draft awaits their ACC.
   if (details.approval.status === 'pending' && details.approval.doctor_id) {
-    try { store.notifyDoctorPendingSKD(details.approval.doctor_id, patient.full_name, isSehat ? 'Sehat' : 'Sakit'); } catch (e) { /* best-effort */ }
+    try { store.notifyDoctorPendingSKD(details.approval.doctor_id, patient.full_name, isRujukan ? 'Rujukan' : (isSehat ? 'Sehat' : 'Sakit')); } catch (e) { /* best-effort */ }
   }
   return certRecord;
 }
@@ -151,14 +199,43 @@ function writeLetter(w, cert) {
   // lama tercetak persis seperti dulu dan tidak ada dua definisi "kop bawaan"
   // yang bisa berbeda.
   const kop = d.kop || store.getKopFor('', '', '');
-  const isSehat = (cert.perihal || '').toUpperCase() === 'SEHAT';
+  const jenis = (cert.perihal || '').toUpperCase();
+  const isRujukan = jenis === 'RUJUKAN';
+  const isSehat = jenis === 'SEHAT';
   const draft = approvalStatus(cert) !== 'approved';
   const certNum = cert.cert_number || '';
   const origin = window.location.origin;
   const verifyUrl = `${origin}/#/verify/${cert.id}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=4&data=${encodeURIComponent(verifyUrl)}`;
 
-  const bodyHtml = isSehat ? `
+  // Baris tanda vital hanya memuat yang benar-benar terisi. Deretan strip
+  // pada surat rujukan bukan sekadar jelek — ia terbaca sebagai "sudah
+  // diperiksa, hasilnya kosong", padahal yang benar adalah "tidak diperiksa".
+  const vt = d.vital || {};
+  const vitalRingkas = [
+    vt.td ? 'TD ' + esc(vt.td) + ' mmHg' : '',
+    vt.nadi ? 'Nadi ' + esc(vt.nadi) + ' x/menit' : '',
+    vt.rr ? 'RR ' + esc(vt.rr) + ' x/menit' : '',
+    vt.suhu ? 'Suhu ' + esc(vt.suhu) + ' °C' : '',
+    vt.bb ? 'BB ' + esc(vt.bb) + ' kg' : '',
+    vt.tb ? 'TB ' + esc(vt.tb) + ' cm' : '',
+  ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+
+  const bagian = (judul, isi) => isi
+    ? `<div class="blok"><div class="blok-j">${judul}</div><div class="blok-i">${esc(isi)}</div></div>`
+    : '';
+
+  const bodyHtml = isRujukan ? `
+    <p class="lead">Mohon pemeriksaan dan penanganan lebih lanjut atas pasien dengan identitas di atas.</p>
+    ${bagian('Anamnesis', d.anamnesis)}
+    ${vitalRingkas ? `<div class="blok"><div class="blok-j">Tanda Vital</div><div class="blok-i">${vitalRingkas}</div></div>` : ''}
+    ${bagian('Pemeriksaan Fisik', d.pemeriksaan)}
+    ${bagian('Pemeriksaan Penunjang', d.penunjang)}
+    <div class="blok"><div class="blok-j">Diagnosis Kerja</div><div class="blok-i"><b>${esc(d.diagnosis || '-').toUpperCase()}</b>${d.icd10 ? ' <span style="color:#6b7280;font-weight:400">(ICD-10: ' + esc(d.icd10) + ')</span>' : ''}</div></div>
+    ${bagian('Terapi yang Sudah Diberikan', d.terapi)}
+    ${bagian('Alasan Rujukan', d.alasan)}
+    <div class="blok"><div class="blok-j">Harapan Kami</div><div class="blok-i">${esc(d.harapan || 'Mohon pemeriksaan dan penanganan lebih lanjut sesuai kompetensi.')}</div></div>
+  ` : (isSehat ? `
     <p class="lead">Pada hari ini, pasien dengan identitas diri di atas, telah dilakukan pemeriksaan dengan hasil sebagai berikut:</p>
     <table class="periksa">
       <tr><td class="k">Berat Badan</td><td class="s">:</td><td class="v">${esc(d.berat_badan) || '-'} ${d.berat_badan ? 'KG' : ''}</td></tr>
@@ -177,9 +254,9 @@ function writeLetter(w, cert) {
       <tr><td class="k">Dari Tanggal</td><td class="s">:</td><td class="v">${fmtDate(d.from_date)}</td></tr>
       <tr><td class="k">Hingga Tanggal</td><td class="s">:</td><td class="v">${fmtDate(d.to_date)}</td></tr>
     </table>
-  `;
+  `);
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Surat Keterangan ${isSehat ? 'Sehat' : 'Sakit'} - ${esc(cert.patient_name)}</title>
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${isRujukan ? 'Surat Rujukan' : 'Surat Keterangan ' + (isSehat ? 'Sehat' : 'Sakit')} - ${esc(cert.patient_name)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
   :root{ --ink:#111827; --muted:#6b7280; --rule:#d1d5db; --accent:#1c3980; }
@@ -227,6 +304,13 @@ function writeLetter(w, cert) {
   .sign .name{font-size:14px;font-weight:800;text-decoration:underline;text-underline-offset:3px}
   .sign .sip{font-size:11px;color:#374151;margin-top:2px}
   .foot{margin-top:14px;padding-top:8px;border-top:1px solid var(--rule);font-size:10px;color:var(--muted);text-align:center;line-height:1.5}
+  .blok{margin-bottom:9px}
+  .blok-j{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+  .blok-i{font-size:12.5px;line-height:1.6;color:#111827;white-space:pre-line;text-align:justify}
+  .tujuan{background:#f8fafc;border:1px solid var(--rule);border-radius:6px;padding:9px 12px;margin-bottom:12px}
+  .tujuan .t{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .tujuan .n{font-size:13.5px;font-weight:700;color:#111827;margin-top:2px}
+  .tujuan .d{font-size:12px;color:#374151}
   .draft-banner{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:11px;font-weight:600;text-align:center;padding:6px;border-radius:6px;margin-bottom:10px;position:relative;z-index:6}
   .print-btn{margin-top:20px;background:var(--accent);color:white;border:none;padding:12px 32px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif}
   @media print{ @page{size:A4 portrait;margin:0} body{background:white;padding:0} .page{box-shadow:none;width:210mm} .no-print{display:none!important} }
@@ -243,11 +327,19 @@ function writeLetter(w, cert) {
     </div>
     <div class="content">
       ${draft ? '<div class="draft-banner">DRAFT — Surat ini BELUM DISAHKAN oleh dokter. Belum sah untuk digunakan sampai disetujui (ACC).</div>' : ''}
-      <div class="title"><h1>SURAT KETERANGAN DOKTER</h1></div>
-      <div class="perihal">Perihal : SURAT KETERANGAN ${isSehat ? 'SEHAT' : 'SAKIT'}</div>
+      <div class="title"><h1>${isRujukan ? 'SURAT RUJUKAN' : 'SURAT KETERANGAN DOKTER'}</h1></div>
+      ${isRujukan ? '' : `<div class="perihal">Perihal : SURAT KETERANGAN ${isSehat ? 'SEHAT' : 'SAKIT'}</div>`}
       <div class="no-surat">No. Surat : <b>${esc(certNum)}</b></div>
 
-      <p class="intro">Yang bertanda tangan di bawah ini, saya menerangkan dengan sesungguhnya bahwa:</p>
+      ${isRujukan ? `<div class="tujuan">
+        <div class="t">Kepada Yth.</div>
+        <div class="n">${esc(d.tujuan_dokter || 'Teman Sejawat Yth.')}</div>
+        <div class="d">${esc(d.tujuan_faskes || '-')}</div>
+      </div>` : ''}
+
+      <p class="intro">${isRujukan
+        ? 'Dengan hormat, bersama ini kami rujuk pasien:'
+        : 'Yang bertanda tangan di bawah ini, saya menerangkan dengan sesungguhnya bahwa:'}</p>
       <div class="identitas"><table>
         <tr><td class="k">No. RM</td><td class="s">:</td><td class="v">${esc(d.no_rm || '-')}</td></tr>
         <tr><td class="k">Nama Pasien</td><td class="s">:</td><td class="v">${esc(cert.patient_name).toUpperCase()}</td></tr>
@@ -258,7 +350,9 @@ function writeLetter(w, cert) {
 
       ${bodyHtml}
 
-      <p class="closing">Demikian surat keterangan ini dibuat dan dapat digunakan sebagaimana mestinya. Atas perhatiannya, terima kasih banyak.</p>
+      <p class="closing">${isRujukan
+        ? 'Demikian surat rujukan ini kami sampaikan. Atas bantuan dan kerja sama Teman Sejawat, kami ucapkan terima kasih.'
+        : 'Demikian surat keterangan ini dibuat dan dapat digunakan sebagaimana mestinya. Atas perhatiannya, terima kasih banyak.'}</p>
 
       <div class="spacer"></div>
 
@@ -269,7 +363,7 @@ function writeLetter(w, cert) {
         </div>
         <div class="sign">
           <div class="place">Pontianak, ${fmtDate(d.letter_date)}</div>
-          <div class="role">Dokter Pemeriksa,</div>
+          <div class="role">${isRujukan ? 'Dokter Perujuk,' : 'Dokter Pemeriksa,'}</div>
           <div class="name">${esc(cert.doctor_name || d.doctor_name || '-').toUpperCase()}</div>
           <div class="sip">SIPD: ${esc(d.doctor_sip || '-')}</div>
           <div class="sip" style="font-style:italic;color:#9ca3af;margin-top:4px">${draft ? 'Menunggu pengesahan (ACC) dokter' : 'Sah tanpa tanda tangan basah — diverifikasi via QR'}</div>
