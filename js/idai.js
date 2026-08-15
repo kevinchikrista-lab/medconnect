@@ -66,6 +66,19 @@ export const IDAI_META = {
   verified: false,
   verified_by: '',
   verified_at: '',
+  // Toleransi hari sebelum sebuah dosis dianggap "terlalu cepat".
+  //
+  // ANGKA INI BUKAN DARI LEMBAR IDAI. Empat hari adalah "grace period" yang
+  // dipakai ACIP/CDC: dosis yang diberikan sampai 4 hari sebelum jarak minimum
+  // tetap dihitung sah, karena selisih sekecil itu tidak mengubah tanggapan
+  // kekebalan tetapi sangat sering terjadi (jadwal digeser ke hari kerja, orang
+  // tua datang Jumat bukan Senin). Tanpa toleransi, peringatannya muncul
+  // terus-menerus untuk hal yang tidak keliru — dan peringatan yang terlalu
+  // sering adalah peringatan yang berhenti dibaca.
+  //
+  // Isi 0 untuk menegakkan jarak minimum secara ketat. Bisa diubah dr. Kevin
+  // dari Super Admin → Jadwal Vaksin IDAI.
+  grace_hari: 4,
 };
 
 // Berapa lama keterlambatan masih boleh dihitung otomatis. Lewat dari ini,

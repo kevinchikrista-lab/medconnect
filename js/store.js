@@ -95,6 +95,11 @@ function sanitizeDates(record, keys) {
   return out;
 }
 
+// Kolom vaccinations yang datang dari supabase-vax-offschedule.sql. Selama
+// migrasi itu belum dijalankan, kolomnya dibuang saat menyimpan supaya baris
+// vaksinasinya tetap sampai ke server — lihat _syncInsert.
+const KOLOM_VAX_BARU = ['off_schedule', 'off_schedule_reason', 'off_schedule_note'];
+
 // Parses the published Google Sheet CSV for home care BMHP/Jasa prices.
 // Handles quoted fields (commas inside item names) and looks columns up by
 // header name so re-ordering columns in the sheet doesn't break parsing.
@@ -351,14 +356,34 @@ class Store {
   // when the Supabase column shape differs from the local record shape (e.g.
   // notifications' profile_id vs local user_id). Returns a promise of the
   // (possibly patched) localRecord, useful for header->detail FK sequencing.
-  _syncInsert(table, localRecord, payloadOverride) {
+  // `kolomOpsional` — kolom yang berasal dari migrasi yang mungkin belum
+  // dijalankan. Postgres menolak SELURUH baris begitu ada satu kolom yang tidak
+  // dikenal, jadi tanpa ini sebuah migrasi yang tertinggal tidak menghilangkan
+  // kolom tambahannya, melainkan menghilangkan kejadiannya: vaksinasi yang
+  // benar-benar terjadi tidak pernah sampai ke server. Maka begitu ditolak,
+  // baris yang sama dicoba sekali lagi tanpa kolom-kolom itu.
+  _syncInsert(table, localRecord, payloadOverride, kolomOpsional) {
     if (CONFIG.DEMO_MODE) return Promise.resolve(localRecord);
     const { id, ...payload } = payloadOverride || localRecord;
-    return supabase.insert(table, payload).then(inserted => {
-      if (inserted && inserted.id) { localRecord.id = inserted.id; this._save(); }
-      else if (inserted && inserted.error) { console.warn(`Gagal menyimpan ke Supabase (${table}):`, inserted.error, payload); }
-      return localRecord;
-    }).catch(e => { console.warn(`Gagal menyimpan ke Supabase (${table}):`, e, payload); return localRecord; });
+    const opsional = (Array.isArray(kolomOpsional) ? kolomOpsional : []).filter(k => k in payload);
+
+    const gagal = (err) => { console.warn(`Gagal menyimpan ke Supabase (${table}):`, err, payload); return localRecord; };
+    const kirim = (p) => supabase.insert(table, p)
+      .then(r => {
+        if (r && r.id) { localRecord.id = r.id; this._save(); return { ok: true }; }
+        return { ok: false, err: (r && r.error) || 'ditolak server' };
+      })
+      .catch(e => ({ ok: false, err: e }));
+
+    return kirim(payload).then(r1 => {
+      if (r1.ok) return localRecord;
+      if (!opsional.length) return gagal(r1.err);
+      console.warn(`Insert ${table} ditolak — mencoba ulang tanpa kolom ${opsional.join(', ')}. `
+        + 'Jalankan migrasinya agar kolom ini ikut tersimpan.', r1.err);
+      const tanpa = { ...payload };
+      for (const k of opsional) delete tanpa[k];
+      return kirim(tanpa).then(r2 => (r2.ok ? localRecord : gagal(r2.err)));
+    });
   }
 
   // Sequential certificate numbering, resets each year (0001/SKV/KP/26, 0002/..., etc)
@@ -977,6 +1002,7 @@ class Store {
       // practice_locations / tasks belum dibuat, sinkronisasi data lain tetap jalan.
       this.loadLocations().catch(() => {});
       this.loadTasks().catch(() => {});
+      this.loadVaxPlanReminders().catch(() => {});
       try {
         const me = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
         // Penerima berbagi juga perlu memuatnya — RLS di server yang menyaring
@@ -2212,9 +2238,77 @@ class Store {
     }
 
     if (jenis !== 'kontrol') {
+      // -------------------------------------------------------------------
+      // ANAK: pengingatnya DIHITUNG dari jadwal IDAI, bukan dibaca dari
+      // next_dose_date.
+      //
+      // Sebelumnya ada dua sumber kebenaran untuk "kapan dosis berikutnya",
+      // dan keduanya tidak pernah saling melihat: pengingat memakai
+      // next_dose_date yang diketik tangan saat dosis sebelumnya dicatat,
+      // sementara kartu di layar memakai tanggal hitungan. Begitu satu dosis
+      // tertunda, tanggal ketikan itu tidak ikut bergeser — orang tua menerima
+      // WA "waktunya dosis 2" sementara aplikasinya berkata "belum waktunya".
+      // Untuk keluarga, aplikasi yang berbicara dua hal berbeda lebih buruk
+      // daripada aplikasi yang diam.
+      //
+      // Dan ada yang lebih buruk lagi: pengingat lama hanya lahir DARI baris
+      // vaksinasi yang sudah ada. Anak yang belum pernah divaksin sama sekali
+      // tidak punya baris apa pun, jadi tidak pernah diingatkan — justru anak
+      // yang paling perlu dikejar adalah yang paling tidak terlihat.
+      const ditanganiIdai = new Set();
+      for (const p of (this.data.patients || [])) {
+        if (!this.isAnak(p, hariIni)) continue;
+        const plan = this.childVaxPlan(p.id, { today: hariIni });
+        if (plan.error) continue;
+        for (const it of plan.items) {
+          // Serinya tetap ditandai walau tanggalnya di luar rentang, supaya
+          // jalur next_dose_date di bawah tidak ikut memunculkannya lagi.
+          ditanganiIdai.add(p.id + '::' + it.key);
+          if (!it.berikut) continue;
+          // 'boleh' dan 'belum_waktunya' tidak diingatkan: belum ada yang
+          // terlewat, dan menagih sesuatu yang belum jatuh tempo membuat
+          // pengingat berikutnya ikut diabaikan.
+          if (!['terlambat', 'jatuh_tempo', 'perlu_dinilai_dokter'].includes(it.status)) continue;
+          const tgl = String(it.berikut.dianjurkan || '').slice(0, 10);
+          if (!tgl || tgl > sampai) continue;
+          // Batas BAWAH bawaan (60 hari ke belakang) sengaja tidak diterapkan
+          // pada seri IDAI. Anak yang tertinggal setengah tahun tanggal
+          // anjurannya memang jauh di belakang — kalau ia disaring keluar,
+          // yang tersisa di daftar justru cuma yang hampir tepat waktu, dan
+          // yang paling perlu dikejar hilang lagi seperti sebelumnya. Kalau
+          // petugas MENGISI sendiri tanggal mulainya, itu keinginan yang
+          // dinyatakan dan tetap dihormati.
+          if (o.fromDate && tgl < dari) continue;
+          // Serinya diatribusikan ke dokter yang memberi dosis TERAKHIR — itu
+          // yang membuat saringan "per dokter" tetap masuk akal. Anak yang
+          // belum pernah disuntik sama sekali tidak punya dokter, jadi ia
+          // hanya muncul saat saringannya kosong; kalau tidak, ia akan
+          // menempel pada dokter mana pun yang kebetulan dipilih.
+          const dosisTerakhir = (this._dosisSeri(p.id, it.key).slice(-1)[0]) || null;
+          const dokterId = (dosisTerakhir || {}).administered_by || '';
+          if (o.doctorId && dokterId !== o.doctorId) continue;
+          hasil.push({
+            kind: 'vaksin', id: 'plan:' + p.id + ':' + it.key,
+            patient_id: p.id, patient_name: p.full_name || 'Pasien',
+            phone: p.phone || '', family_phone: p.family_phone || '', family_relation: p.family_relation || '',
+            due: tgl, days: this._selisihHari(tgl),
+            doctor_id: dokterId, doctor_name: (this.getDoctor(dokterId) || {}).full_name || '',
+            title: it.nama, detail: it.berikut.label + ' — ' + it.statusLabel,
+            vaccine_name: it.nama, sumber: 'idai', series_key: it.key,
+            ...this._planReminderCount(p.id, it.key),
+          });
+        }
+      }
+
       for (const v of (this.data.vaccinations || [])) {
         const tgl = String(v.next_dose_date || '').slice(0, 10);
         if (!tgl || tgl < dari || tgl > sampai) continue;
+        // Sudah diurus jadwal IDAI di atas — jangan diingatkan dua kali dengan
+        // dua tanggal yang bisa berbeda. Vaksin anak yang memang TIDAK ada di
+        // jadwal IDAI (meningitis untuk umroh, misalnya) tidak kena saringan
+        // ini dan tetap lewat jalur next_dose_date.
+        if (this.vaxSeriesKeys(v.vaccine_name, v.vaccine_brand, v.series_key)
+          .some(k => ditanganiIdai.has(v.patient_id + '::' + k))) continue;
         // Vaksinasi yang belum di-ACC dokter belum sah; mengingatkan dosis
         // berikutnya dari catatan yang mungkin ditolak berarti memanggil
         // pasien untuk sesuatu yang belum tentu terjadi.
@@ -2250,8 +2344,11 @@ class Store {
     return hasil.sort((a, b) => String(a.due).localeCompare(String(b.due)));
   }
 
-  dueReminderCounts(opts) {
-    const d = this.dueReminders(opts);
+  // `daftar` boleh dioper oleh pemanggil yang baru saja memanggil dueReminders
+  // dengan opts yang sama — halaman pengingat melakukannya. Tanpa itu seluruh
+  // jadwal setiap anak dihitung dua kali untuk satu layar.
+  dueReminderCounts(opts, daftar) {
+    const d = Array.isArray(daftar) ? daftar : this.dueReminders(opts);
     const hariIni = todayLocal();
     return {
       total: d.length,
@@ -2264,7 +2361,54 @@ class Store {
   // Menandai sebuah pengingat sudah dikirim. Hitungannya disimpan supaya
   // terlihat siapa yang sudah berkali-kali diingatkan tapi tetap tidak datang
   // — itu keadaan yang berbeda dari belum pernah dihubungi sama sekali.
+  // Hitungan pengingat untuk seri yang berasal dari jadwal IDAI.
+  //
+  // Tidak bisa menumpang kolom di baris vaksinasi seperti pengingat lama,
+  // karena justru kasus yang paling penting TIDAK PUNYA baris vaksinasi: anak
+  // yang belum pernah disuntik sama sekali. Maka hitungannya disimpan per
+  // (pasien, seri) di tabelnya sendiri.
+  async loadVaxPlanReminders() {
+    if (CONFIG.DEMO_MODE) return;
+    const rows = await supabase.select('vax_plan_reminders');
+    if (Array.isArray(rows)) { this.data.vax_plan_reminders = rows; this._save(); }
+  }
+
+  _planReminderRow(patientId, seriesKey) {
+    return (this.data.vax_plan_reminders || [])
+      .find(x => x.patient_id === patientId && x.series_key === seriesKey) || null;
+  }
+
+  _planReminderCount(patientId, seriesKey) {
+    const r = this._planReminderRow(patientId, seriesKey);
+    return { sent_count: Number((r || {}).wa_reminder_count) || 0, last_sent: (r || {}).wa_last_sent_at || '' };
+  }
+
+  async _markPlanReminderSent(patientId, seriesKey) {
+    if (!this.data.vax_plan_reminders) this.data.vax_plan_reminders = [];
+    let row = this._planReminderRow(patientId, seriesKey);
+    if (!row) {
+      row = { id: generateId(), patient_id: patientId, series_key: seriesKey, wa_reminder_count: 0, wa_last_sent_at: '' };
+      this.data.vax_plan_reminders.push(row);
+    }
+    row.wa_reminder_count = (Number(row.wa_reminder_count) || 0) + 1;
+    row.wa_last_sent_at = new Date().toISOString();
+    this._save();
+    if (!CONFIG.DEMO_MODE) {
+      const isi = { patient_id: patientId, series_key: seriesKey, wa_reminder_count: row.wa_reminder_count, wa_last_sent_at: row.wa_last_sent_at };
+      if (String(row.id).startsWith('id_')) this._syncInsert('vax_plan_reminders', row, { ...isi, id: row.id });
+      else supabase.update('vax_plan_reminders', row.id, isi).catch(() => {});
+    }
+    return { success: true, count: row.wa_reminder_count };
+  }
+
   async markReminderSent(kind, id) {
+    // Pengingat yang lahir dari jadwal IDAI dikenali dari bentuk id-nya dan
+    // dihitung di tempat lain — lihat _markPlanReminderSent.
+    if (kind === 'vaksin' && String(id).startsWith('plan:')) {
+      const bagian = String(id).split(':');
+      if (bagian.length < 3) return { error: 'Penanda pengingat tidak dikenali' };
+      return this._markPlanReminderSent(bagian[1], bagian.slice(2).join(':'));
+    }
     const tabel = kind === 'vaksin' ? 'vaccinations' : 'medical_records';
     const daftar = kind === 'vaksin' ? this.data.vaccinations : this.data.medical_records;
     const row = (daftar || []).find(x => x.id === id);
@@ -2628,14 +2772,48 @@ class Store {
     return this.data.vaccinations.filter(v => v.patient_id === patientId).sort((a, b) => a.date_given.localeCompare(b.date_given));
   }
 
+  // Menandai baris vaksinasi yang di luar jadwal SEBELUM ia masuk ke data.
+  //
+  // Harus dijalankan sebelum push: vaxDoseCheck membandingkan dengan dosis lain
+  // milik pasien yang sama, dan baris yang sudah terlanjur masuk akan ikut
+  // terbandingkan dengan dirinya sendiri.
+  //
+  // Tidak pernah menggagalkan pencatatan. Kalau pemeriksanya sendiri yang
+  // rusak, yang benar adalah vaksinnya tetap tercatat tanpa tanda — bukan
+  // kejadian nyata yang hilang dari riwayat anak karena kode kita bermasalah.
+  _tandaiLuarJadwal(vax) {
+    let cek = null;
+    try {
+      cek = this.vaxDoseCheck({
+        patient_id: vax.patient_id, vaccine_name: vax.vaccine_name,
+        vaccine_brand: vax.vaccine_brand, series_key: vax.series_key,
+        date_given: vax.date_given, exclude_id: vax.id,
+      });
+    } catch (e) { return vax; }
+    // DUA KOLOM, DUA PEMILIK. off_schedule_reason milik pemeriksa dan ditulis
+    // ulang setiap kali; off_schedule_note milik dokter dan tidak pernah kami
+    // sentuh. Sempat digabung jadi satu kolom, dan akibatnya muncul saat
+    // tanggalnya dibetulkan: teks temuan lama terbaca sebagai kalimat dokter
+    // lalu disimpan kembali sebagai keterangan yang tidak pernah ia tulis.
+    //
+    // Hasil pemeriksaan juga MENGGANTIKAN tanda lama, bukan ditambahkan
+    // padanya. Sempat ditulis `cek.luarJadwal || vax.off_schedule`, dan itu
+    // membuat tandanya searah: sekali menempel, membetulkan tanggalnya pun
+    // tidak mencabutnya — pembetulan yang benar membeku sebagai tuduhan tetap.
+    vax.off_schedule = cek.luarJadwal === true;
+    vax.off_schedule_reason = (cek.luarJadwal ? (cek.alasan || []) : []).join(' ');
+    vax.off_schedule_note = String(vax.off_schedule_note || '').trim();
+    return vax;
+  }
+
   createVaccination(vax) {
-    const newVax = { id: generateId(), ...vax };
+    const newVax = this._tandaiLuarJadwal({ id: generateId(), ...vax });
     this.data.vaccinations.push(newVax);
     this._save();
     // next_dose_date is empty for a series with no scheduled next dose (and
     // date_given could be blank too) — null them so Postgres doesn't reject the
     // DATE columns and silently drop the whole vaccination insert.
-    this._syncInsert('vaccinations', newVax, sanitizeDates(newVax, ['date_given', 'next_dose_date']));
+    this._syncInsert('vaccinations', newVax, sanitizeDates(newVax, ['date_given', 'next_dose_date']), KOLOM_VAX_BARU);
     return newVax;
   }
 
@@ -2643,10 +2821,10 @@ class Store {
   // supaya pemanggilnya bisa tahu apakah baris benar-benar tersimpan (id sudah
   // berupa UUID asli) atau ditolak (masih placeholder 'id_...').
   async createVaccinationAwaited(vax) {
-    const newVax = { id: generateId(), ...vax };
+    const newVax = this._tandaiLuarJadwal({ id: generateId(), ...vax });
     this.data.vaccinations.push(newVax);
     this._save();
-    await this._syncInsert('vaccinations', newVax, sanitizeDates(newVax, ['date_given', 'next_dose_date']));
+    await this._syncInsert('vaccinations', newVax, sanitizeDates(newVax, ['date_given', 'next_dose_date']), KOLOM_VAX_BARU);
     return newVax;
   }
 
@@ -2654,8 +2832,31 @@ class Store {
     const v = this.data.vaccinations.find(x => x.id === vaxId);
     if (!v) return { error: 'Data vaksinasi tidak ditemukan' };
     Object.assign(v, updates);
+
+    // Membetulkan tanggal atau nama vaksin mengubah jawaban atas "apakah dosis
+    // ini di luar jadwal". Tanpa hitung ulang, tanda lama bertahan dan justru
+    // membekukan kekeliruan yang baru saja diperbaiki.
+    let kirim = { ...updates };
+    const pengaruh = ['date_given', 'vaccine_name', 'vaccine_brand', 'series_key'];
+    if (pengaruh.some(k => Object.prototype.hasOwnProperty.call(updates || {}, k))) {
+      const sebelum = { luar: v.off_schedule === true, alasan: v.off_schedule_reason || '' };
+      this._tandaiLuarJadwal(v);
+      if (v.off_schedule !== sebelum.luar || v.off_schedule_reason !== sebelum.alasan) {
+        kirim = { ...kirim, off_schedule: v.off_schedule, off_schedule_reason: v.off_schedule_reason };
+      }
+    }
+
+
     this._save();
-    if (!CONFIG.DEMO_MODE) supabase.update('vaccinations', vaxId, updates).catch(() => {});
+    if (!CONFIG.DEMO_MODE) {
+      supabase.update('vaccinations', vaxId, kirim).catch(() => {
+        // Migrasi kolomnya mungkin belum dijalankan — simpan sisanya, jangan
+        // sampai pembetulan tanggalnya ikut hilang.
+        const tanpa = { ...kirim };
+        for (const k of KOLOM_VAX_BARU) delete tanpa[k];
+        if (Object.keys(tanpa).length) supabase.update('vaccinations', vaxId, tanpa).catch(() => {});
+      });
+    }
     return { success: true };
   }
 
@@ -2724,6 +2925,10 @@ class Store {
       approval_doctor_id: doctorId,
       approval_created_by: data.created_by || '',
       reject_reason: '',
+      // Kalau petugas sempat menulis kenapa dosisnya di luar jadwal, kalimat
+      // itu harus ikut sampai — dokter yang meng-ACC nanti membacanya justru
+      // untuk memutuskan apakah dosis itu sah.
+      off_schedule_note: data.off_schedule_note || '',
     });
 
     // Kolom approval_* datang dari supabase-vaccination-approval.sql. Kalau
@@ -2961,8 +3166,74 @@ class Store {
     return list.filter(t => /^\d{4}-\d{2}-\d{2}$/.test(String(t || ''))).sort().pop() || '';
   }
 
+  // SATU-SATUNYA TEMPAT TANGGAL DOSIS BERIKUTNYA DIHITUNG.
+  //
+  // Dipakai tiga pemanggil: childVaxPlan (kartu & tabel), vaxDoseCheck
+  // (memeriksa dosis yang sedang direkam), dan dueReminders (pengingat WA).
+  // Sengaja satu fungsi. Begitu ada dua salinan hitungan ini, layar dan
+  // pemeriksa bisa berselisih tentang tanggal yang sama — dan itu persis
+  // kesalahan yang sedang diperbaiki di pengingat, di mana next_dose_date yang
+  // diketik tangan dan tanggal hitungan IDAI hidup berdampingan tanpa pernah
+  // saling melihat.
+  //
+  // `diberikan` = dosis yang sudah masuk untuk seri ini, terurut menaik.
+  _seriBerikut(seri, lahir, diberikan, hariIni) {
+    const daftarDosis = seri.dosis || [];
+    const terakhir = diberikan.length ? String(diberikan[diberikan.length - 1].date_given).slice(0, 10) : '';
+    let d = daftarDosis[diberikan.length] || null;
+    let ulangan = false;
+
+    // Dosis yang hanya berlaku pada keadaan tertentu (dosis kedua influenza
+    // hanya untuk pemberian pertama di bawah 9 tahun) dilewati bila syaratnya
+    // tidak terpenuhi, bukan ditagih terus-menerus.
+    while (d && d.hanyaJika && d.hanyaJika.usiaKurangDari) {
+      const batasUmur = tambahUsia(lahir, d.hanyaJika.usiaKurangDari);
+      if (batasUmur && hariIni >= batasUmur) d = daftarDosis[daftarDosis.indexOf(d) + 1] || null;
+      else break;
+    }
+
+    if (!d && seri.ulang && terakhir) {
+      const habis = seri.ulang.sampaiUsia ? tambahUsia(lahir, seri.ulang.sampaiUsia) : '';
+      if (habis && hariIni > habis) return { selesai: true, label: 'Sudah tidak perlu diulang', berikut: null };
+      ulangan = true;
+      d = { ke: diberikan.length + 1, jarakMin: seri.ulang.jarak, label: 'Ulangan' };
+    }
+    if (!d) return { selesai: true, label: 'Lengkap', berikut: null };
+
+    const dariUsia = d.usiaMin ? tambahUsia(lahir, d.usiaMin) : lahir;
+    const dariJarak = (terakhir && d.jarakMin) ? tambahUsia(terakhir, d.jarakMin) : '';
+    const palingCepat = this._maxTanggal(lahir, dariUsia, dariJarak);
+    const anjurUsia = d.usiaAnjuran ? tambahUsia(lahir, d.usiaAnjuran) : '';
+    const dianjurkan = this._maxTanggal(palingCepat, anjurUsia);
+    const batasSpec = d.batasUsia || seri.batasUsia || null;
+    const batasAkhir = batasSpec ? tambahUsia(lahir, batasSpec) : '';
+
+    return {
+      selesai: false, label: '',
+      berikut: {
+        ke: d.ke || (diberikan.length + 1),
+        label: d.label || ('Dosis ke-' + (d.ke || diberikan.length + 1)),
+        ulangan, palingCepat, dianjurkan, batasAkhir,
+        // Dari mana batas "paling cepat" itu berasal. Dipakai penyusun pesan
+        // supaya peringatannya berbunyi "kurang dari jarak minimum dari dosis
+        // sebelumnya" atau "di bawah usia minimum" — bukan sekadar "terlalu
+        // cepat", yang tidak memberi tahu apa yang harus diperbaiki.
+        dariUsia, dariJarak, dosisSebelumnya: terakhir,
+      },
+    };
+  }
+
   // Inti fiturnya. Untuk satu anak: tiap seri, dosis mana yang berikutnya,
   // paling cepat boleh kapan, dianjurkan kapan, dan seberapa tertinggal.
+  //
+  // SENGAJA TIDAK DIINGAT ANTAR PEMANGGILAN. Versi pertama menyimpan hasilnya
+  // di sebuah Map yang dibuang tiap kali _save() berjalan, dan itu langsung
+  // menjatuhkan uji lama: kode yang mengubah this.data secara langsung — tanpa
+  // lewat _save — membuat kartu vaksin menunjukkan keadaan sebelum suntikan
+  // terakhir. Kartu vaksin yang basi jauh lebih sulit ditemukan daripada
+  // kartu vaksin yang lambat, dan taruhannya anak. Penghematannya dicari di
+  // tempat lain: pemanggil yang butuh daftar DAN hitungannya sekaligus
+  // sekarang menghitung sekali lalu mengoper hasilnya (lihat dueReminderCounts).
   childVaxPlan(patientId, opts) {
     const o = opts || {};
     const p = this.getPatient(patientId);
@@ -2998,7 +3269,6 @@ class Store {
     for (const seri of semua) {
       if (seri.grup && grupTerpilih[seri.grup] !== seri.key) continue;
       const diberikan = this._dosisSeri(patientId, seri.key);
-      const terakhir = diberikan.length ? String(diberikan[diberikan.length - 1].date_given).slice(0, 10) : '';
       const daftarDosis = seri.dosis || [];
 
       const dasar = {
@@ -3010,49 +3280,27 @@ class Store {
           ke: i + 1, tanggal: String(v.date_given).slice(0, 10),
           merek: v.vaccine_brand || '', tempat: v.location || '',
           luar: this.isVaxExternal(v), id: v.id,
+          // Dosis yang saat direkam ternyata di luar jadwal. Ditandai satu kali
+          // di createVaccination dan dibawa terus, supaya tidak perlu dihitung
+          // ulang tiap kali kartunya digambar — dan supaya alasan yang ditulis
+          // dokter saat itu tidak hilang.
+          luarJadwal: v.off_schedule === true,
+          luarJadwalAlasan: v.off_schedule_reason || '',
+          luarJadwalCatatan: v.off_schedule_note || '',
         })),
       };
+      // Dosis di luar jadwal TETAP dihitung sebagai sudah masuk — mengeluarkannya
+      // diam-diam sama menyesatkannya dengan menerimanya diam-diam. Yang berubah:
+      // serinya membawa catatan bahwa ada dosis yang perlu ditinjau ulang.
+      dasar.luarJadwalDosis = dasar.riwayat.filter(r => r.luarJadwal);
 
-      let d = daftarDosis[diberikan.length] || null;
-      let ulangan = false;
-
-      // Dosis yang hanya berlaku pada keadaan tertentu (dosis kedua influenza
-      // hanya untuk pemberian pertama di bawah 9 tahun) dilewati bila
-      // syaratnya tidak terpenuhi, bukan ditagih terus-menerus.
-      while (d && d.hanyaJika && d.hanyaJika.usiaKurangDari) {
-        const batasUmur = tambahUsia(lahir, d.hanyaJika.usiaKurangDari);
-        if (batasUmur && hariIni >= batasUmur) d = daftarDosis[daftarDosis.indexOf(d) + 1] || null;
-        else break;
-      }
-
-      if (!d && seri.ulang && terakhir) {
-        const habis = seri.ulang.sampaiUsia ? tambahUsia(lahir, seri.ulang.sampaiUsia) : '';
-        if (habis && hariIni > habis) {
-          items.push({ ...dasar, status: 'selesai', statusLabel: 'Sudah tidak perlu diulang', berikut: null });
-          continue;
-        }
-        ulangan = true;
-        d = { ke: diberikan.length + 1, jarakMin: seri.ulang.jarak, label: 'Ulangan' };
-      }
-
-      if (!d) {
-        items.push({ ...dasar, status: 'selesai', statusLabel: 'Lengkap', berikut: null });
+      const hitung = this._seriBerikut(seri, lahir, diberikan, hariIni);
+      if (hitung.selesai) {
+        items.push({ ...dasar, status: 'selesai', statusLabel: hitung.label, berikut: null });
         continue;
       }
-
-      const dariUsia = d.usiaMin ? tambahUsia(lahir, d.usiaMin) : lahir;
-      const dariJarak = (terakhir && d.jarakMin) ? tambahUsia(terakhir, d.jarakMin) : '';
-      const palingCepat = this._maxTanggal(lahir, dariUsia, dariJarak);
-      const anjurUsia = d.usiaAnjuran ? tambahUsia(lahir, d.usiaAnjuran) : '';
-      const dianjurkan = this._maxTanggal(palingCepat, anjurUsia);
-      const batasSpec = d.batasUsia || seri.batasUsia || null;
-      const batasAkhir = batasSpec ? tambahUsia(lahir, batasSpec) : '';
-
-      const berikut = {
-        ke: d.ke || (diberikan.length + 1),
-        label: d.label || ('Dosis ke-' + (d.ke || diberikan.length + 1)),
-        ulangan, palingCepat, dianjurkan, batasAkhir,
-      };
+      const berikut = hitung.berikut;
+      const { palingCepat, dianjurkan, batasAkhir } = berikut;
 
       let status = '', statusLabel = '', telatHari = 0, sisaHari = 0;
       if (batasAkhir && hariIni > batasAkhir) {
@@ -3099,8 +3347,112 @@ class Store {
         terlambat: items.filter(i => i.status === 'terlambat').length,
         jatuhTempo: items.filter(i => i.status === 'jatuh_tempo').length,
         boleh: items.filter(i => i.status === 'boleh').length,
+        // Dihitung per SUNTIKAN, bukan per baris seri. Satu suntikan pentavalen
+        // muncul di tiga seri sekaligus (DTP, Hepatitis B, Hib) — menjumlah
+        // barisnya membuat satu dosis janggal terbaca sebagai tiga.
+        luarJadwal: new Set(items.flatMap(i => (i.luarJadwalDosis || []).map(r => r.id))).size,
       },
     };
+  }
+
+  // ==========================================================================
+  // MEMERIKSA SATU DOSIS YANG SEDANG DIREKAM
+  //
+  // Sebelum ini, "paling cepat boleh" dihitung dengan benar dan ditampilkan di
+  // layar — lalu tidak dipakai untuk apa pun. Dosis DTP kedua yang diberikan
+  // seminggu setelah yang pertama (seharusnya berjarak 4 minggu) diterima
+  // tanpa suara, dihitung sebagai dosis sah, dan serinya maju ke dosis 3.
+  // Anaknya tampil "sesuai jadwal" padahal dosis keduanya tidak berlaku dan
+  // harus diulang. Itu lebih buruk daripada tidak menghitung sama sekali:
+  // aplikasinya memberi rasa aman yang keliru.
+  //
+  // Fungsi ini TIDAK MENOLAK apa pun. Vaksinnya sudah masuk ke tubuh anak —
+  // menolak mencatatnya hanya membuat kejadiannya hilang dari riwayat, dan
+  // riwayat yang bolong jauh lebih berbahaya daripada riwayat yang bertanda.
+  // Yang dilakukannya: menamai apa yang janggal, supaya ada yang meninjau.
+  //
+  // Dipanggil dari createVaccination — SATU PINTU yang dilewati semua jalur
+  // pencatatan (dokter, admin, vaksin luar). Diletakkan di sana, bukan di
+  // formulirnya, karena formulir bisa bertambah dan yang baru akan lupa
+  // memanggilnya.
+  //
+  // opts: { patient_id, vaccine_name, vaccine_brand, series_key, date_given,
+  //         exclude_id, today }
+  vaxDoseCheck(opts) {
+    const o = opts || {};
+    const hariIni = o.today || todayLocal();
+    const tgl = String(o.date_given || '').slice(0, 10);
+    const hasil = { luarJadwal: false, dikenali: true, alasan: [], seri: [] };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(tgl)) return hasil;
+
+    const kunci = this.vaxSeriesKeys(o.vaccine_name, o.vaccine_brand, o.series_key);
+    hasil.seri = kunci;
+    // Nama vaksin yang tidak cocok dengan satu pun alias tidak akan pernah
+    // terhitung di seri mana pun — anaknya terlihat tertinggal padahal sudah
+    // disuntik. Sebelumnya itu terjadi tanpa jejak apa pun.
+    if (!kunci.length) {
+      hasil.dikenali = false;
+      hasil.alasan.push('Nama vaksin "' + String(o.vaccine_name || '').trim()
+        + '" tidak dikenali jadwal IDAI, jadi dosis ini tidak akan dihitung di seri mana pun.');
+      return hasil;
+    }
+
+    const p = this.getPatient(o.patient_id);
+    const lahir = String((p || {}).birth_date || '').slice(0, 10);
+    // Tanpa tanggal lahir tidak ada yang bisa diperiksa. Itu bukan pelanggaran
+    // jadwal, jadi tidak ditandai — cuma tidak bisa dinilai.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(lahir)) return hasil;
+
+    if (tgl > hariIni) {
+      hasil.luarJadwal = true;
+      hasil.alasan.push('Tanggal pemberian ada di masa depan (' + tgl + ').');
+    }
+    if (tgl < lahir) {
+      hasil.luarJadwal = true;
+      hasil.alasan.push('Tanggal pemberian mendahului tanggal lahir (' + lahir + ').');
+      return hasil;
+    }
+
+    const grace = Math.max(0, Number(this.idaiMeta().grace_hari) || 0);
+
+    for (const key of kunci) {
+      const seri = this.idaiSchedule().find(s => s.key === key);
+      if (!seri) continue;
+      // Dosis SEBELUM yang sedang direkam. Baris yang sedang disunting ulang
+      // dikeluarkan lewat exclude_id supaya tidak dibandingkan dengan dirinya
+      // sendiri.
+      const sebelumnya = this._dosisSeri(o.patient_id, key)
+        .filter(v => v.id !== o.exclude_id)
+        .filter(v => String(v.date_given).slice(0, 10) < tgl);
+      const hitung = this._seriBerikut(seri, lahir, sebelumnya, tgl);
+      if (hitung.selesai) continue;
+      const b = hitung.berikut;
+
+      if (b.palingCepat && tgl < b.palingCepat) {
+        const cepatHari = selisihHariIdai(tgl, b.palingCepat) || 0;
+        if (cepatHari > grace) {
+          hasil.luarJadwal = true;
+          // Dua sebab yang berbeda, dan yang harus diperbaiki juga berbeda:
+          // jarak terlalu rapat (tunggu, atau ulangi dosis ini) versus anaknya
+          // memang belum cukup umur.
+          const karenaJarak = b.dariJarak && b.dariJarak > (b.dariUsia || '');
+          hasil.alasan.push(karenaJarak
+            ? seri.nama + ' ' + b.label + ': jaraknya ' + cepatHari
+              + ' hari terlalu rapat dari dosis sebelumnya (' + b.dosisSebelumnya
+              + '). Paling cepat ' + b.palingCepat + '.'
+            : seri.nama + ' ' + b.label + ': anak belum mencapai usia minimum, kurang '
+              + cepatHari + ' hari. Paling cepat ' + b.palingCepat + '.');
+        }
+      }
+
+      if (b.batasAkhir && tgl > b.batasAkhir) {
+        hasil.luarJadwal = true;
+        hasil.alasan.push(seri.nama + ' ' + b.label + ': sudah lewat batas usia ('
+          + b.batasAkhir + ').');
+      }
+    }
+
+    return hasil;
   }
 
   // ==========================================================================
