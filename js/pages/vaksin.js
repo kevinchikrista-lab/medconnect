@@ -384,6 +384,23 @@ export function vaxAnakBody() {
                   <span class="px-2.5 py-1 rounded-full text-[11.5px] font-bold shrink-0" :class="warna[it.status] || 'bg-gray-100 text-gray-600'" x-text="it.statusLabel"></span>
                 </div>
 
+                <!-- Dosis yang menyimpang dari jadwal saat dicatat. Ditaruh DI ATAS
+                     "berikutnya" dengan sengaja: selama ini belum ditinjau, tanggal
+                     dosis berikutnya di bawahnya belum tentu berlaku — ia dihitung
+                     dari dosis yang mungkin harus diulang. -->
+                <div x-show="it.luarJadwalDosis && it.luarJadwalDosis.length" x-cloak class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <p class="text-[11.5px] font-bold text-amber-900">Perlu ditinjau: ada dosis yang diberikan di luar jadwal</p>
+                  <div class="mt-1.5 space-y-1">
+                    <template x-for="r in it.luarJadwalDosis" :key="r.id">
+                      <p class="text-[11.5px] text-amber-800 leading-relaxed">
+                        <span class="font-semibold" x-text="'Dosis ke-' + r.ke + ' (' + tglId(r.tanggal) + '): '"></span><span x-text="r.luarJadwalAlasan"></span>
+                        <span x-show="r.luarJadwalCatatan" x-cloak class="italic" x-text="' Keterangan dokter: ' + r.luarJadwalCatatan"></span>
+                      </p>
+                    </template>
+                  </div>
+                  <p class="mt-1.5 text-[10.5px] text-amber-700">Dosis ini tetap dihitung sudah masuk. Yang perlu diputuskan dokter: apakah ia sah, atau harus diulang.</p>
+                </div>
+
                 <template x-if="it.berikut">
                   <div class="mt-3 rounded-xl bg-wash p-3">
                     <p class="text-[11.5px] font-semibold text-gray-600" x-text="'Berikutnya: ' + it.berikut.label"></p>
@@ -411,6 +428,7 @@ export function vaxAnakBody() {
                         <span class="text-gray-700" x-text="tglId(r.tanggal)"></span>
                         <span x-show="r.tempat" class="text-gray-400" x-text="'· ' + r.tempat"></span>
                         <span x-show="r.luar" x-cloak class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-600">di luar</span>
+                        <span x-show="r.luarJadwal" x-cloak class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800">di luar jadwal</span>
                       </div>
                     </template>
                   </div>
@@ -635,12 +653,20 @@ export function vaxPasienBody() {
                 <p x-show="it.berikut.batasAkhir" x-cloak class="text-[11.5px] text-red-600 mt-0.5" x-text="'Tidak boleh lewat dari ' + vaxTgl(it.berikut.batasAkhir)"></p>
               </div>
             </template>
+            <!-- Orang tua diberi tahu bahwa ada yang perlu ditanyakan, tanpa
+                 kalimat teknisnya. Menyembunyikannya sama sekali berarti kartu
+                 ini berkata "sudah 2 dari 3 dosis" untuk dosis yang mungkin
+                 harus diulang — dan yang menanggung akibatnya anak mereka. -->
+            <div x-show="it.luarJadwalDosis && it.luarJadwalDosis.length" x-cloak class="mt-2.5 rounded-xl bg-amber-50 border border-amber-100 p-3">
+              <p class="text-[11.5px] text-amber-900 leading-relaxed"><b>Ada dosis yang perlu ditanyakan ke dokter.</b> Salah satu pemberiannya tercatat di luar jadwal yang dianjurkan, jadi perlu dipastikan apakah masih terhitung atau perlu diulang. Silakan hubungi klinik.</p>
+            </div>
             <div x-show="it.riwayat.length" x-cloak class="mt-2.5 space-y-1">
               <template x-for="r in it.riwayat" :key="r.id">
                 <div class="flex items-center gap-2 text-[11.5px]">
                   <span class="w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0" x-text="r.ke"></span>
                   <span class="text-gray-700" x-text="vaxTgl(r.tanggal)"></span>
                   <span x-show="r.tempat" class="text-gray-400" x-text="'· ' + r.tempat"></span>
+                  <span x-show="r.luarJadwal" x-cloak class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800">perlu ditanyakan</span>
                 </div>
               </template>
             </div>

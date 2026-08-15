@@ -1240,8 +1240,20 @@ export function adminPatientDetail(params) {
       keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
       diagnosis: '${q(records[0] && records[0].diagnosis || '')}', rest_days: '', from_date: '${new Date().toISOString().split('T')[0]}', to_date: '' },
     vaxOpen: false, vaxSaving: false, vaxMsg: '', vaxDoctorId: '${doctors[0]?.id || ''}',
-    vax: { vaccine_name:'', vaccine_brand:'', vax_mode:'series', dose_number:1, total_doses:1, booster_interval_months:12, date_given:'${new Date().toISOString().split('T')[0]}', next_dose_date:'', batch_number:'', location:'${q(store.getLocationNames()[0] || '')}', notes:'' },
-    openVax() { this.vaxMsg = ''; this.vaxOpen = true; },
+    vax: { vaccine_name:'', vaccine_brand:'', vax_mode:'series', dose_number:1, total_doses:1, booster_interval_months:12, date_given:'${new Date().toISOString().split('T')[0]}', next_dose_date:'', batch_number:'', location:'${q(store.getLocationNames()[0] || '')}', notes:'', off_schedule_note:'' },
+    // Pemeriksa ini hanya MEMBERI TAHU. Penegakannya ada di createVaccination,
+    // yang dilewati semua jalur pencatatan — kalau ditaruh di sini saja,
+    // formulir berikutnya yang dibuat orang lain akan lupa memanggilnya.
+    vaxCek: { luarJadwal:false, dikenali:true, alasan:[] },
+    periksaVax() {
+      try {
+        this.vaxCek = window.__store.vaxDoseCheck({
+          patient_id: '${patient.id}', vaccine_name: this.vax.vaccine_name,
+          vaccine_brand: this.vax.vaccine_brand, date_given: this.vax.date_given,
+        });
+      } catch(e) { this.vaxCek = { luarJadwal:false, dikenali:true, alasan:[] }; }
+    },
+    openVax() { this.vaxMsg = ''; this.vaxCek = { luarJadwal:false, dikenali:true, alasan:[] }; this.vaxOpen = true; },
     async submitVax() {
       if (this.vaxSaving) return;
       if (!this.vaxDoctorId) { this.vaxMsg = 'Pilih dokter penanggung jawab (yang meng-ACC) terlebih dahulu.'; return; }
@@ -1417,8 +1429,8 @@ export function adminPatientDetail(params) {
             </div>
             <div class="space-y-3">
               <div class="grid grid-cols-2 gap-3">
-                <div><label class="block text-xs text-gray-600 mb-1">Nama Vaksin *</label><input type="text" x-model="vax.vaccine_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Contoh: Meningitis ACYW135"></div>
-                <div><label class="block text-xs text-gray-600 mb-1">Merk / Brand</label><input type="text" x-model="vax.vaccine_brand" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Contoh: Menveo"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Nama Vaksin *</label><input type="text" x-model="vax.vaccine_name" @change="periksaVax()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Contoh: Meningitis ACYW135"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Merk / Brand</label><input type="text" x-model="vax.vaccine_brand" @change="periksaVax()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Contoh: Menveo"></div>
               </div>
               <div class="flex gap-2">
                 <button @click="vax.vax_mode='series'" :class="vax.vax_mode==='series' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">Seri (berdosis)</button>
@@ -1430,7 +1442,7 @@ export function adminPatientDetail(params) {
                 <div x-show="vax.vax_mode==='booster'" x-cloak><label class="block text-xs text-gray-600 mb-1">Interval Ulangan (bulan)</label><input type="number" min="1" x-model="vax.booster_interval_months" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
               </div>
               <div class="grid grid-cols-2 gap-3">
-                <div><label class="block text-xs text-gray-600 mb-1">Tanggal Pemberian *</label><input type="date" x-model="vax.date_given" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Tanggal Pemberian *</label><input type="date" x-model="vax.date_given" @change="periksaVax()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
                 <div><label class="block text-xs text-gray-600 mb-1">Jadwal Berikutnya</label><input type="date" x-model="vax.next_dose_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
               </div>
               <div class="grid grid-cols-2 gap-3">
@@ -1438,6 +1450,28 @@ export function adminPatientDetail(params) {
                 <div><label class="block text-xs text-gray-600 mb-1">Lokasi</label><select x-model="vax.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">${store.getLocationNames().map(l => `<option>${escHtml(l)}</option>`).join('')}</select></div>
               </div>
               <div><label class="block text-xs text-gray-600 mb-1">Catatan</label><input type="text" x-model="vax.notes" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="Mis. tidak ada KIPI"></div>
+
+              <!-- Peringatan jadwal. Muncul SEBELUM disimpan, saat tanggalnya
+                   masih bisa dibetulkan — bukan sesudahnya, saat yang tersisa
+                   hanya menyesal. Tidak menghalangi penyimpanan: vaksinnya
+                   mungkin memang sudah disuntik, dan riwayat yang bolong lebih
+                   berbahaya daripada riwayat yang bertanda. -->
+              <div x-show="vaxCek.luarJadwal" x-cloak class="rounded-xl border border-amber-300 bg-amber-50 p-3">
+                <p class="text-xs font-bold text-amber-900">Dosis ini di luar jadwal IDAI</p>
+                <ul class="mt-1 space-y-0.5">
+                  <template x-for="a in vaxCek.alasan" :key="a">
+                    <li class="text-[11.5px] text-amber-800 leading-relaxed" x-text="a"></li>
+                  </template>
+                </ul>
+                <label class="block text-[11px] text-amber-900 font-semibold mt-2 mb-1">Keterangan dokter (kenapa tetap diberikan)</label>
+                <input type="text" x-model="vax.off_schedule_note" class="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/50" placeholder="Mis. mengejar keberangkatan, atas pertimbangan dr. ...">
+                <p class="mt-1.5 text-[10.5px] text-amber-700">Tetap bisa disimpan. Dosisnya akan ditandai agar dokter meninjau apakah perlu diulang.</p>
+              </div>
+
+              <div x-show="!vaxCek.dikenali" x-cloak class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p class="text-[11.5px] text-slate-700 leading-relaxed" x-text="(vaxCek.alasan && vaxCek.alasan[0]) || ''"></p>
+                <p class="mt-1 text-[10.5px] text-slate-500">Untuk vaksin di luar jadwal anak (mis. meningitis umroh) ini wajar. Untuk vaksin anak, periksa lagi ejaan namanya.</p>
+              </div>
             </div>
             <div class="flex gap-2 justify-end mt-5">
               <button @click="vaxOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
@@ -1695,7 +1729,7 @@ export function adminReminders() {
       if (this.dari) o.fromDate = this.dari;
       if (this.sampai) o.toDate = this.sampai;
       this.daftar = window.__store.dueReminders(o);
-      this.hitung = window.__store.dueReminderCounts(o);
+      this.hitung = window.__store.dueReminderCounts(o, this.daftar);
     },
     reset() { this.dari = ''; this.sampai = ''; this.jenis = ''; this.dokter = ''; this.muat(); },
     statusTeks(x) {
@@ -1801,6 +1835,12 @@ export function adminReminders() {
                          dihubungi tapi tetap tidak datang keadaannya berbeda
                          dari yang belum pernah dihubungi sama sekali. -->
                     <span x-show="x.sent_count" x-cloak class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-500" x-text="'sudah di-WA ' + x.sent_count + 'x'"></span>
+                    <!-- Dari mana tanggalnya berasal. Yang berlabel IDAI
+                         dihitung ulang tiap kali halaman dibuka, jadi ia ikut
+                         bergeser saat ada dosis yang tertunda; yang tanpa
+                         label berasal dari kolom yang diketik tangan dan tidak
+                         pernah bergeser sendiri. -->
+                    <span x-show="x.sumber === 'idai'" x-cloak class="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700">jadwal IDAI</span>
                   </div>
                   <p class="font-semibold text-gray-800 mt-1.5" x-text="x.patient_name"></p>
                   <p class="text-xs text-gray-600" x-text="x.title + (x.detail ? ' — ' + x.detail : '')"></p>
