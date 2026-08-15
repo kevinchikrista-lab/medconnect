@@ -949,7 +949,13 @@ class Store {
         supabase.select('articles'),
       ]);
       // Map Supabase data to local format
-      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, auth_id: p.auth_id || null, no_email: isPlaceholderEmail(p.email), has_login: !!p.auth_id, password: '***', created_at: p.created_at, full_name: p.full_name || '', phone: p.phone || '' }));
+      // can_notes IKUT DISALIN. Tanpa itu izinnya hanya bertahan sampai
+      // halaman dimuat ulang: tombolnya ditekan, menunya muncul, lalu lenyap
+      // begitu data profil diambil ulang dari server — dan yang mengalaminya
+      // akan mengira fiturnya rusak, bukan mengira ada kolom yang tidak ikut
+      // tersalin. Setiap kolom izin yang ditambahkan ke profiles harus
+      // ditambahkan di sini juga.
+      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, auth_id: p.auth_id || null, no_email: isPlaceholderEmail(p.email), has_login: !!p.auth_id, password: '***', created_at: p.created_at, full_name: p.full_name || '', phone: p.phone || '', can_notes: p.can_notes === true }));
       if (doctors.length) this.data.doctors = doctors.map(d => ({ ...d, user_id: d.profile_id }));
       if (patients.length) this.data.patients = patients.map(p => ({ ...p, user_id: p.profile_id }));
       if (pharmacies.length) this.data.pharmacies = pharmacies.map(p => ({ ...p, user_id: p.profile_id }));
@@ -1079,7 +1085,15 @@ class Store {
       // Super Admin tidak punya tabel profil tersendiri — namanya disimpan
       // langsung di profiles.full_name (lihat supabase-superadmin-staff.sql),
       // supaya beberapa Super Admin bisa dibedakan satu sama lain.
-      case 'superadmin': return { full_name: user.full_name || 'Super Admin', phone: user.phone || '', role: 'superadmin' };
+      case 'superadmin': {
+        // Diambil dari baris profiles-nya, bukan dari objek sesi: objek sesi
+        // dibekukan saat login dan tidak ikut berubah ketika izinnya diberikan
+        // sesudah itu.
+        const barisSA = (this.data.users || []).find(x => x.id === user.id) || {};
+        return { full_name: user.full_name || barisSA.full_name || 'Super Admin',
+          phone: user.phone || barisSA.phone || '', role: 'superadmin',
+          can_notes: barisSA.can_notes === true };
+      }
       default: return null;
     }
   }
