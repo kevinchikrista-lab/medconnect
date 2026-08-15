@@ -72,7 +72,120 @@ function notesXData(canEdit) {
     q: '', unitFilter: '', openId: '',
     editing: false, saving: false, msg: '',
     form: { id:'', unit_id:'', title:'', body:'', note_date:'', tags:'', pinned:false, is_private:false },
-    unitModal: false, unitForm: { id:'', name:'', description:'', color:'slate', shared_with:[] }, unitMsg: '',
+    unitModal: false, unitForm: { id:'', name:'', description:'', color:'slate', shared_with:[], shared_edit_with:[] }, unitMsg: '',
+
+    // ---- RUANG KERJA: pohon halaman + simpan otomatis ---------------------
+    // Sebelumnya halaman ini berupa daftar kartu dengan tombol Simpan. Untuk
+    // buku catatan pribadi itu cukup; untuk sesuatu yang ditulis bertiga
+    // sepanjang hari, dua hal jadi penghalang: tulisan harus disimpan sendiri
+    // (dan yang lupa akan kehilangannya), dan isinya datar sehingga tidak bisa
+    // ditata jadi bab dan sub-bab.
+    mode: 'kerja', buka: {}, aktif: '',
+    draf: { title: '', body: '' }, dasar: '', simpanTimer: null,
+    status: '', statusWaktu: '', bentrok: null,
+    pohon(unitId, parentId) { return window.__store.noteTree(this.me, unitId || null, parentId || null, 0); },
+    remah() { return this.aktif ? window.__store.noteBreadcrumb(this.aktif) : []; },
+    bolehTulis(n) { return window.__store.canEditNote(n, this.me); },
+    bolehHapus(n) { return window.__store.canDeleteNote(n, this.me); },
+    anakBanyak(n) { return window.__store.noteDescendants(n.id).length; },
+    toggleCabang(id) { this.buka[id] = !this.buka[id]; },
+    cabangBuka(id) { return this.buka[id] !== false; },
+
+    // Membuka halaman lain: yang sedang diketik disimpan LEBIH DULU. Kalau
+    // tidak, tulisan satu-dua detik terakhir hilang hanya karena berpindah
+    // halaman — persis saat orang merasa sudah aman karena ada simpan otomatis.
+    async bukaHalaman(n) {
+      if (this.aktif && this.aktif !== n.id) await this.simpanSekarang();
+      this.aktif = n.id; this.bentrok = null; this.status = '';
+      this.draf = { title: n.title || '', body: n.body || '' };
+      this.dasar = n.updated_at || '';
+      let p = n.parent_id;
+      let pagar = 0;
+      while (p && pagar++ < 20) { this.buka[p] = true; const q = window.__store.getBusinessNote(p); p = q && q.parent_id; }
+    },
+
+    // Setiap ketikan menunda penyimpanan sedetik. Menyimpan pada tiap huruf
+    // berarti puluhan permintaan per kalimat; menunggu lebih lama membuat
+    // orang menutup tab sebelum tulisannya masuk.
+    ketik() {
+      this.status = 'mengetik';
+      if (this.simpanTimer) clearTimeout(this.simpanTimer);
+      this.simpanTimer = setTimeout(() => this.simpanSekarang(), 1000);
+    },
+    async simpanSekarang() {
+      if (this.simpanTimer) { clearTimeout(this.simpanTimer); this.simpanTimer = null; }
+      const id = this.aktif;
+      if (!id) return;
+      const n = window.__store.getBusinessNote(id);
+      if (!n || !this.bolehTulis(n)) return;
+      if ((n.title || '') === this.draf.title && (n.body || '') === this.draf.body) { this.status = ''; return; }
+      if (!String(this.draf.title || '').trim()) { this.status = 'judul'; return; }
+      this.status = 'menyimpan';
+      const r = await window.__store.saveNoteBody(id, { title: this.draf.title, body: this.draf.body }, this.dasar);
+      if (r && r.conflict) {
+        // TIDAK ditimpakan. Keduanya ditahan supaya bisa dibandingkan —
+        // lebih baik ada dua versi daripada satu yang hilang diam-diam.
+        this.status = 'bentrok';
+        this.bentrok = { pesan: r.error, milikMereka: r.theirs, milikSaya: { title: this.draf.title, body: this.draf.body } };
+        return;
+      }
+      if (r && r.error) { this.status = 'gagal'; this.statusWaktu = r.error; return; }
+      this.dasar = r.updated_at || '';
+      this.status = 'tersimpan';
+      this.statusWaktu = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+      this.refresh();
+    },
+    // Jalan keluar dari bentrokan: ambil punya mereka (tulisan saya dibuang),
+    // atau simpan tulisan saya sebagai HALAMAN BARU di sebelahnya. Tidak ada
+    // pilihan 'timpa saja' — itu yang mau dihindari sejak awal.
+    async pakaiMilikMereka() {
+      const n = window.__store.getBusinessNote(this.aktif);
+      if (!n) return;
+      this.draf = { title: n.title || '', body: n.body || '' };
+      this.dasar = n.updated_at || '';
+      this.bentrok = null; this.status = '';
+    },
+    async simpanSebagaiSalinan() {
+      const n = window.__store.getBusinessNote(this.aktif);
+      if (!n) return;
+      const r = await window.__store.createBusinessNote({
+        unit_id: n.unit_id, parent_id: n.parent_id || null,
+        title: (this.draf.title || n.title) + ' (versi saya)',
+        body: this.draf.body, created_by: this.me,
+      });
+      if (r && r.error) { this.status = 'gagal'; this.statusWaktu = r.error; return; }
+      this.bentrok = null; this.refresh();
+      await this.bukaHalaman(r.note);
+      window.__showToast && window.__showToast('Disimpan terpisah', 'Tulisan Anda disimpan sebagai halaman baru — tidak ada yang tertimpa.');
+    },
+
+    async halamanBaru(unitId, parentId) {
+      await this.simpanSekarang();
+      const r = await window.__store.createBusinessNote({
+        unit_id: unitId || null, parent_id: parentId || null,
+        title: 'Halaman baru', body: '', created_by: this.me,
+      });
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      this.refresh();
+      if (parentId) this.buka[parentId] = true;
+      await this.bukaHalaman(r.note);
+      this.$nextTick(() => { const el = this.$refs.judul; if (el) { el.focus(); el.select(); } });
+    },
+    async hapusHalaman(n) {
+      const anak = this.anakBanyak(n);
+      // Pertanyaannya menyebutkan berapa halaman yang ikut hilang. Bertanya
+      // hapus-halaman-ini padahal sebelas halaman ikut lenyap adalah
+      // pertanyaan yang menyesatkan.
+      const pesan = anak
+        ? 'Hapus halaman ' + n.title + ' BESERTA ' + anak + ' halaman di dalamnya? Tidak bisa dibatalkan.'
+        : 'Hapus halaman ' + n.title + '?';
+      if (!confirm(pesan)) return;
+      window.__store.noteDescendants(n.id).forEach(k => window.__store.deleteBusinessNote(k.id));
+      const r = await window.__store.deleteBusinessNote(n.id);
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      if (this.aktif === n.id) { this.aktif = ''; this.draf = { title:'', body:'' }; }
+      this.refresh();
+    },
 
     async load() {
       this.loading = true;
@@ -93,9 +206,27 @@ function notesXData(canEdit) {
     unitSharedNames(u) { return this.unitShared(u).map(id => window.__store.staffName(id)); },
     toggleShare(id) {
       const i = this.unitForm.shared_with.indexOf(id);
-      if (i === -1) this.unitForm.shared_with.push(id); else this.unitForm.shared_with.splice(i, 1);
+      if (i === -1) this.unitForm.shared_with.push(id);
+      else {
+        this.unitForm.shared_with.splice(i, 1);
+        // Mencabut hak baca mencabut hak tulis juga. Boleh menulis tanpa boleh
+        // membaca adalah keadaan yang tidak masuk akal — orangnya akan melihat
+        // halaman kosong yang katanya boleh ia sunting.
+        const j = this.unitForm.shared_edit_with.indexOf(id);
+        if (j !== -1) this.unitForm.shared_edit_with.splice(j, 1);
+      }
     },
     isShared(id) { return this.unitForm.shared_with.indexOf(id) !== -1; },
+    // Hak TULIS, terpisah dari hak baca. Rekapan keuangan dan catatan rapat
+    // memang pantas dibagikan dengan cara yang berbeda.
+    toggleShareEdit(id) {
+      const i = this.unitForm.shared_edit_with.indexOf(id);
+      if (i === -1) {
+        this.unitForm.shared_edit_with.push(id);
+        if (this.unitForm.shared_with.indexOf(id) === -1) this.unitForm.shared_with.push(id);
+      } else this.unitForm.shared_edit_with.splice(i, 1);
+    },
+    isSharedEdit(id) { return this.unitForm.shared_edit_with.indexOf(id) !== -1; },
     // Siapa yang akan bisa membaca catatan yang sedang ditulis — dihitung dari
     // unit yang dipilih, supaya tidak ada yang terbagi tanpa disadari.
     formAudience() {
@@ -214,15 +345,15 @@ function notesXData(canEdit) {
       this.$nextTick(() => { ta.focus(); ta.setSelectionRange(p, p); });
     },
 
-    openUnits() { this.unitModal = true; this.unitMsg = ''; this.unitForm = { id:'', name:'', description:'', color:'slate', shared_with:[] }; },
-    editUnit(u) { this.unitForm = { id: u.id, name: u.name || '', description: u.description || '', color: u.color || 'slate', shared_with: this.unitShared(u).slice() }; this.unitMsg = ''; },
+    openUnits() { this.unitModal = true; this.unitMsg = ''; this.unitForm = { id:'', name:'', description:'', color:'slate', shared_with:[], shared_edit_with:[] }; },
+    editUnit(u) { this.unitForm = { id: u.id, name: u.name || '', description: u.description || '', color: u.color || 'slate', shared_with: this.unitShared(u).slice(), shared_edit_with: window.__store.unitSharedEditWith(u).slice() }; this.unitMsg = ''; },
     async saveUnit() {
       this.unitMsg = '';
       const r = this.unitForm.id
-        ? await window.__store.updateBusinessUnit(this.unitForm.id, { name: this.unitForm.name, description: this.unitForm.description, color: this.unitForm.color, shared_with: this.unitForm.shared_with })
+        ? await window.__store.updateBusinessUnit(this.unitForm.id, { name: this.unitForm.name, description: this.unitForm.description, color: this.unitForm.color, shared_with: this.unitForm.shared_with, shared_edit_with: this.unitForm.shared_edit_with })
         : await window.__store.createBusinessUnit(this.unitForm);
       if (r && r.error) { this.unitMsg = r.error; return; }
-      this.unitForm = { id:'', name:'', description:'', color:'slate', shared_with:[] };
+      this.unitForm = { id:'', name:'', description:'', color:'slate', shared_with:[], shared_edit_with:[] };
       this.refresh();
     },
     async removeUnit(u) {
@@ -308,11 +439,18 @@ export function notesPage() {
         </div>` : ''}
       </div>
 
-      <div class="flex gap-2 flex-wrap items-center mb-4">
+      <!-- Dua cara melihat isi yang sama. Ruang Kerja untuk menulis; Daftar
+           untuk mencari dan menyisir semuanya sekaligus. -->
+      <div class="flex gap-1 p-1 rounded-xl bg-slate-100 w-fit mb-4">
+        <button @click="mode='kerja'" :class="mode==='kerja' ? 'bg-white shadow-sm text-ink' : 'text-slate-500'" class="px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1"><span class="ms text-[15px]">account_tree</span>Ruang Kerja</button>
+        <button @click="mode='daftar'" :class="mode==='daftar' ? 'bg-white shadow-sm text-ink' : 'text-slate-500'" class="px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1"><span class="ms text-[15px]">list</span>Daftar &amp; Cari</button>
+      </div>
+
+      <div x-show="mode==='daftar'" x-cloak class="flex gap-2 flex-wrap items-center mb-4">
         <input type="text" x-model="q" placeholder="Cari judul, isi, atau label..." class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 flex-1 min-w-[200px]">
       </div>
 
-      <div class="flex gap-1.5 flex-wrap mb-5">
+      <div x-show="mode==='daftar'" x-cloak class="flex gap-1.5 flex-wrap mb-5">
         <button @click="unitFilter=''" :class="!unitFilter ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-600 border-gray-200'" class="px-3 py-1.5 rounded-xl border text-[12.5px] font-semibold transition">Semua <span x-text="notes.length"></span></button>
         <template x-for="u in units" :key="u.id">
           <button @click="unitFilter = (unitFilter === u.id ? '' : u.id)" :class="unitFilter === u.id ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-600 border-gray-200'" class="px-3 py-1.5 rounded-xl border text-[12.5px] font-semibold transition">
@@ -323,8 +461,119 @@ export function notesPage() {
 
       <div x-show="loading" class="bg-white rounded-2xl border border-slate-100 p-8 text-center text-sm text-gray-400">Memuat catatan...</div>
 
+      <!-- ================= RUANG KERJA ================= -->
+      <!-- Sidebar pohon di kiri, penyunting di kanan. Penyuntingnya LANGSUNG
+           bisa dipakai: tidak ada tombol Ubah dan tidak ada tombol Simpan —
+           tulisan masuk sendiri sedetik setelah berhenti mengetik. -->
+      <div x-show="!loading && mode==='kerja'" x-cloak class="grid lg:grid-cols-[280px_1fr] gap-4 items-start">
+
+        <!-- Pohon halaman -->
+        <aside class="bg-white rounded-2xl border border-slate-100 p-3 lg:sticky lg:top-[82px] max-h-[calc(100vh-110px)] overflow-y-auto">
+          <template x-for="u in units" :key="u.id">
+            <div class="mb-3">
+              <div class="flex items-center gap-1.5 px-1 mb-1">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide" :class="unitChip(u.id)" x-text="u.name"></span>
+                <span class="text-[10px] text-slate-400" x-show="unitSharedNames(u).length" x-cloak x-text="'· dibagikan ' + unitSharedNames(u).length + ' orang'"></span>
+                <button x-show="canEdit" @click="halamanBaru(u.id, null)" class="ml-auto w-6 h-6 rounded-lg text-slate-400 hover:text-brand hover:bg-brand/10 transition flex items-center justify-center" title="Halaman baru di unit ini"><span class="ms text-[16px]">add</span></button>
+              </div>
+              <template x-for="cabang in pohon(u.id, null)" :key="cabang.note.id">
+                <div>
+                  <div class="flex items-center gap-0.5 rounded-lg pr-1 transition" :class="aktif === cabang.note.id ? 'bg-brand/10' : 'hover:bg-slate-50'">
+                    <button @click="toggleCabang(cabang.note.id)" class="w-5 h-6 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-700" :class="!cabang.anak.length && 'invisible'">
+                      <span class="ms text-[15px]" x-text="cabangBuka(cabang.note.id) ? 'expand_more' : 'chevron_right'"></span>
+                    </button>
+                    <button @click="bukaHalaman(cabang.note)" class="flex-1 min-w-0 text-left py-1.5 text-[12.5px] truncate" :class="aktif === cabang.note.id ? 'font-bold text-brand-dark' : 'text-slate-700'" x-text="cabang.note.title"></button>
+                    <button x-show="canEdit && bolehTulis(cabang.note)" @click="halamanBaru(cabang.note.unit_id, cabang.note.id)" class="w-5 h-6 shrink-0 rounded text-slate-300 hover:text-brand flex items-center justify-center" title="Halaman di dalamnya"><span class="ms text-[14px]">add</span></button>
+                  </div>
+                  <div x-show="cabangBuka(cabang.note.id) && cabang.anak.length" x-cloak class="ms-3 ps-1 border-s border-slate-100">
+                    <template x-for="a2 in cabang.anak" :key="a2.note.id">
+                      <div>
+                        <div class="flex items-center gap-0.5 rounded-lg pr-1 transition" :class="aktif === a2.note.id ? 'bg-brand/10' : 'hover:bg-slate-50'">
+                          <button @click="toggleCabang(a2.note.id)" class="w-5 h-6 shrink-0 flex items-center justify-center text-slate-400 hover:text-slate-700" :class="!a2.anak.length && 'invisible'">
+                            <span class="ms text-[15px]" x-text="cabangBuka(a2.note.id) ? 'expand_more' : 'chevron_right'"></span>
+                          </button>
+                          <button @click="bukaHalaman(a2.note)" class="flex-1 min-w-0 text-left py-1.5 text-[12.5px] truncate" :class="aktif === a2.note.id ? 'font-bold text-brand-dark' : 'text-slate-600'" x-text="a2.note.title"></button>
+                          <button x-show="canEdit && bolehTulis(a2.note)" @click="halamanBaru(a2.note.unit_id, a2.note.id)" class="w-5 h-6 shrink-0 rounded text-slate-300 hover:text-brand flex items-center justify-center"><span class="ms text-[14px]">add</span></button>
+                        </div>
+                        <div x-show="cabangBuka(a2.note.id) && a2.anak.length" x-cloak class="ms-3 ps-1 border-s border-slate-100">
+                          <template x-for="a3 in a2.anak" :key="a3.note.id">
+                            <button @click="bukaHalaman(a3.note)" class="w-full text-left py-1.5 px-1.5 rounded-lg text-[12px] truncate transition" :class="aktif === a3.note.id ? 'bg-brand/10 font-bold text-brand-dark' : 'text-slate-600 hover:bg-slate-50'" x-text="a3.note.title"></button>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <p x-show="!pohon(u.id, null).length" x-cloak class="text-[11px] text-slate-300 px-2 py-1">Belum ada halaman</p>
+            </div>
+          </template>
+          <p x-show="!units.length" x-cloak class="text-[11.5px] text-slate-400 px-2 py-3 text-center">Belum ada unit usaha. Buat dulu lewat <b>Kelola Unit &amp; Akses</b>.</p>
+        </aside>
+
+        <!-- Penyunting -->
+        <section class="bg-white rounded-2xl border border-slate-100 min-h-[60vh]">
+          <template x-if="!aktif">
+            <div class="p-10 text-center text-sm text-slate-400">
+              <span class="ms text-[36px] text-slate-200 block mb-2">menu_book</span>
+              Pilih halaman di sebelah kiri, atau tekan <b>+</b> pada sebuah unit untuk membuat halaman baru.
+            </div>
+          </template>
+          <template x-if="aktif">
+            <div>
+              <!-- Remah roti: yang membaca perlu tahu ia sedang di mana. -->
+              <div class="px-5 pt-4 flex items-center gap-1 flex-wrap text-[11.5px] text-slate-400">
+                <template x-for="(r, ri) in remah()" :key="r.id">
+                  <span class="flex items-center gap-1">
+                    <button @click="bukaHalaman(r)" class="hover:text-brand-dark transition truncate max-w-[180px]" x-text="r.title"></button>
+                    <span x-show="ri < remah().length - 1" class="ms text-[13px]">chevron_right</span>
+                  </span>
+                </template>
+              </div>
+
+              <!-- Bentrokan. Tidak ada pilihan 'timpa saja' — itu yang mau
+                   dihindari sejak awal. -->
+              <div x-show="bentrok" x-cloak class="mx-5 mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+                <p class="text-[12.5px] font-bold text-amber-900">Tulisan Anda tidak ditimpakan</p>
+                <p class="text-[11.5px] text-amber-900/90 mt-0.5" x-text="bentrok ? bentrok.pesan : ''"></p>
+                <div class="flex gap-2 mt-2.5 flex-wrap">
+                  <button @click="simpanSebagaiSalinan()" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 transition">Simpan Tulisan Saya Terpisah</button>
+                  <button @click="pakaiMilikMereka()" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-800 bg-amber-100 hover:bg-amber-200 transition">Buang Tulisan Saya, Pakai Versi Terbaru</button>
+                </div>
+              </div>
+
+              <div class="px-5 pt-2 pb-3 flex items-center gap-3 flex-wrap border-b border-slate-100">
+                <input x-ref="judul" type="text" x-model="draf.title" @input="ketik()" :readonly="!bolehTulis(window.__store.getBusinessNote(aktif))"
+                  class="flex-1 min-w-[200px] text-xl font-bold text-ink bg-transparent border-0 px-0 py-1 focus:outline-none placeholder:text-slate-300" placeholder="Judul halaman">
+                <!-- Status simpan. Tanpa ini, orang tidak punya cara tahu
+                     tulisannya sudah masuk atau belum — dan akan terus
+                     mencari tombol Simpan yang sudah tidak ada. -->
+                <span class="text-[11.5px] shrink-0"
+                  :class="{ 'text-slate-400': status==='mengetik' || status==='menyimpan', 'text-emerald-600': status==='tersimpan', 'text-red-600': status==='gagal' || status==='judul', 'text-amber-600': status==='bentrok' }"
+                  x-text="({ mengetik:'Mengetik...', menyimpan:'Menyimpan...', tersimpan:'Tersimpan ' + statusWaktu, gagal:'Gagal menyimpan', judul:'Judul tidak boleh kosong', bentrok:'Ditahan — ada bentrokan' })[status] || ''"></span>
+                <span x-show="!bolehTulis(window.__store.getBusinessNote(aktif))" x-cloak class="px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-slate-100 text-slate-500">hanya baca</span>
+                <button x-show="bolehHapus(window.__store.getBusinessNote(aktif))" @click="hapusHalaman(window.__store.getBusinessNote(aktif))" class="w-7 h-7 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition flex items-center justify-center" title="Hapus halaman"><span class="ms text-[17px]">delete</span></button>
+              </div>
+
+              <div x-show="bolehTulis(window.__store.getBusinessNote(aktif))" class="px-5 pt-3 flex gap-1.5 flex-wrap">${toolbar}</div>
+
+              <div class="p-5 pt-3">
+                <textarea x-ref="body" x-model="draf.body" @input="ketik()" @blur="simpanSekarang()"
+                  :readonly="!bolehTulis(window.__store.getBusinessNote(aktif))" rows="22"
+                  placeholder="Tulis apa saja. Markdown didukung: # judul, **tebal**, - daftar, | tabel |"
+                  class="w-full px-3 py-3 border border-slate-100 rounded-xl text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand/30 resize-y bg-white"></textarea>
+                <div class="mt-4 pt-4 border-t border-slate-100">
+                  <p class="text-[10.5px] font-bold text-slate-400 uppercase tracking-wide mb-2">Pratinjau</p>
+                  <div class="md-body" x-html="render(draf.body)"></div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </section>
+      </div>
+
       <!-- Daftar catatan -->
-      <div x-show="!loading && !editing && !openNote" x-cloak>
+      <div x-show="!loading && mode==='daftar' && !editing && !openNote" x-cloak>
         <div x-show="!shown.length" x-cloak class="bg-white rounded-2xl border border-slate-100 p-10 text-center">
           <span class="ms text-[40px] text-slate-300">menu_book</span>
           <p class="text-sm text-gray-600 font-medium mt-2">Belum ada catatan.</p>
@@ -369,7 +618,7 @@ export function notesPage() {
       </div>
 
       <!-- Baca satu catatan -->
-      <div x-show="!editing && openNote" x-cloak class="bg-white border border-slate-100 rounded-2xl p-5 lg:p-7 max-w-4xl mx-auto">
+      <div x-show="mode==='daftar' && !editing && openNote" x-cloak class="bg-white border border-slate-100 rounded-2xl p-5 lg:p-7 max-w-4xl mx-auto">
         <div class="flex items-start justify-between gap-3 mb-1 flex-wrap">
           <div class="min-w-0">
             <h2 class="text-xl lg:text-2xl font-bold text-gray-800 break-words" x-text="openNote ? openNote.title : ''"></h2>
@@ -388,7 +637,7 @@ export function notesPage() {
       </div>
 
       ${canEdit ? `<!-- Tulis / ubah -->
-      <div x-show="editing" x-cloak class="bg-white border border-slate-100 rounded-2xl p-4 lg:p-6 max-w-5xl mx-auto">
+      <div x-show="mode==='daftar' && editing" x-cloak class="bg-white border border-slate-100 rounded-2xl p-4 lg:p-6 max-w-5xl mx-auto">
         <div x-show="msg" x-cloak class="mb-3 p-2 rounded-lg text-sm bg-red-50 text-red-700" x-text="msg"></div>
         <input type="text" x-model="form.title" placeholder="Judul catatan" class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-base font-semibold focus:outline-none focus:ring-2 focus:ring-teal-400/50 mb-3">
         <div class="grid sm:grid-cols-3 gap-3 mb-3">
@@ -490,20 +739,30 @@ export function notesPage() {
                daftar staf ini punya id tetap, jadi tidak mungkin salah ketik
                dan pemberian aksesnya bisa ditelusuri. -->
           <div class="pt-2">
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Siapa yang boleh MEMBACA catatan di unit ini</label>
-            <div class="border border-gray-200 rounded-lg p-2 max-h-40 overflow-y-auto space-y-0.5">
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Siapa yang boleh membuka unit ini</label>
+            <div class="border border-gray-200 rounded-lg overflow-hidden max-h-52 overflow-y-auto">
+              <div class="flex items-center gap-2 px-2 py-1.5 bg-slate-50 border-b border-slate-100 text-[10.5px] font-bold text-slate-500 uppercase tracking-wide">
+                <span class="flex-1">Nama</span>
+                <span class="w-12 text-center">Baca</span>
+                <span class="w-12 text-center">Tulis</span>
+              </div>
               <template x-for="s in staff" :key="s.id">
-                <label class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition">
-                  <input type="checkbox" :checked="isShared(s.id)" @change="toggleShare(s.id)" class="rounded border-gray-300">
-                  <span class="text-sm text-gray-700" x-text="s.name"></span>
-                  <span class="text-[11px] text-gray-400" x-text="'(' + s.role_label + ')'"></span>
-                </label>
+                <div class="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 transition border-b border-slate-50 last:border-0">
+                  <span class="flex-1 min-w-0">
+                    <span class="text-sm text-gray-700" x-text="s.name"></span>
+                    <span class="text-[11px] text-gray-400 ms-1" x-text="'(' + s.role_label + ')'"></span>
+                  </span>
+                  <span class="w-12 text-center"><input type="checkbox" :checked="isShared(s.id)" @change="toggleShare(s.id)" class="rounded border-gray-300"></span>
+                  <span class="w-12 text-center"><input type="checkbox" :checked="isSharedEdit(s.id)" @change="toggleShareEdit(s.id)" class="rounded border-gray-300"></span>
+                </div>
               </template>
               <p x-show="!staff.length" x-cloak class="text-xs text-gray-400 text-center py-3">Belum ada staf lain.</p>
             </div>
-            <p class="text-[11px] text-gray-400 mt-1 leading-relaxed">
-              Yang dibagikan hanya <b>hak baca</b> &mdash; mereka tidak bisa menulis, mengubah, maupun menghapus.
-              Catatan yang ditandai <b>pribadi</b> tetap tidak terlihat oleh mereka walau berada di unit ini.
+            <p class="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
+              <b>Baca</b> saja: mereka melihat isinya tapi tidak bisa mengubah apa pun.
+              <b>Tulis</b>: mereka ikut menulis di halaman-halaman unit ini &mdash; mencentang Tulis otomatis memberi Baca juga.
+              Menghapus halaman tetap hanya bisa dilakukan pemiliknya.
+              Catatan yang ditandai <b>pribadi</b> tetap tidak terlihat oleh siapa pun selain pemiliknya, walau unitnya dibagikan.
             </p>
           </div>
           <div class="flex gap-2 justify-end pt-1">
