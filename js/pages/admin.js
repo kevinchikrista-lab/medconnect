@@ -61,6 +61,10 @@ export function adminDashboard() {
 }
 
 export function adminUsers() {
+  // Hanya pemilik klinik yang boleh mengatur akses Catatan Bisnis. Ditaruh di
+  // window, bukan di dalam atribut x-data, mengikuti aturan berkas ini.
+  const _u = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+  window.__bolehAturCatatan = store.canMakeTaskPrivate(_u);
   const currentUser = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   // Bootstrap case: before any Owner account exists at all, a plain SuperAdmin
   // may create the first one. Once at least one exists, only an existing
@@ -247,6 +251,7 @@ export function adminUsers() {
                   <template x-if="user.role==='patient'"><button @click="certUser=user" class="px-2 py-1 rounded text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition">Sertifikat</button></template>
                   <template x-if="user.role==='doctor' || user.role==='owner'"><button @click="openEditDoc(user)" class="px-2 py-1 rounded text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition">Edit Dokter/SIP</button></template>
                   <template x-if="user.role==='pharmacy'"><button @click="bukaTempatApotek(user)" title="Tautkan apotek ini ke tempat praktik — menentukan dokter mana yang boleh dijadikan penanggung jawab surat keterangannya" class="px-2 py-1 rounded text-xs font-medium" :class="tempatApotek(user) ? 'text-blue-700 bg-blue-50 hover:bg-blue-100' : 'text-amber-700 bg-amber-50 hover:bg-amber-100'" x-text="tempatApotek(user) || 'Tempat Praktik: belum diatur'"></button></template>
+                  <template x-if="bolehAturCatatan && user.role !== 'patient'"><button @click="toggleCatatan(user)" :title="punyaCatatan(user) ? 'Tutup akses Catatan Bisnis' : 'Beri akses Catatan Bisnis sendiri'" class="px-2 py-1 rounded text-xs font-medium" :class="punyaCatatan(user) ? 'text-emerald-700 bg-emerald-100 hover:bg-emerald-200' : 'text-slate-600 bg-slate-100 hover:bg-slate-200'" x-text="punyaCatatan(user) ? 'Punya Catatan' : 'Tanpa Catatan'"></button></template>
                   <template x-if="user.role==='pharmacy'"><button @click="toggleRxIzin(user)" :title="user.profile?.can_prescribe ? 'Cabut izin menyusun resep' : 'Izinkan apotek ini menyusun resep (tetap harus di-ACC dokter)'" class="px-2 py-1 rounded text-xs font-medium" :class="user.profile?.can_prescribe ? 'text-purple-700 bg-purple-100 hover:bg-purple-200' : 'text-slate-600 bg-slate-100 hover:bg-slate-200'" x-text="user.profile?.can_prescribe ? 'Boleh Tulis Resep' : 'Tidak Boleh Tulis Resep'"></button></template>
                   <template x-if="user.role==='doctor'"><button @click="toggleDoctorListing(user)" class="px-2 py-1 rounded text-xs font-medium" :class="user.profile?.is_public_listed ? 'text-red-700 bg-red-50 hover:bg-red-100' : 'text-green-700 bg-green-50 hover:bg-green-100'" x-text="user.profile?.is_public_listed ? 'Sembunyikan dari Beranda' : 'Tampilkan di Beranda'"></button></template>
                   <button @click="deleteUser(user)" class="px-2 py-1 rounded text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 transition">Hapus</button>
@@ -347,6 +352,28 @@ export function adminUsersData() {
       ph.location_id = r.location_id;
       this.tempatUser = null;
       window.__showToast && window.__showToast('Tersimpan', (ph.name || 'Apotek') + ' ditautkan ke tempat praktik.');
+      setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
+    },
+    // Siapa yang boleh punya Catatan Bisnis sendiri. Dulu daftarnya dipaku di
+    // dalam kode: menambah satu orang berarti mengubah kode dan menerbitkan
+    // ulang aplikasinya. Sekarang saklar per akun — dan hanya pemilik klinik
+    // yang bisa menekannya, karena Catatan Bisnis memang lebih tertutup
+    // daripada panel tugas.
+    bolehAturCatatan: window.__bolehAturCatatan === true,
+    punyaCatatan(user) { return !!(user && (user.can_notes === true || (user.profile && user.profile.can_notes === true))); },
+    async toggleCatatan(user) {
+      const nyala = this.punyaCatatan(user);
+      const nama = (user.profile && (user.profile.full_name || user.profile.name)) || user.email || 'akun ini';
+      const tanya = nyala
+        ? 'Tutup akses Catatan Bisnis untuk ' + nama + '? Catatan yang sudah ditulisnya TIDAK terhapus, hanya tidak bisa dibuka lagi olehnya.'
+        : 'Beri ' + nama + ' akses Catatan Bisnis sendiri? Dia bisa membuat catatannya sendiri; catatan Anda tetap tidak terlihat olehnya kecuali Anda bagikan.';
+      if (!confirm(tanya)) return;
+      const r = await window.__store.setNotesAccess(user.id, !nyala);
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      user.can_notes = !nyala;
+      if (user.profile) user.profile.can_notes = !nyala;
+      window.__showToast && window.__showToast(!nyala ? 'Akses diberikan' : 'Akses ditutup',
+        nama + (!nyala ? ' kini bisa punya Catatan Bisnis sendiri.' : ' tidak lagi bisa membuka Catatan Bisnis.'));
       setTimeout(function(){ window.__rerender && window.__rerender() }, 200);
     },
     async toggleRxIzin(user) {

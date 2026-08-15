@@ -4093,6 +4093,15 @@ class Store {
   // Super Admin TIDAK termasuk, karena isinya omzet & strategi.
   canManageNotes(user) {
     if (!user) return false;
+    // Saklar per akun (profiles.can_notes), dinyalakan dari Manajemen User.
+    // Dulu daftarnya dipaku di dalam kode: menambah Anis dan Fitri berarti
+    // mengubah kode dan menerbitkan ulang aplikasinya — itu bukan cara
+    // mengelola orang. Daftar e-mail di CONFIG tetap dihormati sebagai
+    // jaring pengaman kalau migrasinya belum dijalankan.
+    const prof = this.getProfile(user) || {};
+    if (prof.can_notes === true) return true;
+    const u = (this.data.users || []).find(x => x.id === user.id);
+    if (u && u.can_notes === true) return true;
     const allowed = (CONFIG.NOTES_MANAGER_EMAILS || []).map(e => String(e).toLowerCase());
     if (allowed.includes(String(user.email || '').toLowerCase())) return true;
     // Cadangan yang sama seperti panel tugas: kalau tidak satu pun e-mail pada
@@ -4104,6 +4113,34 @@ class Store {
     return false;
   }
 
+  // Menyalakan / mematikan izin punya Catatan Bisnis untuk sebuah akun.
+  // Hanya pemilik klinik yang boleh — kalau setiap Super Admin bisa
+  // memberikannya, batas "Catatan Bisnis lebih tertutup daripada panel tugas"
+  // hilang tanpa ada yang memutuskannya.
+  async setNotesAccess(userId, allowed) {
+    const aku = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    if (!this.canMakeTaskPrivate(aku)) {
+      return { error: 'Hanya pemilik klinik yang bisa memberikan akses Catatan Bisnis.' };
+    }
+    const u = (this.data.users || []).find(x => x.id === userId);
+    if (!u) return { error: 'Akun tidak ditemukan.' };
+    u.can_notes = allowed === true;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(userId).startsWith('id_')) {
+      const res = await supabase.update('profiles', userId, { can_notes: u.can_notes }).catch(() => null);
+      if (res && res.error) {
+        u.can_notes = !u.can_notes; this._save();
+        return { error: /can_notes/i.test(String(res.error))
+          ? 'Kolom izinnya belum ada di server. Jalankan supabase-notes-workspace.sql dulu.'
+          : res.error };
+      }
+    }
+    this.addNotification(userId, allowed ? 'Akses Catatan Bisnis Dibuka' : 'Akses Catatan Bisnis Ditutup',
+      allowed ? 'Anda sekarang bisa membuat Catatan Bisnis sendiri di menu Catatan.'
+              : 'Akses Catatan Bisnis Anda ditutup.', 'system');
+    return { success: true };
+  }
+
   // Daftar orang yang dibagikan sebuah unit usaha (profiles.id).
   unitSharedWith(u) {
     let v = u && u.shared_with;
@@ -4111,11 +4148,45 @@ class Store {
     return Array.isArray(v) ? v.filter(Boolean) : [];
   }
 
+  // Daftar KEDUA: siapa yang juga boleh MENULIS di unit ini. Dipisah dari
+  // shared_with, bukan digabung jadi satu daftar bertingkat, karena rekapan
+  // keuangan dan catatan rapat memang pantas dibagikan dengan cara berbeda —
+  // dan pemiliknya yang memilih, per unit.
+  unitSharedEditWith(u) {
+    let v = u && u.shared_edit_with;
+    if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = []; } }
+    return Array.isArray(v) ? v.filter(Boolean) : [];
+  }
+
+  unitEditIdsFor(userId) {
+    if (!userId) return [];
+    return this.getBusinessUnits()
+      .filter(u => this.unitSharedEditWith(u).indexOf(userId) !== -1)
+      .map(u => u.id);
+  }
+
+  // Boleh MENYUNTING sebuah catatan: pemiliknya, atau penerima berbagi-tulis
+  // di unit itu. Catatan yang ditandai pribadi tetap milik pemiliknya saja,
+  // walau unitnya dibagikan — itulah gunanya tanda pribadi.
+  canEditNote(note, userId) {
+    if (!note || !userId) return false;
+    if (note.created_by === userId) return true;
+    if (note.is_private) return false;
+    return note.unit_id ? this.unitEditIdsFor(userId).indexOf(note.unit_id) !== -1 : false;
+  }
+
+  // Boleh MENGHAPUS: hanya pemiliknya. Menghapus halaman beserta seluruh
+  // anaknya tidak bisa dibatalkan, dan itu bukan hak penerima berbagi.
+  canDeleteNote(note, userId) {
+    return !!(note && userId && note.created_by === userId);
+  }
+
   // Unit apa saja yang dibagikan kepada seseorang.
   sharedUnitIdsFor(userId) {
     if (!userId) return [];
     return this.getBusinessUnits()
-      .filter(u => this.unitSharedWith(u).indexOf(userId) !== -1)
+      .filter(u => this.unitSharedWith(u).indexOf(userId) !== -1
+                || this.unitSharedEditWith(u).indexOf(userId) !== -1)
       .map(u => u.id);
   }
 
@@ -4200,6 +4271,18 @@ class Store {
   async updateBusinessUnit(id, updates) {
     const u = this.getBusinessUnit(id);
     if (!u) return { error: 'Unit tidak ditemukan' };
+    // Boleh menulis tanpa boleh membaca adalah keadaan yang tidak masuk akal:
+    // orangnya akan melihat halaman kosong yang katanya boleh ia sunting.
+    // Dirapikan di sini, satu pintu — bukan diserahkan ke layar yang
+    // mengaturnya, karena layar berikutnya bisa lupa.
+    if (updates.shared_edit_with !== undefined) {
+      const tulis = (Array.isArray(updates.shared_edit_with) ? updates.shared_edit_with : []).filter(Boolean);
+      const baca = updates.shared_with !== undefined
+        ? (Array.isArray(updates.shared_with) ? updates.shared_with : []).filter(Boolean)
+        : this.unitSharedWith(u);
+      updates = { ...updates, shared_edit_with: tulis,
+        shared_with: Array.from(new Set(baca.concat(tulis))) };
+    }
     if (updates.name !== undefined) {
       const name = String(updates.name || '').trim();
       if (!name) return { error: 'Nama unit wajib diisi' };
@@ -4266,6 +4349,103 @@ class Store {
     return this.getBusinessUnits().filter(u => shared.indexOf(u.id) !== -1);
   }
 
+  // ---- HALAMAN BERSARANG ---------------------------------------------------
+  // Sebelumnya unit -> catatan, dua tingkat dan berhenti. Sekarang catatan
+  // bisa punya anak, sedalam apa pun. Isinya TETAP Markdown biasa; yang
+  // berubah cuma cara menatanya — teks biasa tetap bisa dicari, disalin, dan
+  // diselamatkan kalau suatu saat aplikasinya berganti.
+
+  noteChildren(parentId, userId, unitId) {
+    const semua = userId ? this.getVisibleBusinessNotes(userId) : (this.data.business_notes || []);
+    return semua
+      .filter(n => (n.parent_id || null) === (parentId || null))
+      .filter(n => !unitId || n.unit_id === unitId)
+      .sort((a, b) => (a.sort_order || 100) - (b.sort_order || 100)
+        || String(a.title || '').localeCompare(String(b.title || '')));
+  }
+
+  // Pohon halaman untuk sidebar. Kedalamannya dibatasi bukan karena tidak
+  // sanggup, melainkan karena rujukan melingkar (halaman yang jadi induk
+  // dirinya sendiri lewat rantai panjang) akan membuat halaman ini menggantung
+  // selamanya tanpa pesan apa pun.
+  noteTree(userId, unitId, parentId, kedalaman) {
+    const dalam = Number(kedalaman) || 0;
+    if (dalam > 12) return [];
+    return this.noteChildren(parentId || null, userId, unitId).map(n => ({
+      note: n,
+      anak: this.noteTree(userId, unitId, n.id, dalam + 1),
+    }));
+  }
+
+  // Jejak halaman dari akar sampai halaman ini — dipakai remah roti di atas
+  // penyunting, supaya yang membacanya tahu ia sedang berada di mana.
+  noteBreadcrumb(noteId) {
+    const jalur = [];
+    let n = this.getBusinessNote(noteId);
+    let pagar = 0;
+    while (n && pagar++ < 20) {
+      jalur.unshift(n);
+      n = n.parent_id ? this.getBusinessNote(n.parent_id) : null;
+    }
+    return jalur;
+  }
+
+  // Seluruh keturunan sebuah halaman — dihitung SEBELUM bertanya mau hapus,
+  // supaya pertanyaannya menyebutkan berapa halaman yang ikut hilang. "Hapus
+  // halaman ini?" yang ternyata menghapus sebelas halaman adalah pertanyaan
+  // yang menyesatkan.
+  noteDescendants(noteId) {
+    const out = [];
+    const turun = (id, dalam) => {
+      if (dalam > 12) return;
+      (this.data.business_notes || []).filter(n => n.parent_id === id).forEach(k => {
+        out.push(k); turun(k.id, dalam + 1);
+      });
+    };
+    turun(noteId, 0);
+    return out;
+  }
+
+  // Memindahkan halaman ke induk lain. Menolak memindahkan halaman ke dalam
+  // keturunannya sendiri: itu memutus cabang itu dari pohonnya dan membuatnya
+  // hilang dari sidebar tanpa terhapus — hilang tanpa jejak, bentuk kerusakan
+  // yang paling sulit disadari.
+  async moveNote(noteId, parentId) {
+    const n = this.getBusinessNote(noteId);
+    if (!n) return { error: 'Halaman tidak ditemukan.' };
+    if (parentId === noteId) return { error: 'Halaman tidak bisa dijadikan induk dirinya sendiri.' };
+    if (parentId && this.noteDescendants(noteId).some(k => k.id === parentId)) {
+      return { error: 'Tidak bisa dipindahkan ke dalam halamannya sendiri — cabang itu akan terputus dari pohonnya.' };
+    }
+    return this.updateBusinessNote(noteId, { parent_id: parentId || null });
+  }
+
+  // ---- SIMPAN OTOMATIS YANG TIDAK MENIMPA ----------------------------------
+  // Dengan catatan yang bisa disunting bertiga DAN tersimpan otomatis, dua
+  // orang yang membuka halaman sama akan saling menimpa tanpa ada yang sadar.
+  // Karena itu sebelum menyimpan, versi yang ada di tangan dibandingkan dengan
+  // versi yang tersimpan. Kalau sudah berubah: BERHENTI, jangan timpa —
+  // kembalikan keduanya supaya layar bisa menawarkan pilihan. Lebih baik ada
+  // dua versi daripada satu yang hilang diam-diam.
+  async saveNoteBody(id, patch, basedOn) {
+    const n = this.getBusinessNote(id);
+    if (!n) return { error: 'Halaman tidak ditemukan.' };
+    const aku = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    if (!this.canEditNote(n, (aku || {}).id)) {
+      return { error: 'Anda hanya bisa membaca halaman ini.' };
+    }
+    if (basedOn && n.updated_at && String(n.updated_at) !== String(basedOn)) {
+      return {
+        conflict: true,
+        error: 'Halaman ini sudah diubah orang lain sejak Anda membukanya. Tulisan Anda TIDAK ditimpakan.',
+        theirs: { title: n.title, body: n.body, updated_at: n.updated_at },
+      };
+    }
+    const r = await this.updateBusinessNote(id, patch);
+    if (r && r.error) return r;
+    return { success: true, note: r.note, updated_at: r.note.updated_at };
+  }
+
   async createBusinessNote(data) {
     const title = String((data && data.title) || '').trim();
     if (!title) return { error: 'Judul catatan wajib diisi' };
@@ -4278,11 +4458,21 @@ class Store {
       pinned: !!(data && data.pinned),
       is_private: !!(data && data.is_private),
       created_by: (data && data.created_by) || null,
+      parent_id: (data && data.parent_id) || null,
+      sort_order: Number(data && data.sort_order) || 100,
     };
     let rec;
     if (CONFIG.DEMO_MODE) rec = { id: generateId(), created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...payload };
     else {
-      const ins = await supabase.insert('business_notes', payload);
+      let ins = await supabase.insert('business_notes', payload);
+      // Kolom parent_id & sort_order datang dari supabase-notes-workspace.sql.
+      // Bila migrasinya belum jalan, Postgres menolak SELURUH barisnya dan
+      // halamannya hilang. Dicoba ulang tanpa kolom itu — halamannya tetap
+      // tersimpan, hanya belum bisa disarangkan.
+      if (ins && ins.error && /parent_id|sort_order/i.test(String(ins.error))) {
+        const tanpa = { ...payload }; delete tanpa.parent_id; delete tanpa.sort_order;
+        ins = await supabase.insert('business_notes', tanpa);
+      }
       if (ins && ins.error) return { error: ins.error + ' — pastikan supabase-business-notes.sql sudah dijalankan.' };
       rec = ins || { id: generateId(), ...payload };
     }
