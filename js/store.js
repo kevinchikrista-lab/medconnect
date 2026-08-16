@@ -980,7 +980,7 @@ class Store {
       // akan mengira fiturnya rusak, bukan mengira ada kolom yang tidak ikut
       // tersalin. Setiap kolom izin yang ditambahkan ke profiles harus
       // ditambahkan di sini juga.
-      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, auth_id: p.auth_id || null, no_email: isPlaceholderEmail(p.email), has_login: !!p.auth_id, password: '***', created_at: p.created_at, full_name: p.full_name || '', phone: p.phone || '', can_notes: p.can_notes === true }));
+      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, auth_id: p.auth_id || null, no_email: isPlaceholderEmail(p.email), has_login: !!p.auth_id, password: '***', created_at: p.created_at, full_name: p.full_name || '', phone: p.phone || '', can_notes: p.can_notes === true, can_umroh: p.can_umroh === true }));
       if (doctors.length) this.data.doctors = doctors.map(d => ({ ...d, user_id: d.profile_id }));
       if (patients.length) this.data.patients = patients.map(p => ({ ...p, user_id: p.profile_id }));
       if (pharmacies.length) this.data.pharmacies = pharmacies.map(p => ({ ...p, user_id: p.profile_id }));
@@ -1118,7 +1118,8 @@ class Store {
         const barisSA = (this.data.users || []).find(x => x.id === user.id) || {};
         return { full_name: user.full_name || barisSA.full_name || 'Super Admin',
           phone: user.phone || barisSA.phone || '', role: 'superadmin',
-          can_notes: barisSA.can_notes === true };
+          can_notes: barisSA.can_notes === true,
+          can_umroh: barisSA.can_umroh === true };
       }
       default: return null;
     }
@@ -4479,6 +4480,68 @@ class Store {
     return false;
   }
 
+  // ==========================================================================
+  // VAKSIN UMROH — saklar per akun klinik
+  //
+  // Tidak semua klinik melayani vaksin umroh. Yang tidak melayaninya tetap
+  // melihat menunya, halaman kosong, dan istilah yang tidak berarti apa-apa
+  // bagi mereka. Maka fiturnya dinyalakan per akun, dari Manajemen User, sama
+  // seperti Catatan Bisnis.
+  //
+  // MEMATIKANNYA MENYEMBUNYIKAN, BUKAN MENGHAPUS. Foto dan catatan yang sudah
+  // masuk tetap ada dan muncul lagi begitu dinyalakan kembali — sebuah saklar
+  // menu yang diam-diam membuang data adalah kejutan yang paling mahal.
+  // ==========================================================================
+  canUmrohStamp(user) {
+    if (!user) return false;
+    const prof = this.getProfile(user) || {};
+    if (prof.can_umroh === true) return true;
+    const u = (this.data.users || []).find(x => x.id === user.id);
+    if (u && u.can_umroh === true) return true;
+    // Pemilik klinik selalu bisa — kalau tidak, saklar untuk menyalakannya
+    // sendiri berada di balik fitur yang belum dinyalakan.
+    return user.role === 'owner';
+  }
+
+  async setUmrohAccess(userId, allowed) {
+    const aku = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    if (!this.canMakeTaskPrivate(aku)) {
+      return { error: 'Hanya pemilik klinik yang bisa mengatur fitur Vaksin Umroh.' };
+    }
+    const u = (this.data.users || []).find(x => x.id === userId);
+    if (!u) return { error: 'Akun tidak ditemukan.' };
+    u.can_umroh = allowed === true;
+    this._save();
+    if (!CONFIG.DEMO_MODE && !String(userId).startsWith('id_')) {
+      const res = await supabase.update('profiles', userId, { can_umroh: u.can_umroh }).catch(() => null);
+      if (res && res.error) {
+        u.can_umroh = !u.can_umroh; this._save();
+        return { error: /can_umroh/i.test(String(res.error))
+          ? 'Kolom izinnya belum ada di server. Jalankan supabase-umroh-stempel.sql dulu.'
+          : res.error };
+      }
+    }
+    this.addNotification(userId, allowed ? 'Fitur Vaksin Umroh Dibuka' : 'Fitur Vaksin Umroh Ditutup',
+      allowed ? 'Menu Vaksin Umroh sudah bisa Anda pakai.' : 'Menu Vaksin Umroh ditutup. Data yang sudah ada tidak terhapus.',
+      'system');
+    return { success: true };
+  }
+
+  // Identitas yang tercetak di panel stempel. Diambil dari kop surat dokter
+  // bila ada — di sanalah tiap klinik sudah memasang logo dan alamatnya —
+  // dan jatuh ke pengaturan klinik bila belum.
+  umrohStampKlinik(doctorId) {
+    const kop = (doctorId ? this.getKopFor(doctorId, '') : null) || {};
+    const nama = kop.name || CONFIG.APP_NAME || '';
+    return {
+      nama,
+      // Nama pendek untuk kotak kanan atas: panel itu hanya selebar 247 px.
+      namaPendek: nama.length > 24 ? nama.slice(0, 23).trim() + '…' : nama,
+      alamat: kop.address || CONFIG.CLINIC_ADDRESS || '',
+      logo: kop.logo_url || '',
+    };
+  }
+
   // Menyalakan / mematikan izin punya Catatan Bisnis untuk sebuah akun.
   // Hanya pemilik klinik yang boleh — kalau setiap Super Admin bisa
   // memberikannya, batas "Catatan Bisnis lebih tertutup daripada panel tugas"
@@ -4590,12 +4653,26 @@ class Store {
   getBusinessUnit(id) { return (this.data.business_units || []).find(u => u.id === id) || null; }
   businessUnitName(id) { const u = this.getBusinessUnit(id); return u ? u.name : 'Tanpa unit'; }
 
+  // Kenapa pemuatan unit BOLEH GAGAL DENGAN SUARA sekarang.
+  //
+  // Sebelumnya galatnya ditelan diam-diam dengan alasan "tabelnya mungkin
+  // belum dibuat". Akibatnya, ketika server MENOLAK karena aturan aksesnya —
+  // dan itulah yang terjadi pada akun Super Admin, karena kebijakan
+  // business_units dulu hanya mengizinkan peran owner — halamannya terbuka
+  // dengan daftar unit kosong dan tidak ada satu kata pun yang menjelaskan
+  // kenapa. Yang mengalaminya menyimpulkan fiturnya rusak, bukan bahwa ada
+  // izin yang belum diberikan. Pesannya disimpan supaya layarnya bisa
+  // menyebutkan apa yang sebenarnya terjadi.
   async loadBusinessNotes(userId) {
     if (CONFIG.DEMO_MODE) return;
+    this.notesLoadError = '';
     try {
       const units = await supabase.select('business_units', { order: 'sort_order.asc' });
       if (Array.isArray(units) && units.length) { this.data.business_units = units; this._save(); }
-    } catch (e) { /* tabel belum dibuat */ }
+      else if (units && units.error) this.notesLoadError = String(units.error);
+    } catch (e) {
+      this.notesLoadError = (e && e.message) ? e.message : String(e);
+    }
     try {
       // Tidak disaring created_by di sini: penerima berbagi justru perlu baris
       // milik orang lain. Yang menentukan boleh-tidaknya adalah RLS di server.
@@ -4610,7 +4687,24 @@ class Store {
           if (kept.length !== (this.data.business_notes || []).length) { this.data.business_notes = kept; this._save(); }
         }
       }
-    } catch (e) { /* tabel belum dibuat */ }
+    } catch (e) {
+      if (!this.notesLoadError) this.notesLoadError = (e && e.message) ? e.message : String(e);
+    }
+  }
+
+  // Diterjemahkan untuk layar. Dua sebab yang paling mungkin dibedakan, karena
+  // yang harus dikerjakan berbeda: migrasi belum jalan versus izin belum
+  // diberikan.
+  notesLoadMessage() {
+    const g = String(this.notesLoadError || '');
+    if (!g) return '';
+    if (/does not exist|relation .* does not exist|schema cache/i.test(g)) {
+      return 'Tabel Catatan Bisnis belum ada di server. Jalankan supabase-business-notes.sql dan supabase-notes-workspace.sql.';
+    }
+    if (/permission denied|row-level security|policy|401|403/i.test(g)) {
+      return 'Server menolak membuka daftar unit usaha untuk akun ini. Jalankan supabase-notes-akses.sql supaya akun ber-izin Catatan Bisnis boleh membacanya.';
+    }
+    return 'Gagal memuat unit usaha dari server: ' + g;
   }
 
   async createBusinessUnit(data) {
