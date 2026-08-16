@@ -4653,12 +4653,26 @@ class Store {
   getBusinessUnit(id) { return (this.data.business_units || []).find(u => u.id === id) || null; }
   businessUnitName(id) { const u = this.getBusinessUnit(id); return u ? u.name : 'Tanpa unit'; }
 
+  // Kenapa pemuatan unit BOLEH GAGAL DENGAN SUARA sekarang.
+  //
+  // Sebelumnya galatnya ditelan diam-diam dengan alasan "tabelnya mungkin
+  // belum dibuat". Akibatnya, ketika server MENOLAK karena aturan aksesnya —
+  // dan itulah yang terjadi pada akun Super Admin, karena kebijakan
+  // business_units dulu hanya mengizinkan peran owner — halamannya terbuka
+  // dengan daftar unit kosong dan tidak ada satu kata pun yang menjelaskan
+  // kenapa. Yang mengalaminya menyimpulkan fiturnya rusak, bukan bahwa ada
+  // izin yang belum diberikan. Pesannya disimpan supaya layarnya bisa
+  // menyebutkan apa yang sebenarnya terjadi.
   async loadBusinessNotes(userId) {
     if (CONFIG.DEMO_MODE) return;
+    this.notesLoadError = '';
     try {
       const units = await supabase.select('business_units', { order: 'sort_order.asc' });
       if (Array.isArray(units) && units.length) { this.data.business_units = units; this._save(); }
-    } catch (e) { /* tabel belum dibuat */ }
+      else if (units && units.error) this.notesLoadError = String(units.error);
+    } catch (e) {
+      this.notesLoadError = (e && e.message) ? e.message : String(e);
+    }
     try {
       // Tidak disaring created_by di sini: penerima berbagi justru perlu baris
       // milik orang lain. Yang menentukan boleh-tidaknya adalah RLS di server.
@@ -4673,7 +4687,24 @@ class Store {
           if (kept.length !== (this.data.business_notes || []).length) { this.data.business_notes = kept; this._save(); }
         }
       }
-    } catch (e) { /* tabel belum dibuat */ }
+    } catch (e) {
+      if (!this.notesLoadError) this.notesLoadError = (e && e.message) ? e.message : String(e);
+    }
+  }
+
+  // Diterjemahkan untuk layar. Dua sebab yang paling mungkin dibedakan, karena
+  // yang harus dikerjakan berbeda: migrasi belum jalan versus izin belum
+  // diberikan.
+  notesLoadMessage() {
+    const g = String(this.notesLoadError || '');
+    if (!g) return '';
+    if (/does not exist|relation .* does not exist|schema cache/i.test(g)) {
+      return 'Tabel Catatan Bisnis belum ada di server. Jalankan supabase-business-notes.sql dan supabase-notes-workspace.sql.';
+    }
+    if (/permission denied|row-level security|policy|401|403/i.test(g)) {
+      return 'Server menolak membuka daftar unit usaha untuk akun ini. Jalankan supabase-notes-akses.sql supaya akun ber-izin Catatan Bisnis boleh membacanya.';
+    }
+    return 'Gagal memuat unit usaha dari server: ' + g;
   }
 
   async createBusinessUnit(data) {

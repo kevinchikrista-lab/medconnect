@@ -65,7 +65,7 @@ export function notesSetup() {
 }
 
 function notesXData(canEdit) {
-  return `canEdit: ${canEdit ? 'true' : 'false'}, loading: true, me: window.__notesMe || '',
+  return `canEdit: ${canEdit ? 'true' : 'false'}, loading: true, galatMuat: '', me: window.__notesMe || '',
     units: window.__notesUnits || [], notes: window.__notesList || [],
     staff: window.__notesStaff || [],
     colors: window.__notesColors || {}, colorKeys: window.__notesColorKeys || [],
@@ -190,6 +190,10 @@ function notesXData(canEdit) {
     async load() {
       this.loading = true;
       try { await window.__store.loadBusinessNotes(this.me); } catch (e) {}
+      // Kalau server menolak, halaman ini HARUS mengatakannya. Daftar unit
+      // yang kosong tanpa keterangan terbaca sebagai fitur rusak, padahal
+      // yang kurang cuma satu izin.
+      this.galatMuat = window.__store.notesLoadMessage ? window.__store.notesLoadMessage() : '';
       this.refresh();
       this.loading = false;
     },
@@ -460,6 +464,10 @@ export function notesPage() {
       </div>
 
       <div x-show="loading" class="bg-white rounded-2xl border border-slate-100 p-8 text-center text-sm text-gray-400">Memuat catatan...</div>
+      <div x-show="!loading && galatMuat" x-cloak class="mb-4 px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200">
+        <p class="text-[12.5px] font-bold text-amber-900">Catatan Bisnis belum bisa dipakai di akun ini</p>
+        <p class="text-[11.5px] text-amber-800 leading-relaxed mt-0.5" x-text="galatMuat"></p>
+      </div>
 
       <!-- ================= RUANG KERJA ================= -->
       <!-- Sidebar pohon di kiri, penyunting di kanan. Penyuntingnya LANGSUNG
