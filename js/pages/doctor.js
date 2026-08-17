@@ -19,6 +19,67 @@ function formatDate(d) {
   return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// ---------------------------------------------------------------------------
+// PRIVASI REKAM MEDIS
+//
+// Seorang dokter hanya membuka rekam medis pasien yang ia tangani. Yang
+// menentukan bukan halaman ini melainkan store.recordAccess() — satu pintu
+// yang juga dipakai layar lain, supaya halaman baru yang ditambahkan nanti
+// tidak lupa memeriksanya dengan caranya sendiri.
+// ---------------------------------------------------------------------------
+function aksesRM(patientId) {
+  const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+  return store.recordAccess(user, patientId) || { boleh: false, alasan: '' };
+}
+
+// Layar untuk pasien yang belum jadi urusannya. Sengaja menyebutkan NAMA
+// pasiennya: dokter itu sampai di sini karena mengetik atau menekan nama
+// tersebut, dan menyembunyikannya hanya membuat layarnya membingungkan tanpa
+// menambah satu pun perlindungan. Yang ditutup adalah ISI rekam medisnya.
+function rmTerkunci(patient) {
+  const doc = getDoctor();
+  const q = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, alasan: '', sibuk: false, galat: '',
+    async bukaAkses() {
+      if (this.sibuk) return;
+      this.sibuk = true; this.galat = '';
+      const r = await window.__store.claimPatientAccess('${patient.id}', this.alasan);
+      this.sibuk = false;
+      if (r && r.error) { this.galat = r.error; return; }
+      window.__showToast && window.__showToast('Akses dibuka', 'Pembukaan ini tercatat dan dilaporkan ke pemilik klinik.');
+      setTimeout(function(){ window.location.reload(); }, 400);
+    } }" class="min-h-screen bg-wash">
+    ${doctorSidebar('emr')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${doctorHeader(doc)}
+      <main class="p-4 lg:p-6 max-w-2xl mx-auto">
+        <div class="bg-white rounded-2xl border border-slate-100 p-6">
+          <div class="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center mb-4"><span class="ms text-[26px] text-slate-500">lock</span></div>
+          <h2 class="text-lg font-bold text-ink">Rekam medis ${q(patient.full_name || 'pasien ini')} tertutup untuk Anda</h2>
+          <p class="text-[12.5px] text-muted leading-relaxed mt-1.5">Anda belum pernah memeriksa pasien ini, dan belum ada janji temu, resep, atau vaksinasi atas nama Anda. Rekam medis hanya terbuka bagi dokter yang menanganinya.</p>
+
+          <div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p class="text-[12.5px] font-bold text-amber-900">Perlu membukanya sekarang?</p>
+            <p class="text-[11.5px] text-amber-800 leading-relaxed mt-1">Kalau pasien ini memang sedang Anda hadapi &mdash; pasien baru, gawat darurat, atau menggantikan dokter lain &mdash; tuliskan alasannya. Aksesnya terbuka 24 jam, <b>tercatat atas nama Anda</b>, dan dilaporkan ke pemilik klinik.</p>
+            <input type="text" x-model="alasan" placeholder="Mis. pasien datang gawat darurat, dokter penanggung jawab tidak di tempat"
+              class="mt-2.5 w-full px-3 py-2.5 rounded-xl border border-amber-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50">
+            <p x-show="galat" x-cloak class="mt-2 text-[11.5px] text-red-700" x-text="galat"></p>
+            <button @click="bukaAkses()" :disabled="sibuk" class="mt-3 w-full px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-amber-600 disabled:opacity-50">
+              <span x-show="!sibuk">Buka Akses &amp; Catat Alasannya</span>
+              <span x-show="sibuk" x-cloak>Menyimpan...</span>
+            </button>
+          </div>
+
+          <div class="mt-4 flex gap-2">
+            <a href="#/doctor/patients" class="flex-1 text-center px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 bg-slate-100">Kembali ke Pasien Saya</a>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
 // new Date().toISOString().split('T')[0] reads the UTC date — WIB is
 // UTC+7, so from local midnight to 7am that's still "yesterday" in UTC,
 // which is why a record entered right after midnight local time didn't
@@ -270,12 +331,28 @@ export function doctorDashboard() {
 
 export function doctorPatients() {
   const doc = getDoctor();
-  const patients = store.getPatients();
+  // HANYA pasien yang memang ditangani dokter ini. Daftar yang memuat seluruh
+  // isi klinik bukan cuma bocor saat dibuka — ia juga membuat pencarian nama
+  // menjadi cara mengetahui siapa saja yang pernah datang ke klinik ini, dan
+  // itu sendiri sudah keterangan yang tidak berhak ia miliki.
+  const miliknya = store.patientIdsForDoctor(doc && doc.id);
+  const semua = store.getPatients();
+  const patients = semua.filter(p => miliknya.has(p.id));
+  const jumlahLain = semua.length - patients.length;
   // Editable snapshot keyed by id — the modal looks patients up by id (safe:
   // no free-text embedded in attributes), avoiding the special-char break.
   window.__patientsForEdit = patients.map(p => ({ id: p.id, full_name: p.full_name || '', nik: p.nik || '', birth_date: p.birth_date || '', gender: p.gender || '', phone: p.phone || '', address: p.address || '', blood_type: p.blood_type || '', allergies: p.allergies || '', family_name: p.family_name || '', family_phone: p.family_phone || '', family_relation: p.family_relation || '' }));
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', showNewForm: false,
+    rmCari: '', rmGalat: '',
+    bukaRM() {
+      const s = (this.rmCari || '').trim();
+      this.rmGalat = '';
+      if (!s) { this.rmGalat = 'Masukkan No. RM pasiennya.'; return; }
+      const id = window.__store.patientIdByRm ? window.__store.patientIdByRm(s) : '';
+      if (!id) { this.rmGalat = 'Tidak ada pasien dengan No. RM itu. Pastikan nomornya lengkap dan persis.'; return; }
+      window.location.hash = '#/doctor/emr/' + id;
+    },
     newPatient: { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',family_name:'',family_phone:'',family_relation:'',email:'',password:'pasien123' },
     regSaving: false, regMsg: '', regMsgErr: false,
     async registerPatient() {
@@ -312,12 +389,33 @@ export function doctorPatients() {
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-          <h2 class="text-xl font-bold text-gray-800">Manajemen Pasien</h2>
+          <div>
+            <h2 class="text-xl font-bold text-gray-800">Pasien Saya</h2>
+            <p class="text-[12px] text-muted mt-0.5">${patients.length} pasien yang Anda tangani${jumlahLain > 0 ? ` &middot; ${jumlahLain} pasien lain di klinik ini tidak ditampilkan` : ''}</p>
+          </div>
           <div class="flex gap-2">
             <div class="relative flex-1"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari nama, NIK, telepon..."></div>
             <button @click="showNewForm = !showNewForm" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Pasien Baru</button>
           </div>
         </div>
+        <!-- Pintu untuk pasien yang belum jadi urusannya: DICOCOKKAN PERSIS
+             dengan No. RM, bukan pencarian bebas. Pencarian bebas atas
+             seluruh pasien klinik akan mengembalikan lagi kebocoran yang baru
+             saja ditutup — siapa pun bisa menelusuri daftar nama dengan
+             mengetik satu huruf. No. RM harus didapat dari luar layar ini. -->
+        <div x-show="!showNewForm" x-cloak class="bg-white border border-slate-100 rounded-2xl p-4 mb-6">
+          <div class="flex flex-col sm:flex-row sm:items-end gap-2">
+            <div class="flex-1">
+              <label class="block text-[11px] font-semibold text-gray-600 mb-1">Buka pasien lain dengan No. RM</label>
+              <input type="text" x-model="rmCari" @keydown.enter="bukaRM()" placeholder="Mis. RM-2026-0142"
+                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+            </div>
+            <button @click="bukaRM()" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 bg-slate-100 whitespace-nowrap">Cari No. RM</button>
+          </div>
+          <p x-show="rmGalat" x-cloak class="mt-1.5 text-[11.5px] text-red-700" x-text="rmGalat"></p>
+          <p class="mt-1.5 text-[11px] text-gray-400">Rekam medisnya tetap tertutup sampai Anda menuliskan alasan membukanya, dan pembukaan itu dicatat.</p>
+        </div>
+
         <div x-show="showNewForm" x-cloak class="bg-white border border-slate-100 rounded-3xl p-6 mb-6">
           <h3 class="font-semibold text-gray-800 mb-4">Registrasi Pasien Baru</h3>
           <div x-show="regMsg" x-cloak class="mb-3 p-2 rounded-lg text-sm" :class="regMsgErr ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'" x-text="regMsg"></div>
@@ -399,9 +497,14 @@ export function doctorPatients() {
 export function doctorEMR(params) {
   const doc = getDoctor();
   const patient = store.getPatient(params.patientId);
+  if (!patient) return `<div class="min-h-screen flex items-center justify-center"><p class="text-gray-500">Pasien tidak ditemukan</p></div>`;
+  // Diperiksa SEBELUM satu pun baris rekam medis dibaca — bukan sesudahnya
+  // lalu disembunyikan di tampilan, karena data yang sudah masuk ke halaman
+  // tetap bisa dibaca dari sumber halamannya.
+  const akses = aksesRM(params.patientId);
+  if (!akses.boleh) return rmTerkunci(patient);
   const records = store.getRecords(params.patientId);
   const vaccinations = store.getVaccinations(params.patientId);
-  if (!patient) return `<div class="min-h-screen flex items-center justify-center"><p class="text-gray-500">Pasien tidak ditemukan</p></div>`;
 
   // Prefill the Surat Keterangan form from the latest visit's vital signs +
   // diagnosis, so the doctor rarely has to retype anything (all still editable).
@@ -1039,6 +1142,9 @@ export function doctorEMRNew(params) {
   const doc = getDoctor();
   const patient = store.getPatient(params.patientId);
   if (!patient) return '<div class="p-8 text-center text-gray-500">Pasien tidak ditemukan</div>';
+  // Halaman ini menampilkan panel rujukan berisi kunjungan-kunjungan lama,
+  // jadi ia sama terbukanya dengan halaman rekam medis dan dijaga sama.
+  if (!aksesRM(params.patientId).boleh) return rmTerkunci(patient);
   const locations = store.getLocationNames();
   window.__icd10 = ICD10;
   window.__peSystems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
@@ -1341,7 +1447,13 @@ export function doctorRecords() {
   const doc = getDoctor();
   const allRecords = store.getRecordsByDoctor(doc?.id);
   // Patient list for the "pick a patient" dialog behind the + Kunjungan button.
-  window.__recordPatients = store.getPatients().map(p => ({ id: p.id, full_name: p.full_name || '', rm_number: p.rm_number || '', nik: p.nik || '' }));
+  // Pemilih pasien di tombol "+ Kunjungan Baru" ikut dibatasi. Daftar lengkap
+  // di sini akan menjadi jalan memutar untuk hal yang sama: melihat siapa saja
+  // yang pernah datang ke klinik ini.
+  const bolehDilihat = store.patientIdsForDoctor(doc && doc.id);
+  window.__recordPatients = store.getPatients()
+    .filter(p => bolehDilihat.has(p.id))
+    .map(p => ({ id: p.id, full_name: p.full_name || '', rm_number: p.rm_number || '', nik: p.nik || '' }));
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', pickOpen: false, pickSearch: '', patients: window.__recordPatients || [],
     get pickList() { const s=(this.pickSearch||'').toLowerCase(); return s ? this.patients.filter(p => (p.full_name+' '+p.rm_number+' '+p.nik).toLowerCase().includes(s)) : this.patients; },
@@ -1828,6 +1940,7 @@ export function doctorEMREdit(params) {
   const record = store.data.medical_records.find(r => r.id === params.recordId);
   if (!record) return '<div class="p-8 text-center text-gray-500">Rekam medis tidak ditemukan</div>';
   const patient = store.getPatient(record.patient_id);
+  if (patient && !aksesRM(record.patient_id).boleh) return rmTerkunci(patient);
   // Tempat yang tersimpan di rekam medis ini bisa saja sudah dihapus /
   // dinonaktifkan dari master lokasi. Kalau tidak ikut dimasukkan sebagai
   // pilihan, <select> tidak punya opsi yang cocok dan lokasi kunjungan lama
