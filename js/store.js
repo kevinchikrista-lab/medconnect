@@ -4812,6 +4812,26 @@ class Store {
 
   // Siapa saja yang bisa membaca sebuah catatan selain pemiliknya —
   // ditampilkan pada kartunya supaya tidak ada yang terbagi tanpa disadari.
+  // Keadaan berbagi sebuah halaman, siap ditampilkan. Dipisah dari
+  // noteSharedNames karena layar perlu membedakan tiga hal yang berbeda:
+  // belum dibagikan sama sekali, dibagikan untuk dibaca, dan dibagikan sampai
+  // boleh ikut menulis.
+  noteShareInfo(note) {
+    const kosong = { dibagikan: false, unit: 'Tanpa unit', baca: '', tulis: '' };
+    if (!note) return kosong;
+    if (note.is_private) return { ...kosong, unit: this.businessUnitName(note.unit_id) };
+    const u = note.unit_id ? this.getBusinessUnit(note.unit_id) : null;
+    if (!u) return kosong;
+    const baca = this.unitSharedWith(u).map(id => this.staffName(id)).filter(Boolean);
+    const tulis = this.unitEditIdsFor ? this.unitSharedEditWith(u).map(id => this.staffName(id)).filter(Boolean) : [];
+    return {
+      dibagikan: baca.length > 0,
+      unit: u.name || 'Tanpa unit',
+      baca: baca.join(', '),
+      tulis: tulis.join(', '),
+    };
+  }
+
   noteSharedNames(note) {
     if (!note || note.is_private || !note.unit_id) return [];
     const u = this.getBusinessUnit(note.unit_id);
@@ -4848,9 +4868,21 @@ class Store {
       this.notesLoadError = (e && e.message) ? e.message : String(e);
     }
     try {
-      // Tidak disaring created_by di sini: penerima berbagi justru perlu baris
-      // milik orang lain. Yang menentukan boleh-tidaknya adalah RLS di server.
-      const rows = await supabase.select('business_notes', userId ? { eq: { created_by: userId } } : {});
+      // TIDAK DISARING created_by, dan komentar ini pernah berdiri di atas kode
+      // yang melakukan justru sebaliknya:
+      //
+      //     supabase.select('business_notes', userId ? { eq: { created_by: userId } } : {})
+      //
+      // Akibatnya peramban penerima berbagi hanya pernah MEMINTA baris miliknya
+      // sendiri. Catatan yang dibagikan kepadanya ditolak sebelum RLS sempat
+      // mengizinkannya — bukan karena servernya menutup, melainkan karena tidak
+      // pernah ada yang menanyakannya. Yang menulis catatan melihatnya
+      // tersimpan, yang dibagikan tidak pernah melihat apa pun, dan tidak ada
+      // pesan galat di mana pun karena memang tidak ada yang gagal.
+      //
+      // Yang menentukan boleh-tidaknya adalah RLS di server: own_notes untuk
+      // catatan sendiri, shared_notes_read untuk unit yang dibagikan.
+      const rows = await supabase.select('business_notes', {});
       if (Array.isArray(rows)) {
         if (rows.length) { this.data.business_notes = rows; this._save(); }
         else {
