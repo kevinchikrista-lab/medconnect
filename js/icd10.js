@@ -1,4 +1,5 @@
-export const ICD10 = [
+// Daftar inti — 226 diagnosis pilihan yang dipakai sejak awal.
+const INTI = [
   // A00-A09 Intestinal infectious diseases
   { code: 'A00.9', name: 'Kolera', name_id: 'Kolera, tidak spesifik' },
   { code: 'A01.0', name: 'Typhoid fever', name_id: 'Demam Tifoid' },
@@ -333,3 +334,314 @@ export const ICD10 = [
   { code: 'Z71.1', name: 'Person with feared complaint without diagnosis', name_id: 'Konsultasi tanpa Diagnosis (Keluhan Ditakutkan)' },
   { code: 'Z76.0', name: 'Prescription repeat', name_id: 'Resep Ulangan' },
 ];
+
+// =============================================================================
+// TAMBAHAN — bab yang sebelumnya kosong atau nyaris kosong
+//
+// Daftar inti di atas berisi 226 diagnosis pilihan tangan. Itu cukup untuk
+// keluhan yang paling sering datang, tetapi bukan ICD-10: ICD-10 asli berisi
+// sekitar 14.000 kode. Yang paling terasa hilang saat dipakai sungguhan:
+//
+//   - seluruh bab G (saraf) hanya berisi migrain dan Bell's palsy — TIDAK ADA
+//     EPILEPSI, tidak ada TIA, neuropati, atau carpal tunnel
+//   - R56 (kejang, termasuk kejang demam anak) tidak ada sama sekali
+//   - bab C (keganasan), O (kehamilan & persalinan), P (perinatal), dan
+//     Q (kelainan bawaan) kosong seluruhnya
+//
+// PERINGATAN YANG TIDAK BOLEH DIHAPUS
+//
+// Kode di bawah ditulis dari pengetahuan umum tentang ICD-10, BUKAN disalin
+// dari terbitan resmi WHO atau buku ICD-10 Kemenkes — lingkungan tempat kode
+// ini ditulis tidak bisa mengunduhnya. Untuk pemakaian klinis sehari-hari
+// ketelitiannya memadai, tetapi untuk KLAIM BPJS dan PELAPORAN, kode yang
+// dipakai sebaiknya dicocokkan dulu dengan buku ICD-10 yang berlaku. Kode
+// yang salah pada klaim bukan perkara kosmetik.
+//
+// Kalau ada kode yang keliru atau kurang, jangan menunggu perubahan kode:
+// tambahkan sendiri lewat tombol di layar pencarian diagnosis. Kode yang
+// ditambahkan tersimpan untuk seluruh klinik.
+// =============================================================================
+const TAMBAHAN = [
+  // ---- A/B: infeksi yang belum tercakup -----------------------------------
+  { code: 'A15.3', name: 'Tuberculosis of lung, confirmed by unspecified means', name_id: 'TB Paru Terkonfirmasi' },
+  { code: 'A16.2', name: 'Tuberculosis of lung without mention of bacteriological confirmation', name_id: 'TB Paru Klinis (Tanpa Konfirmasi Bakteriologis)' },
+  { code: 'A41.9', name: 'Sepsis, unspecified', name_id: 'Sepsis' },
+  { code: 'A53.9', name: 'Syphilis, unspecified', name_id: 'Sifilis' },
+  { code: 'A63.0', name: 'Anogenital warts', name_id: 'Kondiloma Akuminata (Kutil Kelamin)' },
+  { code: 'B20', name: 'HIV disease resulting in infectious and parasitic diseases', name_id: 'HIV dengan Infeksi Oportunistik' },
+  { code: 'B24', name: 'Unspecified HIV disease', name_id: 'HIV, Tidak Spesifik' },
+  { code: 'B50.9', name: 'Plasmodium falciparum malaria, unspecified', name_id: 'Malaria Falciparum' },
+  { code: 'B51.9', name: 'Plasmodium vivax malaria without complication', name_id: 'Malaria Vivax' },
+  { code: 'B54', name: 'Unspecified malaria', name_id: 'Malaria, Tidak Spesifik' },
+  { code: 'B99', name: 'Other and unspecified infectious diseases', name_id: 'Penyakit Infeksi Lain / Tidak Spesifik' },
+  { code: 'U07.1', name: 'COVID-19, virus identified', name_id: 'COVID-19 (Terkonfirmasi)' },
+  { code: 'U07.2', name: 'COVID-19, virus not identified', name_id: 'COVID-19 (Klinis/Epidemiologis)' },
+
+  // ---- C: keganasan (bab ini sebelumnya KOSONG) ---------------------------
+  { code: 'C16.9', name: 'Malignant neoplasm of stomach', name_id: 'Kanker Lambung' },
+  { code: 'C18.9', name: 'Malignant neoplasm of colon', name_id: 'Kanker Kolon' },
+  { code: 'C20', name: 'Malignant neoplasm of rectum', name_id: 'Kanker Rektum' },
+  { code: 'C22.0', name: 'Liver cell carcinoma', name_id: 'Karsinoma Hepatoseluler' },
+  { code: 'C34.9', name: 'Malignant neoplasm of bronchus and lung', name_id: 'Kanker Paru' },
+  { code: 'C50.9', name: 'Malignant neoplasm of breast', name_id: 'Kanker Payudara' },
+  { code: 'C53.9', name: 'Malignant neoplasm of cervix uteri', name_id: 'Kanker Serviks' },
+  { code: 'C56', name: 'Malignant neoplasm of ovary', name_id: 'Kanker Ovarium' },
+  { code: 'C61', name: 'Malignant neoplasm of prostate', name_id: 'Kanker Prostat' },
+  { code: 'C73', name: 'Malignant neoplasm of thyroid gland', name_id: 'Kanker Tiroid' },
+  { code: 'C80.9', name: 'Malignant neoplasm, primary site unspecified', name_id: 'Keganasan, Lokasi Primer Tidak Diketahui' },
+  { code: 'C91.0', name: 'Acute lymphoblastic leukaemia', name_id: 'Leukemia Limfoblastik Akut (ALL)' },
+  { code: 'C92.0', name: 'Acute myeloblastic leukaemia', name_id: 'Leukemia Mieloblastik Akut (AML)' },
+  { code: 'D17.9', name: 'Benign lipomatous neoplasm', name_id: 'Lipoma' },
+  { code: 'D22.9', name: 'Melanocytic naevi', name_id: 'Nevus Pigmentosus (Tahi Lalat)' },
+  { code: 'D25.9', name: 'Leiomyoma of uterus', name_id: 'Mioma Uteri' },
+
+  // ---- D: darah -----------------------------------------------------------
+  { code: 'D51.9', name: 'Vitamin B12 deficiency anaemia', name_id: 'Anemia Defisiensi Vitamin B12' },
+  { code: 'D52.9', name: 'Folate deficiency anaemia', name_id: 'Anemia Defisiensi Folat' },
+  { code: 'D56.9', name: 'Thalassaemia, unspecified', name_id: 'Talasemia' },
+  { code: 'D62', name: 'Acute posthaemorrhagic anaemia', name_id: 'Anemia Akut Pasca Perdarahan' },
+  { code: 'D69.3', name: 'Idiopathic thrombocytopenic purpura', name_id: 'ITP (Trombositopenia Imun)' },
+  { code: 'D70', name: 'Agranulocytosis', name_id: 'Agranulositosis / Neutropenia' },
+
+  // ---- E: endokrin & metabolik --------------------------------------------
+  { code: 'E04.9', name: 'Nontoxic goitre, unspecified', name_id: 'Struma Nontoksik' },
+  { code: 'E10.1', name: 'Type 1 diabetes mellitus with ketoacidosis', name_id: 'DM Tipe 1 dengan Ketoasidosis' },
+  { code: 'E11.1', name: 'Type 2 diabetes mellitus with ketoacidosis', name_id: 'DM Tipe 2 dengan Ketoasidosis' },
+  { code: 'E11.2', name: 'Type 2 diabetes mellitus with renal complications', name_id: 'DM Tipe 2 dengan Nefropati' },
+  { code: 'E11.3', name: 'Type 2 diabetes mellitus with ophthalmic complications', name_id: 'DM Tipe 2 dengan Retinopati' },
+  { code: 'E11.4', name: 'Type 2 diabetes mellitus with neurological complications', name_id: 'DM Tipe 2 dengan Neuropati' },
+  { code: 'E11.5', name: 'Type 2 diabetes mellitus with peripheral circulatory complications', name_id: 'DM Tipe 2 dengan Gangguan Sirkulasi (Kaki Diabetik)' },
+  { code: 'E16.2', name: 'Hypoglycaemia, unspecified', name_id: 'Hipoglikemia' },
+  { code: 'E66.0', name: 'Obesity due to excess calories', name_id: 'Obesitas' },
+  { code: 'E73.9', name: 'Lactose intolerance, unspecified', name_id: 'Intoleransi Laktosa' },
+  { code: 'E86', name: 'Volume depletion', name_id: 'Dehidrasi' },
+  { code: 'E87.1', name: 'Hypo-osmolality and hyponatraemia', name_id: 'Hiponatremia' },
+  { code: 'E87.6', name: 'Hypokalaemia', name_id: 'Hipokalemia' },
+
+  // ---- F: jiwa & perilaku -------------------------------------------------
+  { code: 'F00.9', name: "Dementia in Alzheimer's disease", name_id: 'Demensia Alzheimer' },
+  { code: 'F03', name: 'Unspecified dementia', name_id: 'Demensia, Tidak Spesifik' },
+  { code: 'F10.2', name: 'Alcohol dependence syndrome', name_id: 'Ketergantungan Alkohol' },
+  { code: 'F17.2', name: 'Nicotine dependence', name_id: 'Ketergantungan Nikotin' },
+  { code: 'F20.9', name: 'Schizophrenia, unspecified', name_id: 'Skizofrenia' },
+  { code: 'F25.9', name: 'Schizoaffective disorder', name_id: 'Gangguan Skizoafektif' },
+  { code: 'F31.9', name: 'Bipolar affective disorder, unspecified', name_id: 'Gangguan Bipolar' },
+  { code: 'F32.0', name: 'Mild depressive episode', name_id: 'Episode Depresi Ringan' },
+  { code: 'F32.1', name: 'Moderate depressive episode', name_id: 'Episode Depresi Sedang' },
+  { code: 'F32.2', name: 'Severe depressive episode without psychotic symptoms', name_id: 'Episode Depresi Berat Tanpa Gejala Psikotik' },
+  { code: 'F33.9', name: 'Recurrent depressive disorder, unspecified', name_id: 'Gangguan Depresi Berulang' },
+  { code: 'F40.1', name: 'Social phobias', name_id: 'Fobia Sosial' },
+  { code: 'F42.9', name: 'Obsessive-compulsive disorder', name_id: 'Gangguan Obsesif-Kompulsif (OCD)' },
+  { code: 'F43.1', name: 'Post-traumatic stress disorder', name_id: 'PTSD' },
+  { code: 'F43.2', name: 'Adjustment disorders', name_id: 'Gangguan Penyesuaian' },
+  { code: 'F45.9', name: 'Somatoform disorder, unspecified', name_id: 'Gangguan Somatoform' },
+  { code: 'F84.0', name: 'Childhood autism', name_id: 'Autisme Masa Kanak' },
+  { code: 'F90.9', name: 'Hyperkinetic disorder, unspecified', name_id: 'ADHD / Gangguan Hiperkinetik' },
+
+  // ---- G: saraf — INI YANG PALING KURANG ----------------------------------
+  { code: 'G00.9', name: 'Bacterial meningitis, unspecified', name_id: 'Meningitis Bakterial' },
+  { code: 'G03.9', name: 'Meningitis, unspecified', name_id: 'Meningitis, Tidak Spesifik' },
+  { code: 'G20', name: "Parkinson's disease", name_id: 'Penyakit Parkinson' },
+  { code: 'G35', name: 'Multiple sclerosis', name_id: 'Multiple Sclerosis' },
+  { code: 'G40.0', name: 'Localization-related idiopathic epilepsy with seizures of localized onset', name_id: 'Epilepsi Fokal Idiopatik' },
+  { code: 'G40.2', name: 'Localization-related symptomatic epilepsy with complex partial seizures', name_id: 'Epilepsi Fokal Simtomatik (Kejang Parsial Kompleks)' },
+  { code: 'G40.3', name: 'Generalized idiopathic epilepsy and epileptic syndromes', name_id: 'Epilepsi Umum Idiopatik' },
+  { code: 'G40.6', name: 'Grand mal seizures, unspecified', name_id: 'Epilepsi Grand Mal' },
+  { code: 'G40.9', name: 'Epilepsy, unspecified', name_id: 'Epilepsi, Tidak Spesifik' },
+  { code: 'G41.0', name: 'Grand mal status epilepticus', name_id: 'Status Epileptikus Grand Mal' },
+  { code: 'G41.9', name: 'Status epilepticus, unspecified', name_id: 'Status Epileptikus' },
+  { code: 'G43.0', name: 'Migraine without aura', name_id: 'Migrain Tanpa Aura' },
+  { code: 'G43.1', name: 'Migraine with aura', name_id: 'Migrain dengan Aura' },
+  { code: 'G45.9', name: 'Transient cerebral ischaemic attack, unspecified', name_id: 'TIA (Serangan Iskemik Sepintas)' },
+  { code: 'G47.0', name: 'Disorders of initiating and maintaining sleep', name_id: 'Insomnia' },
+  { code: 'G47.3', name: 'Sleep apnoea', name_id: 'Sleep Apnea' },
+  { code: 'G50.0', name: 'Trigeminal neuralgia', name_id: 'Neuralgia Trigeminal' },
+  { code: 'G54.4', name: 'Lumbosacral root disorders', name_id: 'Radikulopati Lumbosakral' },
+  { code: 'G56.0', name: 'Carpal tunnel syndrome', name_id: 'Carpal Tunnel Syndrome' },
+  { code: 'G57.0', name: 'Lesion of sciatic nerve', name_id: 'Lesi Nervus Iskiadikus' },
+  { code: 'G62.9', name: 'Polyneuropathy, unspecified', name_id: 'Polineuropati' },
+  { code: 'G63.2', name: 'Diabetic polyneuropathy', name_id: 'Polineuropati Diabetik' },
+  { code: 'G80.9', name: 'Cerebral palsy, unspecified', name_id: 'Cerebral Palsy' },
+  { code: 'G81.9', name: 'Hemiplegia, unspecified', name_id: 'Hemiplegia' },
+  { code: 'G91.9', name: 'Hydrocephalus, unspecified', name_id: 'Hidrosefalus' },
+
+  // ---- H: mata & telinga --------------------------------------------------
+  { code: 'H16.9', name: 'Keratitis, unspecified', name_id: 'Keratitis' },
+  { code: 'H20.9', name: 'Iridocyclitis, unspecified', name_id: 'Iridosiklitis (Uveitis Anterior)' },
+  { code: 'H26.9', name: 'Cataract, unspecified', name_id: 'Katarak, Tidak Spesifik' },
+  { code: 'H36.0', name: 'Diabetic retinopathy', name_id: 'Retinopati Diabetik' },
+  { code: 'H40.9', name: 'Glaucoma, unspecified', name_id: 'Glaukoma' },
+  { code: 'H52.0', name: 'Hypermetropia', name_id: 'Hipermetropia (Rabun Dekat)' },
+  { code: 'H52.2', name: 'Astigmatism', name_id: 'Astigmatisme' },
+  { code: 'H52.4', name: 'Presbyopia', name_id: 'Presbiopia' },
+  { code: 'H61.2', name: 'Impacted cerumen', name_id: 'Serumen Obturans (Kotoran Telinga Menyumbat)' },
+  { code: 'H72.0', name: 'Central perforation of tympanic membrane', name_id: 'Perforasi Membran Timpani' },
+  { code: 'H81.0', name: "Meniere's disease", name_id: 'Penyakit Meniere' },
+  { code: 'H90.3', name: 'Sensorineural hearing loss, bilateral', name_id: 'Tuli Sensorineural Bilateral' },
+  { code: 'H91.9', name: 'Hearing loss, unspecified', name_id: 'Gangguan Pendengaran' },
+  { code: 'H93.1', name: 'Tinnitus', name_id: 'Tinitus' },
+
+  // ---- I: jantung & pembuluh darah ----------------------------------------
+  { code: 'I15.9', name: 'Secondary hypertension, unspecified', name_id: 'Hipertensi Sekunder' },
+  { code: 'I48', name: 'Atrial fibrillation and flutter', name_id: 'Fibrilasi Atrium' },
+  { code: 'I50.0', name: 'Congestive heart failure', name_id: 'Gagal Jantung Kongestif' },
+  { code: 'I50.9', name: 'Heart failure, unspecified', name_id: 'Gagal Jantung' },
+  { code: 'I61.9', name: 'Intracerebral haemorrhage, unspecified', name_id: 'Stroke Hemoragik' },
+  { code: 'I69.3', name: 'Sequelae of cerebral infarction', name_id: 'Sekuele Stroke Iskemik' },
+  { code: 'I80.2', name: 'Phlebitis and thrombophlebitis of deep vessels of lower extremities', name_id: 'Trombosis Vena Dalam (DVT)' },
+  { code: 'I95.9', name: 'Hypotension, unspecified', name_id: 'Hipotensi' },
+
+  // ---- J: pernapasan ------------------------------------------------------
+  { code: 'J12.9', name: 'Viral pneumonia, unspecified', name_id: 'Pneumonia Viral' },
+  { code: 'J13', name: 'Pneumonia due to Streptococcus pneumoniae', name_id: 'Pneumonia Pneumokokus' },
+  { code: 'J43.9', name: 'Emphysema, unspecified', name_id: 'Emfisema' },
+  { code: 'J46', name: 'Status asthmaticus', name_id: 'Status Asmatikus' },
+  { code: 'J47', name: 'Bronchiectasis', name_id: 'Bronkiektasis' },
+  { code: 'J90', name: 'Pleural effusion', name_id: 'Efusi Pleura' },
+  { code: 'J93.9', name: 'Pneumothorax, unspecified', name_id: 'Pneumotoraks' },
+
+  // ---- K: pencernaan ------------------------------------------------------
+  { code: 'K42.9', name: 'Umbilical hernia without obstruction or gangrene', name_id: 'Hernia Umbilikalis' },
+  { code: 'K57.9', name: 'Diverticular disease of intestine', name_id: 'Penyakit Divertikular' },
+  { code: 'K60.2', name: 'Anal fissure, unspecified', name_id: 'Fisura Ani' },
+  { code: 'K64.9', name: 'Haemorrhoids, unspecified', name_id: 'Hemoroid' },
+  { code: 'K73.9', name: 'Chronic hepatitis, unspecified', name_id: 'Hepatitis Kronik' },
+  { code: 'K74.6', name: 'Other and unspecified cirrhosis of liver', name_id: 'Sirosis Hati' },
+  { code: 'K80.2', name: 'Calculus of gallbladder without cholecystitis', name_id: 'Batu Empedu' },
+  { code: 'K81.0', name: 'Acute cholecystitis', name_id: 'Kolesistitis Akut' },
+  { code: 'K85.9', name: 'Acute pancreatitis, unspecified', name_id: 'Pankreatitis Akut' },
+  { code: 'K92.2', name: 'Gastrointestinal haemorrhage, unspecified', name_id: 'Perdarahan Saluran Cerna' },
+
+  // ---- L: kulit -----------------------------------------------------------
+  { code: 'L21.9', name: 'Seborrhoeic dermatitis, unspecified', name_id: 'Dermatitis Seboroik' },
+  { code: 'L42', name: 'Pityriasis rosea', name_id: 'Pitiriasis Rosea' },
+  { code: 'L43.9', name: 'Lichen planus, unspecified', name_id: 'Liken Planus' },
+  { code: 'L63.9', name: 'Alopecia areata, unspecified', name_id: 'Alopesia Areata' },
+  { code: 'L80', name: 'Vitiligo', name_id: 'Vitiligo' },
+  { code: 'L81.4', name: 'Other melanin hyperpigmentation', name_id: 'Melasma / Hiperpigmentasi' },
+  { code: 'L82', name: 'Seborrhoeic keratosis', name_id: 'Keratosis Seboroik' },
+  { code: 'L84', name: 'Corns and callosities', name_id: 'Kalus / Mata Ikan' },
+  { code: 'L89.9', name: 'Decubitus ulcer, unspecified', name_id: 'Ulkus Dekubitus' },
+  { code: 'L91.0', name: 'Hypertrophic scar', name_id: 'Keloid / Parut Hipertrofik' },
+  { code: 'L98.4', name: 'Chronic ulcer of skin, not elsewhere classified', name_id: 'Ulkus Kulit Kronik' },
+
+  // ---- M: otot & rangka ---------------------------------------------------
+  { code: 'M15.9', name: 'Polyarthrosis, unspecified', name_id: 'Poliartrosis' },
+  { code: 'M16.9', name: 'Coxarthrosis, unspecified', name_id: 'Osteoartritis Panggul' },
+  { code: 'M20.1', name: 'Hallux valgus (acquired)', name_id: 'Hallux Valgus' },
+  { code: 'M32.9', name: 'Systemic lupus erythematosus, unspecified', name_id: 'Lupus Eritematosus Sistemik (SLE)' },
+  { code: 'M41.9', name: 'Scoliosis, unspecified', name_id: 'Skoliosis' },
+  { code: 'M45', name: 'Ankylosing spondylitis', name_id: 'Spondilitis Ankilosa' },
+  { code: 'M50.1', name: 'Cervical disc disorder with radiculopathy', name_id: 'HNP Servikal dengan Radikulopati' },
+  { code: 'M53.1', name: 'Cervicobrachial syndrome', name_id: 'Sindrom Servikobrakial' },
+  { code: 'M54.1', name: 'Radiculopathy', name_id: 'Radikulopati' },
+  { code: 'M54.3', name: 'Sciatica', name_id: 'Iskialgia' },
+  { code: 'M54.4', name: 'Lumbago with sciatica', name_id: 'Nyeri Pinggang dengan Iskialgia' },
+  { code: 'M75.0', name: 'Adhesive capsulitis of shoulder', name_id: 'Frozen Shoulder' },
+  { code: 'M76.6', name: 'Achilles tendinitis', name_id: 'Tendinitis Achilles' },
+  { code: 'M81.9', name: 'Osteoporosis, unspecified', name_id: 'Osteoporosis' },
+  { code: 'M86.9', name: 'Osteomyelitis, unspecified', name_id: 'Osteomielitis' },
+
+  // ---- N: ginjal & kelamin ------------------------------------------------
+  { code: 'N04.9', name: 'Nephrotic syndrome, unspecified', name_id: 'Sindrom Nefrotik' },
+  { code: 'N17.9', name: 'Acute renal failure, unspecified', name_id: 'Gagal Ginjal Akut' },
+  { code: 'N18.3', name: 'Chronic kidney disease, stage 3', name_id: 'Penyakit Ginjal Kronik Stadium 3' },
+  { code: 'N18.4', name: 'Chronic kidney disease, stage 4', name_id: 'Penyakit Ginjal Kronik Stadium 4' },
+  { code: 'N18.5', name: 'Chronic kidney disease, stage 5', name_id: 'Penyakit Ginjal Kronik Stadium 5' },
+  { code: 'N43.3', name: 'Hydrocele, unspecified', name_id: 'Hidrokel' },
+  { code: 'N47', name: 'Redundant prepuce, phimosis and paraphimosis', name_id: 'Fimosis / Parafimosis' },
+  { code: 'N63', name: 'Unspecified lump in breast', name_id: 'Benjolan Payudara' },
+  { code: 'N70.9', name: 'Salpingitis and oophoritis, unspecified', name_id: 'Salpingitis / Ooforitis' },
+  { code: 'N80.9', name: 'Endometriosis, unspecified', name_id: 'Endometriosis' },
+  { code: 'N83.2', name: 'Other and unspecified ovarian cysts', name_id: 'Kista Ovarium' },
+  { code: 'N93.9', name: 'Abnormal uterine and vaginal bleeding, unspecified', name_id: 'Perdarahan Uterus Abnormal' },
+  { code: 'N95.1', name: 'Menopausal and female climacteric states', name_id: 'Menopause / Klimakterium' },
+  { code: 'N97.9', name: 'Female infertility, unspecified', name_id: 'Infertilitas Wanita' },
+
+  // ---- O: kehamilan & persalinan (bab ini sebelumnya KOSONG) --------------
+  { code: 'O00.9', name: 'Ectopic pregnancy, unspecified', name_id: 'Kehamilan Ektopik' },
+  { code: 'O03.9', name: 'Spontaneous abortion, complete or unspecified', name_id: 'Abortus Spontan' },
+  { code: 'O13', name: 'Gestational hypertension', name_id: 'Hipertensi Gestasional' },
+  { code: 'O14.9', name: 'Pre-eclampsia, unspecified', name_id: 'Preeklampsia' },
+  { code: 'O15.9', name: 'Eclampsia, unspecified as to time period', name_id: 'Eklampsia' },
+  { code: 'O21.0', name: 'Mild hyperemesis gravidarum', name_id: 'Hiperemesis Gravidarum Ringan' },
+  { code: 'O24.4', name: 'Diabetes mellitus arising in pregnancy', name_id: 'Diabetes Gestasional' },
+  { code: 'O47.9', name: 'False labour, unspecified', name_id: 'Kontraksi Palsu (Braxton Hicks)' },
+  { code: 'O80', name: 'Single spontaneous delivery', name_id: 'Persalinan Spontan Tunggal' },
+  { code: 'O99.0', name: 'Anaemia complicating pregnancy', name_id: 'Anemia dalam Kehamilan' },
+
+  // ---- P: perinatal (bab ini sebelumnya KOSONG) ---------------------------
+  { code: 'P05.9', name: 'Slow fetal growth, unspecified', name_id: 'Pertumbuhan Janin Terhambat' },
+  { code: 'P07.1', name: 'Other low birth weight', name_id: 'Berat Badan Lahir Rendah (BBLR)' },
+  { code: 'P07.3', name: 'Other preterm infants', name_id: 'Bayi Prematur' },
+  { code: 'P22.0', name: 'Respiratory distress syndrome of newborn', name_id: 'Sindrom Gawat Napas Neonatus' },
+  { code: 'P36.9', name: 'Bacterial sepsis of newborn, unspecified', name_id: 'Sepsis Neonatorum' },
+  { code: 'P59.9', name: 'Neonatal jaundice, unspecified', name_id: 'Ikterus Neonatorum' },
+  { code: 'P92.9', name: 'Feeding problem of newborn, unspecified', name_id: 'Masalah Minum pada Neonatus' },
+
+  // ---- Q: kelainan bawaan (bab ini sebelumnya KOSONG) ---------------------
+  { code: 'Q21.0', name: 'Ventricular septal defect', name_id: 'VSD (Defek Septum Ventrikel)' },
+  { code: 'Q21.1', name: 'Atrial septal defect', name_id: 'ASD (Defek Septum Atrium)' },
+  { code: 'Q25.0', name: 'Patent ductus arteriosus', name_id: 'PDA (Duktus Arteriosus Persisten)' },
+  { code: 'Q35.9', name: 'Cleft palate, unspecified', name_id: 'Celah Langit-langit (Palatoskisis)' },
+  { code: 'Q36.9', name: 'Cleft lip, unilateral', name_id: 'Bibir Sumbing (Labioskisis)' },
+  { code: 'Q37.9', name: 'Unspecified cleft palate with unilateral cleft lip', name_id: 'Labiopalatoskisis' },
+  { code: 'Q53.9', name: 'Undescended testicle, unspecified', name_id: 'Kriptorkismus (Testis Tidak Turun)' },
+  { code: 'Q54.9', name: 'Hypospadias, unspecified', name_id: 'Hipospadia' },
+  { code: 'Q66.0', name: 'Talipes equinovarus', name_id: 'CTEV (Kaki Pengkor)' },
+  { code: 'Q90.9', name: "Down's syndrome, unspecified", name_id: 'Sindrom Down' },
+
+  // ---- R: gejala & tanda --------------------------------------------------
+  { code: 'R00.0', name: 'Tachycardia, unspecified', name_id: 'Takikardia' },
+  { code: 'R04.0', name: 'Epistaxis', name_id: 'Epistaksis (Mimisan)' },
+  { code: 'R21', name: 'Rash and other nonspecific skin eruption', name_id: 'Ruam Kulit Tidak Spesifik' },
+  { code: 'R31', name: 'Unspecified haematuria', name_id: 'Hematuria' },
+  { code: 'R33', name: 'Retention of urine', name_id: 'Retensi Urin' },
+  { code: 'R40.2', name: 'Coma, unspecified', name_id: 'Penurunan Kesadaran / Koma' },
+  { code: 'R42', name: 'Dizziness and giddiness', name_id: 'Pusing Berputar / Vertigo Tidak Spesifik' },
+  { code: 'R56.8', name: 'Other and unspecified convulsions', name_id: 'Kejang, Tidak Spesifik' },
+  { code: 'R60.0', name: 'Localized oedema', name_id: 'Edema Lokal' },
+  { code: 'R63.0', name: 'Anorexia', name_id: 'Nafsu Makan Menurun' },
+  { code: 'R63.4', name: 'Abnormal weight loss', name_id: 'Penurunan Berat Badan' },
+  { code: 'R73.9', name: 'Hyperglycaemia, unspecified', name_id: 'Hiperglikemia' },
+
+  // ---- S/T: cedera & keracunan --------------------------------------------
+  { code: 'S01.9', name: 'Open wound of head, part unspecified', name_id: 'Luka Terbuka Kepala' },
+  { code: 'S06.0', name: 'Concussion', name_id: 'Komosio Serebri (Gegar Otak)' },
+  { code: 'S22.3', name: 'Fracture of one rib', name_id: 'Fraktur Iga' },
+  { code: 'S42.0', name: 'Fracture of clavicle', name_id: 'Fraktur Klavikula' },
+  { code: 'S52.5', name: 'Fracture of lower end of radius', name_id: 'Fraktur Radius Distal' },
+  { code: 'S72.0', name: 'Fracture of neck of femur', name_id: 'Fraktur Kolum Femur' },
+  { code: 'S83.6', name: 'Sprain and strain of other parts of knee', name_id: 'Sprain Lutut' },
+  { code: 'T78.2', name: 'Anaphylactic shock, unspecified', name_id: 'Syok Anafilaktik' },
+  { code: 'T88.7', name: 'Unspecified adverse effect of drug or medicament', name_id: 'Efek Samping Obat' },
+
+  // ---- Z: faktor yang memengaruhi status kesehatan ------------------------
+  { code: 'Z00.1', name: 'Routine child health examination', name_id: 'Pemeriksaan Kesehatan Anak Rutin' },
+  { code: 'Z02.7', name: 'Issue of medical certificate', name_id: 'Penerbitan Surat Keterangan Sehat/Sakit' },
+  { code: 'Z03.9', name: 'Observation for suspected disease or condition, unspecified', name_id: 'Observasi Dugaan Penyakit' },
+  { code: 'Z13.9', name: 'Special screening examination, unspecified', name_id: 'Skrining Kesehatan' },
+  { code: 'Z33', name: 'Pregnant state, incidental', name_id: 'Keadaan Hamil (Insidental)' },
+  { code: 'Z35.9', name: 'Supervision of high-risk pregnancy, unspecified', name_id: 'Pemeriksaan Kehamilan Risiko Tinggi' },
+  { code: 'Z37.0', name: 'Single live birth', name_id: 'Kelahiran Hidup Tunggal' },
+  { code: 'Z39.1', name: 'Care and examination of lactating mother', name_id: 'Pemeriksaan Ibu Menyusui' },
+  { code: 'Z39.2', name: 'Routine postpartum follow-up', name_id: 'Kontrol Nifas Rutin' },
+  { code: 'Z48.0', name: 'Attention to surgical dressings and sutures', name_id: 'Ganti Verban / Angkat Jahitan' },
+  { code: 'Z72.0', name: 'Tobacco use', name_id: 'Kebiasaan Merokok' },
+];
+
+// Kode yang sama tidak boleh muncul dua kali di kotak pencarian: dokter yang
+// melihat dua baris identik akan ragu mana yang benar. Yang pertama menang,
+// jadi daftar inti tetap memegang nama Indonesianya bila ada bentrokan.
+function gabung(inti, tambahan) {
+  const lihat = new Set(inti.map(d => d.code));
+  const keluar = inti.slice();
+  for (const d of tambahan) {
+    if (lihat.has(d.code)) continue;
+    lihat.add(d.code);
+    keluar.push(d);
+  }
+  return keluar;
+}
+
+export const ICD10 = gabung(INTI, TAMBAHAN);

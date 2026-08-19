@@ -211,6 +211,26 @@ function secondaryDxCard() {
             <div class="flex items-center gap-2"><span class="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-xs font-mono font-bold flex-shrink-0" x-text="item.code"></span><span class="text-sm text-gray-800" x-text="item.name_id"></span></div>
           </button>
         </template>
+
+        <!-- Tidak ketemu bukan jalan buntu. Daftar bawaan
+             bukan ICD-10 utuh, jadi kode yang hilang ditambahkan
+             di sini juga — sekali, lalu tersedia untuk seluruh
+             klinik. -->
+        <template x-if="icdKosong">
+          <div class="p-3 border-t border-slate-100 bg-slate-50">
+            <p class="text-[11.5px] text-slate-600">Tidak ada kode yang cocok dengan <b x-text="icdKosong"></b>.</p>
+            <div class="grid grid-cols-[110px_1fr] gap-2 mt-2">
+              <input type="text" x-model="icdKodeBaru" @focus="!icdKodeBaru && !icdNamaBaru && siapkanIcdBaru()" placeholder="G40.9"
+                class="px-2 py-1.5 border border-slate-200 rounded-lg text-[12.5px] font-mono uppercase">
+              <input type="text" x-model="icdNamaBaru" @focus="!icdKodeBaru && !icdNamaBaru && siapkanIcdBaru()" placeholder="Nama diagnosis"
+                class="px-2 py-1.5 border border-slate-200 rounded-lg text-[12.5px]">
+            </div>
+            <p x-show="icdGalat" x-cloak class="mt-1.5 text-[11px] text-red-700" x-text="icdGalat"></p>
+            <button type="button" @mousedown.prevent="simpanIcdBaru(2)" :disabled="icdSibuk"
+              class="mt-2 w-full px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">Tambahkan ke Daftar Klinik</button>
+            <p class="mt-1 text-[10.5px] text-slate-400">Periksa dulu kodenya dengan buku ICD-10 bila akan dipakai untuk klaim.</p>
+          </div>
+        </template>
       </div>
     </div>
     <div class="mt-2 space-y-1.5">
@@ -1146,7 +1166,7 @@ export function doctorEMRNew(params) {
   // jadi ia sama terbukanya dengan halaman rekam medis dan dijaga sama.
   if (!aksesRM(params.patientId).boleh) return rmTerkunci(patient);
   const locations = store.getLocationNames();
-  window.__icd10 = ICD10;
+  window.__icd10 = store.icdAll(ICD10);
   window.__peSystems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
   window.__peState = buildPeState(null).state;
   window.__peOtherInit = '';
@@ -1175,10 +1195,35 @@ export function doctorEMRNew(params) {
     ${physicalExamXData()}
     icdSearch: '', icdResults: [], icdOpen: false, icdSearch2: '', icdResults2: [], icdOpen2: false, secondaries: [],
     searchICD(q, which) {
-      if (!q || q.length < 2) { if(which===2){this.icdResults2=[];this.icdOpen2=false}else{this.icdResults=[];this.icdOpen=false}; return; }
+      if (!q || q.length < 2) { if(which===2){this.icdResults2=[];this.icdOpen2=false}else{this.icdResults=[];this.icdOpen=false}; this.icdKosong=''; return; }
       const s = q.toLowerCase();
       const results = (window.__icd10||[]).filter(d => d.code.toLowerCase().includes(s) || d.name.toLowerCase().includes(s) || d.name_id.toLowerCase().includes(s)).slice(0, 8);
-      if(which===2){this.icdResults2=results;this.icdOpen2=results.length>0}else{this.icdResults=results;this.icdOpen=results.length>0};
+      // Daftar bawaan bukan ICD-10 utuh, jadi tidak ketemu adalah keadaan yang
+      // WAJAR dan harus punya jalan keluar — bukan jalan buntu yang memaksa
+      // dokter mengetik diagnosis tanpa kode.
+      this.icdKosong = results.length ? '' : q.trim();
+      if(which===2){this.icdResults2=results;this.icdOpen2=true}else{this.icdResults=results;this.icdOpen=true};
+    },
+    icdKosong: '', icdKodeBaru: '', icdNamaBaru: '', icdGalat: '', icdSibuk: false,
+    siapkanIcdBaru() {
+      // Yang diketik dokter bisa berupa kode ('G40.9') atau nama ('Epilepsi').
+      // Dibedakan supaya kotak isiannya sudah terisi sebagian, bukan kosong
+      // lagi setelah ia baru saja mengetik.
+      const t = (this.icdKosong || '').trim();
+      if (/^[A-Za-z][0-9]{2}(\.[0-9]{1,2})?$/.test(t)) { this.icdKodeBaru = t.toUpperCase(); this.icdNamaBaru = ''; }
+      else { this.icdKodeBaru = ''; this.icdNamaBaru = t; }
+      this.icdGalat = '';
+    },
+    async simpanIcdBaru(which) {
+      if (this.icdSibuk) return;
+      this.icdSibuk = true; this.icdGalat = '';
+      const r = await window.__store.addCustomIcd(this.icdKodeBaru, this.icdNamaBaru);
+      this.icdSibuk = false;
+      if (r && r.error) { this.icdGalat = r.error; return; }
+      window.__icd10 = window.__store.icdAll(window.__icd10);
+      this.icdKosong = ''; this.icdKodeBaru = ''; this.icdNamaBaru = '';
+      this.selectICD(r.item, which || 1);
+      window.__showToast && window.__showToast('Kode ditambahkan', r.item.code + ' kini tersedia untuk seluruh klinik.');
     },
     selectICD(item, which) {
       const val = item.code + ' - ' + item.name_id;
@@ -1330,6 +1375,26 @@ export function doctorEMRNew(params) {
                           <div class="flex items-center gap-2"><span class="px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 text-xs font-mono font-bold flex-shrink-0" x-text="item.code"></span><span class="text-sm text-gray-800 font-medium" x-text="item.name_id"></span></div>
                           <p class="text-xs text-gray-400 mt-0.5 pl-10" x-text="item.name"></p>
                         </button>
+                      </template>
+
+                      <!-- Tidak ketemu bukan jalan buntu. Daftar bawaan
+                           bukan ICD-10 utuh, jadi kode yang hilang ditambahkan
+                           di sini juga — sekali, lalu tersedia untuk seluruh
+                           klinik. -->
+                      <template x-if="icdKosong">
+                        <div class="p-3 border-t border-slate-100 bg-slate-50">
+                          <p class="text-[11.5px] text-slate-600">Tidak ada kode yang cocok dengan <b x-text="icdKosong"></b>.</p>
+                          <div class="grid grid-cols-[110px_1fr] gap-2 mt-2">
+                            <input type="text" x-model="icdKodeBaru" @focus="!icdKodeBaru && !icdNamaBaru && siapkanIcdBaru()" placeholder="G40.9"
+                              class="px-2 py-1.5 border border-slate-200 rounded-lg text-[12.5px] font-mono uppercase">
+                            <input type="text" x-model="icdNamaBaru" @focus="!icdKodeBaru && !icdNamaBaru && siapkanIcdBaru()" placeholder="Nama diagnosis"
+                              class="px-2 py-1.5 border border-slate-200 rounded-lg text-[12.5px]">
+                          </div>
+                          <p x-show="icdGalat" x-cloak class="mt-1.5 text-[11px] text-red-700" x-text="icdGalat"></p>
+                          <button type="button" @mousedown.prevent="simpanIcdBaru(1)" :disabled="icdSibuk"
+                            class="mt-2 w-full px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50">Tambahkan ke Daftar Klinik</button>
+                          <p class="mt-1 text-[10.5px] text-slate-400">Periksa dulu kodenya dengan buku ICD-10 bila akan dipakai untuk klaim.</p>
+                        </div>
                       </template>
                     </div>
                   </div>
@@ -1949,7 +2014,7 @@ export function doctorEMREdit(params) {
   const locations = (record.location && !activeLocations.includes(record.location))
     ? [record.location].concat(activeLocations)
     : activeLocations;
-  window.__icd10 = ICD10;
+  window.__icd10 = store.icdAll(ICD10);
   // Pass the existing record into Alpine via a global instead of embedding each
   // field inside the x-data string — a newline, double-quote or backslash in
   // any free-text field (anamnesis/therapy/notes) would otherwise break the
@@ -1973,10 +2038,35 @@ export function doctorEMREdit(params) {
     icdSearch: window.__emrEdit.diagnosis, icdResults: [], icdOpen: false,
     icdSearch2: '', icdResults2: [], icdOpen2: false, secondaries: JSON.parse(JSON.stringify(window.__emrSecondaries)),
     searchICD(q, which) {
-      if (!q || q.length < 2) { if(which===2){this.icdResults2=[];this.icdOpen2=false}else{this.icdResults=[];this.icdOpen=false}; return; }
+      if (!q || q.length < 2) { if(which===2){this.icdResults2=[];this.icdOpen2=false}else{this.icdResults=[];this.icdOpen=false}; this.icdKosong=''; return; }
       const s = q.toLowerCase();
       const results = (window.__icd10||[]).filter(d => d.code.toLowerCase().includes(s) || d.name.toLowerCase().includes(s) || d.name_id.toLowerCase().includes(s)).slice(0, 8);
-      if(which===2){this.icdResults2=results;this.icdOpen2=results.length>0}else{this.icdResults=results;this.icdOpen=results.length>0};
+      // Daftar bawaan bukan ICD-10 utuh, jadi tidak ketemu adalah keadaan yang
+      // WAJAR dan harus punya jalan keluar — bukan jalan buntu yang memaksa
+      // dokter mengetik diagnosis tanpa kode.
+      this.icdKosong = results.length ? '' : q.trim();
+      if(which===2){this.icdResults2=results;this.icdOpen2=true}else{this.icdResults=results;this.icdOpen=true};
+    },
+    icdKosong: '', icdKodeBaru: '', icdNamaBaru: '', icdGalat: '', icdSibuk: false,
+    siapkanIcdBaru() {
+      // Yang diketik dokter bisa berupa kode ('G40.9') atau nama ('Epilepsi').
+      // Dibedakan supaya kotak isiannya sudah terisi sebagian, bukan kosong
+      // lagi setelah ia baru saja mengetik.
+      const t = (this.icdKosong || '').trim();
+      if (/^[A-Za-z][0-9]{2}(\.[0-9]{1,2})?$/.test(t)) { this.icdKodeBaru = t.toUpperCase(); this.icdNamaBaru = ''; }
+      else { this.icdKodeBaru = ''; this.icdNamaBaru = t; }
+      this.icdGalat = '';
+    },
+    async simpanIcdBaru(which) {
+      if (this.icdSibuk) return;
+      this.icdSibuk = true; this.icdGalat = '';
+      const r = await window.__store.addCustomIcd(this.icdKodeBaru, this.icdNamaBaru);
+      this.icdSibuk = false;
+      if (r && r.error) { this.icdGalat = r.error; return; }
+      window.__icd10 = window.__store.icdAll(window.__icd10);
+      this.icdKosong = ''; this.icdKodeBaru = ''; this.icdNamaBaru = '';
+      this.selectICD(r.item, which || 1);
+      window.__showToast && window.__showToast('Kode ditambahkan', r.item.code + ' kini tersedia untuk seluruh klinik.');
     },
     selectICD(item, which) {
       const val = item.code + ' - ' + item.name_id;

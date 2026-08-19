@@ -259,6 +259,7 @@ const DEMO_DATA = {
   business_notes: [],
   umroh_sales: [],
   rm_access_claims: [],
+  icd10_custom: [],
 
   // To-do / daftar tugas klinik. Dikelola Super Admin & Owner dari halaman
   // "To-Do & Tugas", bisa didelegasikan ke staf mana pun (assignee_id =
@@ -1005,6 +1006,7 @@ class Store {
       this.loadTasks().catch(() => {});
       this.loadVaxPlanReminders().catch(() => {});
       this.loadAccessClaims().catch(() => {});
+      this.loadCustomIcd().catch(() => {});
       try {
         const me = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
         // Penerima berbagi juga perlu memuatnya — RLS di server yang menyaring
@@ -1479,6 +1481,70 @@ class Store {
     if (CONFIG.DEMO_MODE) return;
     const rows = await supabase.select('rm_access_claims', { order: 'created_at.desc' });
     if (Array.isArray(rows)) { this.data.rm_access_claims = rows; this._save(); }
+  }
+
+  // ==========================================================================
+  // KODE ICD-10 MILIK KLINIK
+  //
+  // Daftar bawaan di js/icd10.js berisi 455 diagnosis pilihan — itu bukan
+  // ICD-10 utuh, yang berisi sekitar 14.000 kode. Selalu akan ada yang kurang,
+  // dan menambahnya lewat perubahan kode berarti dokter harus menunggu rilis
+  // berikutnya hanya untuk menulis satu diagnosis.
+  //
+  // Maka kode yang kurang bisa ditambahkan dari layar, sekali, lalu tersedia
+  // untuk seluruh klinik. Yang menambahkan tercatat namanya: kode diagnosis
+  // yang dipakai untuk klaim sebaiknya bisa ditelusuri asalnya.
+  // ==========================================================================
+  getCustomIcd() { return (this.data.icd10_custom || []).slice(); }
+
+  // Gabungan bawaan + milik klinik. Bawaan menang bila kodenya sama, supaya
+  // salah ketik lokal tidak menimpa nama yang sudah benar.
+  icdAll(seed) {
+    const inti = Array.isArray(seed) ? seed : [];
+    const lihat = new Set(inti.map(d => d.code));
+    const keluar = inti.slice();
+    for (const d of this.getCustomIcd()) {
+      if (!d || !d.code || lihat.has(d.code)) continue;
+      lihat.add(d.code);
+      keluar.push({ code: d.code, name: d.name || d.name_id || '', name_id: d.name_id || d.name || '', milikKlinik: true });
+    }
+    return keluar;
+  }
+
+  async addCustomIcd(kode, namaId) {
+    const aku = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    if (!aku) return { error: 'Harus masuk dulu.' };
+    const code = String(kode || '').trim().toUpperCase();
+    const nama = String(namaId || '').trim();
+    // Bentuk kode ICD-10: satu huruf, dua angka, boleh diikuti titik dan 1-2
+    // angka. Diperiksa supaya daftar klinik tidak lama-lama berisi catatan
+    // bebas yang tidak bisa dipakai untuk klaim apa pun.
+    if (!/^[A-Z][0-9]{2}(\.[0-9]{1,2})?$/.test(code)) {
+      return { error: 'Format kode tidak sesuai ICD-10. Contoh yang benar: G40.9, I10, R56.0.' };
+    }
+    if (nama.length < 3) return { error: 'Tuliskan nama diagnosisnya.' };
+    if ((this.data.icd10_custom || []).some(d => d.code === code)) {
+      return { error: 'Kode ' + code + ' sudah ada di daftar klinik.' };
+    }
+
+    const rec = { id: generateId(), code, name_id: nama, name: nama,
+      created_by: aku.id, created_at: new Date().toISOString() };
+    if (!this.data.icd10_custom) this.data.icd10_custom = [];
+    this.data.icd10_custom.push(rec);
+    this._save();
+    if (!CONFIG.DEMO_MODE) {
+      await this._syncInsert('icd10_custom', rec, {
+        id: rec.id, code: rec.code, name_id: rec.name_id, name: rec.name,
+        created_by: rec.created_by, created_at: rec.created_at,
+      });
+    }
+    return { success: true, item: rec };
+  }
+
+  async loadCustomIcd() {
+    if (CONFIG.DEMO_MODE) return;
+    const rows = await supabase.select('icd10_custom', { order: 'code.asc' });
+    if (Array.isArray(rows)) { this.data.icd10_custom = rows; this._save(); }
   }
 
   // Medical Records — sorted by created_at (actual input time), not
