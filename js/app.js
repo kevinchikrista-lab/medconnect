@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from './pages/auth.js';
 import { tasksPage } from './pages/tasks.js';
 import { notesPage } from './pages/notes.js';
-import { adminVaksin, adminVaxSchedule, adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminRecap, adminReminders, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh, adminStempel } from './pages/admin.js';
+import { adminVaksin, adminVaxSchedule, adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminRecap, adminReminders, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh } from './pages/admin.js';
 import { doctorVaksin, doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorRmDebt, doctorCrm } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyCertificates, pharmacyInventory } from './pages/pharmacy.js';
@@ -281,7 +281,6 @@ router.add('/admin/stock', () => render(adminStock));
 router.add('/admin/locations', () => render(adminLocations));
 router.add('/admin/tasks', () => render(adminTasks));
 router.add('/admin/umroh', () => render(adminUmroh));
-router.add('/admin/umroh-stempel', () => render(adminStempel));
 router.add('/tugas', () => render(tasksPage));
 router.add('/catatan', () => render(notesPage));
 router.add('/admin/patients/:patientId', (p) => render(adminPatientDetail, p));
@@ -563,6 +562,10 @@ window.__generateVaxCert = async function(patientId, vaccineName, opts) {
     html,body{background:white;padding:0}
     .cert{box-shadow:none;border:none;width:210mm;height:297mm}
     .no-print{display:none!important}
+    /* Motif sudut digambar sebagai gradien latar, dan latar tidak ikut
+       tercetak kecuali diminta. Tanpa baris ini, sertifikat yang tercetak
+       terlihat polos dan berbeda dari yang barusan dilihat di layar. */
+    .motif{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   }
   </style></head><body>
   <div class="cert">

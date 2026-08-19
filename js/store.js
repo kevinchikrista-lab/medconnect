@@ -258,6 +258,8 @@ const DEMO_DATA = {
   ],
   business_notes: [],
   umroh_sales: [],
+  rm_access_claims: [],
+  icd10_custom: [],
 
   // To-do / daftar tugas klinik. Dikelola Super Admin & Owner dari halaman
   // "To-Do & Tugas", bisa didelegasikan ke staf mana pun (assignee_id =
@@ -980,7 +982,7 @@ class Store {
       // akan mengira fiturnya rusak, bukan mengira ada kolom yang tidak ikut
       // tersalin. Setiap kolom izin yang ditambahkan ke profiles harus
       // ditambahkan di sini juga.
-      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, auth_id: p.auth_id || null, no_email: isPlaceholderEmail(p.email), has_login: !!p.auth_id, password: '***', created_at: p.created_at, full_name: p.full_name || '', phone: p.phone || '', can_notes: p.can_notes === true, can_umroh: p.can_umroh === true }));
+      this.data.users = profiles.map(p => ({ id: p.id, email: p.email, role: p.role, is_active: p.is_active, auth_id: p.auth_id || null, no_email: isPlaceholderEmail(p.email), has_login: !!p.auth_id, password: '***', created_at: p.created_at, full_name: p.full_name || '', phone: p.phone || '', can_notes: p.can_notes === true }));
       if (doctors.length) this.data.doctors = doctors.map(d => ({ ...d, user_id: d.profile_id }));
       if (patients.length) this.data.patients = patients.map(p => ({ ...p, user_id: p.profile_id }));
       if (pharmacies.length) this.data.pharmacies = pharmacies.map(p => ({ ...p, user_id: p.profile_id }));
@@ -1003,6 +1005,8 @@ class Store {
       this.loadLocations().catch(() => {});
       this.loadTasks().catch(() => {});
       this.loadVaxPlanReminders().catch(() => {});
+      this.loadAccessClaims().catch(() => {});
+      this.loadCustomIcd().catch(() => {});
       try {
         const me = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
         // Penerima berbagi juga perlu memuatnya — RLS di server yang menyaring
@@ -1118,8 +1122,7 @@ class Store {
         const barisSA = (this.data.users || []).find(x => x.id === user.id) || {};
         return { full_name: user.full_name || barisSA.full_name || 'Super Admin',
           phone: user.phone || barisSA.phone || '', role: 'superadmin',
-          can_notes: barisSA.can_notes === true,
-          can_umroh: barisSA.can_umroh === true };
+          can_notes: barisSA.can_notes === true };
       }
       default: return null;
     }
@@ -1305,6 +1308,242 @@ class Store {
       supabase.update('doctors', doctorId, patch).catch(e => console.warn('Gagal menyimpan profil dokter:', e));
     }
     return { success: true };
+  }
+
+  // ==========================================================================
+  // PRIVASI REKAM MEDIS: DOKTER HANYA MELIHAT PASIEN YANG IA TANGANI
+  //
+  // Sebelumnya setiap dokter bisa membuka rekam medis siapa pun — cukup tahu
+  // atau menebak tautannya. Untuk klinik dengan satu dokter itu tidak terasa;
+  // begitu ada beberapa dokter, artinya seluruh riwayat setiap pasien terbuka
+  // bagi orang yang tidak pernah merawatnya.
+  //
+  // Aturannya: ada JEJAK PERAWATAN, atau tertutup. Jejaknya bisa apa pun yang
+  // membuktikan pasien ini memang urusannya — rekam medis yang pernah ia
+  // tulis, resep, vaksinasi, surat yang menunggu ACC-nya, atau janji temu yang
+  // akan datang.
+  //
+  // Fungsi ini mengembalikan ALASANNYA, bukan sekadar true/false. Layar perlu
+  // bisa menyebutkan kenapa sebuah rekam medis terbuka, dan izin yang tidak
+  // bisa disebutkan sebabnya adalah izin yang tidak bisa diperiksa siapa pun.
+  // ==========================================================================
+  doctorPatientLink(doctorId, patientId) {
+    const tutup = { boleh: false, alasan: '', sejak: '' };
+    if (!doctorId || !patientId) return tutup;
+    const bandingkan = (a) => String(a || '') === String(doctorId);
+
+    const rec = (this.data.medical_records || [])
+      .filter(r => r.patient_id === patientId && bandingkan(r.doctor_id))
+      .sort((a, b) => String(b.visit_date || '').localeCompare(String(a.visit_date || '')))[0];
+    if (rec) return { boleh: true, alasan: 'Pernah Anda periksa', sejak: String(rec.visit_date || '').slice(0, 10) };
+
+    const vax = (this.data.vaccinations || []).find(v => v.patient_id === patientId
+      && (bandingkan(v.administered_by) || bandingkan(v.approval_doctor_id)));
+    if (vax) return { boleh: true, alasan: 'Vaksinasi atas nama Anda', sejak: String(vax.date_given || '').slice(0, 10) };
+
+    const rx = (this.data.prescriptions || []).find(x => x.patient_id === patientId
+      && (bandingkan(x.doctor_id) || bandingkan(x.approval_doctor_id)));
+    if (rx) return { boleh: true, alasan: 'Resep atas nama Anda', sejak: String(rx.created_at || '').slice(0, 10) };
+
+    const kons = (this.data.consultations || []).find(c => c.patient_id === patientId && bandingkan(c.doctor_id));
+    if (kons) return { boleh: true, alasan: 'Konsultasi dengan Anda', sejak: String(kons.created_at || '').slice(0, 10) };
+
+    // Janji temu: yang AKAN DATANG maupun yang sudah lewat sama-sama membuka
+    // akses. Yang sudah lewat berarti pasiennya memang pernah dijadwalkan
+    // kepadanya, dan riwayat itu tidak hilang hanya karena tanggalnya lewat.
+    const apt = (this.data.appointments || [])
+      .filter(a => a.patient_id === patientId && bandingkan(a.doctor_id))
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0];
+    if (apt) {
+      const akan = String(apt.date || '') >= todayLocal();
+      return { boleh: true, alasan: akan ? 'Ada janji temu dengan Anda' : 'Pernah dijadwalkan ke Anda',
+        sejak: String(apt.date || '').slice(0, 10) };
+    }
+
+    // Pintu darurat: dokter menyatakan sendiri akan memeriksa pasien ini.
+    // Berlaku sementara dan SELALU tercatat — lihat claimPatientAccess.
+    const klaim = (this.data.rm_access_claims || [])
+      .filter(c => c.patient_id === patientId && bandingkan(c.doctor_id))
+      .filter(c => !c.expires_at || String(c.expires_at) > new Date().toISOString())
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+    if (klaim) return { boleh: true, alasan: 'Akses dibuka sendiri: ' + (klaim.reason || 'tanpa alasan'),
+      sejak: String(klaim.created_at || '').slice(0, 10), klaim: true };
+
+    return tutup;
+  }
+
+  // Satu pintu untuk semua layar. Pemilik klinik dan Super Admin tetap melihat
+  // semuanya: merekalah yang mengurus kelengkapan rekam medis, menagih RM yang
+  // belum ditulis, dan menyusun rekap — pekerjaan yang tidak bisa dikerjakan
+  // dari potongan.
+  recordAccess(user, patientId) {
+    if (!user) return { boleh: false, alasan: '' };
+    if (user.role === 'owner' || user.role === 'superadmin') {
+      return { boleh: true, alasan: 'Akses pengelola klinik', penuh: true };
+    }
+    if (user.role === 'patient') {
+      const p = this.getPatient(patientId);
+      const milik = !!(p && (p.user_id === user.id || p.profile_id === user.id));
+      return { boleh: milik, alasan: milik ? 'Rekam medis Anda sendiri' : '' };
+    }
+    if (user.role === 'doctor') {
+      const d = this.getDoctorByUserId(user.id);
+      return this.doctorPatientLink((d || {}).id, patientId);
+    }
+    // Apotek dan peran lain tidak punya urusan dengan isi rekam medis.
+    return { boleh: false, alasan: '' };
+  }
+
+  canSeePatientRecords(user, patientId) { return this.recordAccess(user, patientId).boleh === true; }
+
+  // Pencocokan No. RM PERSIS — bukan pencarian sebagian. Pencarian sebagian
+  // atas seluruh pasien klinik akan mengembalikan kebocoran yang justru sedang
+  // ditutup: satu huruf sudah cukup untuk menelusuri daftar nama.
+  patientIdByRm(rm) {
+    const cari = String(rm || '').trim().toLowerCase();
+    if (!cari) return '';
+    const p = (this.data.patients || []).find(x => String(x.rm_number || '').trim().toLowerCase() === cari);
+    return p ? p.id : '';
+  }
+
+  // Pasien mana saja yang boleh dilihat seorang dokter. Dipakai daftar pasien
+  // supaya yang muncul memang pasiennya, bukan seluruh isi klinik.
+  patientIdsForDoctor(doctorId) {
+    const set = new Set();
+    if (!doctorId) return set;
+    const sama = (a) => String(a || '') === String(doctorId);
+    (this.data.medical_records || []).forEach(r => { if (sama(r.doctor_id)) set.add(r.patient_id); });
+    (this.data.vaccinations || []).forEach(v => { if (sama(v.administered_by) || sama(v.approval_doctor_id)) set.add(v.patient_id); });
+    (this.data.prescriptions || []).forEach(x => { if (sama(x.doctor_id) || sama(x.approval_doctor_id)) set.add(x.patient_id); });
+    (this.data.consultations || []).forEach(c => { if (sama(c.doctor_id)) set.add(c.patient_id); });
+    (this.data.appointments || []).forEach(a => { if (sama(a.doctor_id)) set.add(a.patient_id); });
+    const kini = new Date().toISOString();
+    (this.data.rm_access_claims || []).forEach(c => {
+      if (sama(c.doctor_id) && (!c.expires_at || String(c.expires_at) > kini)) set.add(c.patient_id);
+    });
+    set.delete(undefined); set.delete(null); set.delete('');
+    return set;
+  }
+
+  // Membuka akses ke pasien yang belum punya jejak — pasien baru yang berdiri
+  // di depan meja, atau keadaan gawat.
+  //
+  // TIDAK ADA PENOLAKAN DI SINI, dan itu disengaja: menutup pintu ini berarti
+  // dokter yang sedang menghadapi pasien tanpa riwayat tidak bisa melihat
+  // alergi obatnya, dan bahaya itu jauh lebih besar daripada bahaya seseorang
+  // membuka rekam medis yang bukan urusannya. Yang menggantikan penolakan
+  // adalah JEJAK: siapa, kapan, pasien siapa, dan alasan yang ia tulis
+  // sendiri. Pintu yang tercatat berbeda dari pintu yang terbuka.
+  //
+  // Berlaku 24 jam. Kalau dokternya benar memeriksa, rekam medis yang ia tulis
+  // menjadi jejak permanennya; kalau tidak, aksesnya tertutup sendiri.
+  async claimPatientAccess(patientId, alasan) {
+    const aku = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    if (!aku || aku.role !== 'doctor') return { error: 'Hanya akun dokter yang membuka akses lewat cara ini.' };
+    const d = this.getDoctorByUserId(aku.id);
+    if (!d) return { error: 'Data dokter tidak ditemukan.' };
+    if (!this.getPatient(patientId)) return { error: 'Pasien tidak ditemukan.' };
+    const teks = String(alasan || '').trim();
+    if (teks.length < 4) return { error: 'Tuliskan dulu alasannya — keterangan ini yang menjelaskan pembukaan akses bila ditanyakan nanti.' };
+
+    if (!this.data.rm_access_claims) this.data.rm_access_claims = [];
+    const rec = {
+      id: generateId(), doctor_id: d.id, patient_id: patientId, reason: teks,
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    };
+    this.data.rm_access_claims.push(rec);
+    this._save();
+    if (!CONFIG.DEMO_MODE) {
+      await this._syncInsert('rm_access_claims', rec, {
+        id: rec.id, doctor_id: rec.doctor_id, patient_id: rec.patient_id,
+        reason: rec.reason, created_at: rec.created_at, expires_at: rec.expires_at,
+      });
+    }
+    // Pemilik klinik diberi tahu. Pembukaan akses yang tidak pernah dibaca
+    // siapa pun sama saja dengan tidak dicatat.
+    const nama = (this.getPatient(patientId) || {}).full_name || 'pasien';
+    (this.data.users || []).filter(u => u.role === 'owner' && u.is_active !== false)
+      .forEach(u => this.addNotification(u.id, 'Akses Rekam Medis Dibuka',
+        (d.full_name || 'Seorang dokter') + ' membuka rekam medis ' + nama + '. Alasan: ' + teks, 'system'));
+    return { success: true, klaim: rec };
+  }
+
+  patientAccessClaims(patientId) {
+    return (this.data.rm_access_claims || [])
+      .filter(c => !patientId || c.patient_id === patientId)
+      .map(c => ({ ...c, doctor_name: (this.getDoctor(c.doctor_id) || {}).full_name || '' }))
+      .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  }
+
+  async loadAccessClaims() {
+    if (CONFIG.DEMO_MODE) return;
+    const rows = await supabase.select('rm_access_claims', { order: 'created_at.desc' });
+    if (Array.isArray(rows)) { this.data.rm_access_claims = rows; this._save(); }
+  }
+
+  // ==========================================================================
+  // KODE ICD-10 MILIK KLINIK
+  //
+  // Daftar bawaan di js/icd10.js berisi 455 diagnosis pilihan — itu bukan
+  // ICD-10 utuh, yang berisi sekitar 14.000 kode. Selalu akan ada yang kurang,
+  // dan menambahnya lewat perubahan kode berarti dokter harus menunggu rilis
+  // berikutnya hanya untuk menulis satu diagnosis.
+  //
+  // Maka kode yang kurang bisa ditambahkan dari layar, sekali, lalu tersedia
+  // untuk seluruh klinik. Yang menambahkan tercatat namanya: kode diagnosis
+  // yang dipakai untuk klaim sebaiknya bisa ditelusuri asalnya.
+  // ==========================================================================
+  getCustomIcd() { return (this.data.icd10_custom || []).slice(); }
+
+  // Gabungan bawaan + milik klinik. Bawaan menang bila kodenya sama, supaya
+  // salah ketik lokal tidak menimpa nama yang sudah benar.
+  icdAll(seed) {
+    const inti = Array.isArray(seed) ? seed : [];
+    const lihat = new Set(inti.map(d => d.code));
+    const keluar = inti.slice();
+    for (const d of this.getCustomIcd()) {
+      if (!d || !d.code || lihat.has(d.code)) continue;
+      lihat.add(d.code);
+      keluar.push({ code: d.code, name: d.name || d.name_id || '', name_id: d.name_id || d.name || '', milikKlinik: true });
+    }
+    return keluar;
+  }
+
+  async addCustomIcd(kode, namaId) {
+    const aku = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    if (!aku) return { error: 'Harus masuk dulu.' };
+    const code = String(kode || '').trim().toUpperCase();
+    const nama = String(namaId || '').trim();
+    // Bentuk kode ICD-10: satu huruf, dua angka, boleh diikuti titik dan 1-2
+    // angka. Diperiksa supaya daftar klinik tidak lama-lama berisi catatan
+    // bebas yang tidak bisa dipakai untuk klaim apa pun.
+    if (!/^[A-Z][0-9]{2}(\.[0-9]{1,2})?$/.test(code)) {
+      return { error: 'Format kode tidak sesuai ICD-10. Contoh yang benar: G40.9, I10, R56.0.' };
+    }
+    if (nama.length < 3) return { error: 'Tuliskan nama diagnosisnya.' };
+    if ((this.data.icd10_custom || []).some(d => d.code === code)) {
+      return { error: 'Kode ' + code + ' sudah ada di daftar klinik.' };
+    }
+
+    const rec = { id: generateId(), code, name_id: nama, name: nama,
+      created_by: aku.id, created_at: new Date().toISOString() };
+    if (!this.data.icd10_custom) this.data.icd10_custom = [];
+    this.data.icd10_custom.push(rec);
+    this._save();
+    if (!CONFIG.DEMO_MODE) {
+      await this._syncInsert('icd10_custom', rec, {
+        id: rec.id, code: rec.code, name_id: rec.name_id, name: rec.name,
+        created_by: rec.created_by, created_at: rec.created_at,
+      });
+    }
+    return { success: true, item: rec };
+  }
+
+  async loadCustomIcd() {
+    if (CONFIG.DEMO_MODE) return;
+    const rows = await supabase.select('icd10_custom', { order: 'code.asc' });
+    if (Array.isArray(rows)) { this.data.icd10_custom = rows; this._save(); }
   }
 
   // Medical Records — sorted by created_at (actual input time), not
@@ -4480,68 +4719,6 @@ class Store {
     return false;
   }
 
-  // ==========================================================================
-  // VAKSIN UMROH — saklar per akun klinik
-  //
-  // Tidak semua klinik melayani vaksin umroh. Yang tidak melayaninya tetap
-  // melihat menunya, halaman kosong, dan istilah yang tidak berarti apa-apa
-  // bagi mereka. Maka fiturnya dinyalakan per akun, dari Manajemen User, sama
-  // seperti Catatan Bisnis.
-  //
-  // MEMATIKANNYA MENYEMBUNYIKAN, BUKAN MENGHAPUS. Foto dan catatan yang sudah
-  // masuk tetap ada dan muncul lagi begitu dinyalakan kembali — sebuah saklar
-  // menu yang diam-diam membuang data adalah kejutan yang paling mahal.
-  // ==========================================================================
-  canUmrohStamp(user) {
-    if (!user) return false;
-    const prof = this.getProfile(user) || {};
-    if (prof.can_umroh === true) return true;
-    const u = (this.data.users || []).find(x => x.id === user.id);
-    if (u && u.can_umroh === true) return true;
-    // Pemilik klinik selalu bisa — kalau tidak, saklar untuk menyalakannya
-    // sendiri berada di balik fitur yang belum dinyalakan.
-    return user.role === 'owner';
-  }
-
-  async setUmrohAccess(userId, allowed) {
-    const aku = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
-    if (!this.canMakeTaskPrivate(aku)) {
-      return { error: 'Hanya pemilik klinik yang bisa mengatur fitur Vaksin Umroh.' };
-    }
-    const u = (this.data.users || []).find(x => x.id === userId);
-    if (!u) return { error: 'Akun tidak ditemukan.' };
-    u.can_umroh = allowed === true;
-    this._save();
-    if (!CONFIG.DEMO_MODE && !String(userId).startsWith('id_')) {
-      const res = await supabase.update('profiles', userId, { can_umroh: u.can_umroh }).catch(() => null);
-      if (res && res.error) {
-        u.can_umroh = !u.can_umroh; this._save();
-        return { error: /can_umroh/i.test(String(res.error))
-          ? 'Kolom izinnya belum ada di server. Jalankan supabase-umroh-stempel.sql dulu.'
-          : res.error };
-      }
-    }
-    this.addNotification(userId, allowed ? 'Fitur Vaksin Umroh Dibuka' : 'Fitur Vaksin Umroh Ditutup',
-      allowed ? 'Menu Vaksin Umroh sudah bisa Anda pakai.' : 'Menu Vaksin Umroh ditutup. Data yang sudah ada tidak terhapus.',
-      'system');
-    return { success: true };
-  }
-
-  // Identitas yang tercetak di panel stempel. Diambil dari kop surat dokter
-  // bila ada — di sanalah tiap klinik sudah memasang logo dan alamatnya —
-  // dan jatuh ke pengaturan klinik bila belum.
-  umrohStampKlinik(doctorId) {
-    const kop = (doctorId ? this.getKopFor(doctorId, '') : null) || {};
-    const nama = kop.name || CONFIG.APP_NAME || '';
-    return {
-      nama,
-      // Nama pendek untuk kotak kanan atas: panel itu hanya selebar 247 px.
-      namaPendek: nama.length > 24 ? nama.slice(0, 23).trim() + '…' : nama,
-      alamat: kop.address || CONFIG.CLINIC_ADDRESS || '',
-      logo: kop.logo_url || '',
-    };
-  }
-
   // Menyalakan / mematikan izin punya Catatan Bisnis untuk sebuah akun.
   // Hanya pemilik klinik yang boleh — kalau setiap Super Admin bisa
   // memberikannya, batas "Catatan Bisnis lebih tertutup daripada panel tugas"
@@ -4638,6 +4815,26 @@ class Store {
 
   // Siapa saja yang bisa membaca sebuah catatan selain pemiliknya —
   // ditampilkan pada kartunya supaya tidak ada yang terbagi tanpa disadari.
+  // Keadaan berbagi sebuah halaman, siap ditampilkan. Dipisah dari
+  // noteSharedNames karena layar perlu membedakan tiga hal yang berbeda:
+  // belum dibagikan sama sekali, dibagikan untuk dibaca, dan dibagikan sampai
+  // boleh ikut menulis.
+  noteShareInfo(note) {
+    const kosong = { dibagikan: false, unit: 'Tanpa unit', baca: '', tulis: '' };
+    if (!note) return kosong;
+    if (note.is_private) return { ...kosong, unit: this.businessUnitName(note.unit_id) };
+    const u = note.unit_id ? this.getBusinessUnit(note.unit_id) : null;
+    if (!u) return kosong;
+    const baca = this.unitSharedWith(u).map(id => this.staffName(id)).filter(Boolean);
+    const tulis = this.unitEditIdsFor ? this.unitSharedEditWith(u).map(id => this.staffName(id)).filter(Boolean) : [];
+    return {
+      dibagikan: baca.length > 0,
+      unit: u.name || 'Tanpa unit',
+      baca: baca.join(', '),
+      tulis: tulis.join(', '),
+    };
+  }
+
   noteSharedNames(note) {
     if (!note || note.is_private || !note.unit_id) return [];
     const u = this.getBusinessUnit(note.unit_id);
@@ -4674,9 +4871,21 @@ class Store {
       this.notesLoadError = (e && e.message) ? e.message : String(e);
     }
     try {
-      // Tidak disaring created_by di sini: penerima berbagi justru perlu baris
-      // milik orang lain. Yang menentukan boleh-tidaknya adalah RLS di server.
-      const rows = await supabase.select('business_notes', userId ? { eq: { created_by: userId } } : {});
+      // TIDAK DISARING created_by, dan komentar ini pernah berdiri di atas kode
+      // yang melakukan justru sebaliknya:
+      //
+      //     supabase.select('business_notes', userId ? { eq: { created_by: userId } } : {})
+      //
+      // Akibatnya peramban penerima berbagi hanya pernah MEMINTA baris miliknya
+      // sendiri. Catatan yang dibagikan kepadanya ditolak sebelum RLS sempat
+      // mengizinkannya — bukan karena servernya menutup, melainkan karena tidak
+      // pernah ada yang menanyakannya. Yang menulis catatan melihatnya
+      // tersimpan, yang dibagikan tidak pernah melihat apa pun, dan tidak ada
+      // pesan galat di mana pun karena memang tidak ada yang gagal.
+      //
+      // Yang menentukan boleh-tidaknya adalah RLS di server: own_notes untuk
+      // catatan sendiri, shared_notes_read untuk unit yang dibagikan.
+      const rows = await supabase.select('business_notes', {});
       if (Array.isArray(rows)) {
         if (rows.length) { this.data.business_notes = rows; this._save(); }
         else {

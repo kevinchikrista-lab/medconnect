@@ -206,6 +206,12 @@ function notesXData(canEdit) {
     // ---- Berbagi ----
     isMine(n) { return n && n.created_by === this.me; },
     sharedNames(n) { return window.__store.noteSharedNames(n); },
+    // Keadaan berbagi halaman yang sedang dibuka, dalam bentuk yang siap
+    // dibaca — bukan daftar id yang harus diterjemahkan sendiri di layar.
+    bagiInfo() {
+      const n = window.__store.getBusinessNote(this.aktif);
+      return window.__store.noteShareInfo(n);
+    },
     unitShared(u) { return window.__store.unitSharedWith(u); },
     unitSharedNames(u) { return this.unitShared(u).map(id => window.__store.staffName(id)); },
     toggleShare(id) {
@@ -536,6 +542,27 @@ export function notesPage() {
                     <button @click="bukaHalaman(r)" class="hover:text-brand-dark transition truncate max-w-[180px]" x-text="r.title"></button>
                     <span x-show="ri < remah().length - 1" class="ms text-[13px]">chevron_right</span>
                   </span>
+                </template>
+              </div>
+
+              <!-- Siapa yang bisa membaca halaman ini. Ditaruh di atas
+                   penyuntingnya, bukan disembunyikan di pengaturan unit:
+                   keluhan yang paling sering muncul adalah "sudah saya tulis
+                   tapi mereka tidak melihatnya", dan sebabnya hampir selalu
+                   unitnya memang belum dibagikan. Layar yang diam soal itu
+                   membuat orang mengira aplikasinya rusak. -->
+              <div x-show="aktif" x-cloak class="mx-5 mt-3">
+                <template x-if="!bagiInfo().dibagikan">
+                  <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-start gap-2">
+                    <span class="ms text-[16px] text-slate-400 mt-0.5">lock</span>
+                    <p class="text-[11.5px] text-slate-600 leading-relaxed">Halaman ini <b>hanya Anda</b> yang bisa melihat. Untuk dibaca Anis atau Fitri, bagikan dulu unit <b x-text="bagiInfo().unit"></b> lewat <b>Kelola Unit &amp; Akses</b>.</p>
+                  </div>
+                </template>
+                <template x-if="bagiInfo().dibagikan">
+                  <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 flex items-start gap-2">
+                    <span class="ms text-[16px] text-emerald-500 mt-0.5">group</span>
+                    <p class="text-[11.5px] text-emerald-800 leading-relaxed">Bisa dibaca: <b x-text="bagiInfo().baca"></b><span x-show="bagiInfo().tulis"> &middot; boleh ikut menulis: <b x-text="bagiInfo().tulis"></b></span></p>
+                  </div>
                 </template>
               </div>
 
