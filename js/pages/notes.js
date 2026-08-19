@@ -82,7 +82,14 @@ function notesXData(canEdit) {
     // ditata jadi bab dan sub-bab.
     mode: 'kerja', buka: {}, aktif: '',
     draf: { title: '', body: '' }, dasar: '', simpanTimer: null,
+    // Salinan terakhir yang SUDAH tersimpan. Dipakai membedakan dua hal yang
+    // dari luar terlihat sama: halaman yang berubah di server karena orang
+    // lain menulis, dan halaman yang berbeda karena SAYA belum selesai
+    // mengetik. Tanpa pembeda ini, penyerapan otomatis akan menelan tulisan
+    // yang belum sempat tersimpan.
+    tersimpan: { title: '', body: '' },
     status: '', statusWaktu: '', bentrok: null,
+    kabar: '', pantauTimer: null,
     pohon(unitId, parentId) { return window.__store.noteTree(this.me, unitId || null, parentId || null, 0); },
     remah() { return this.aktif ? window.__store.noteBreadcrumb(this.aktif) : []; },
     bolehTulis(n) { return window.__store.canEditNote(n, this.me); },
@@ -98,7 +105,9 @@ function notesXData(canEdit) {
       if (this.aktif && this.aktif !== n.id) await this.simpanSekarang();
       this.aktif = n.id; this.bentrok = null; this.status = '';
       this.draf = { title: n.title || '', body: n.body || '' };
+      this.tersimpan = { title: n.title || '', body: n.body || '' };
       this.dasar = n.updated_at || '';
+      this.kabar = '';
       let p = n.parent_id;
       let pagar = 0;
       while (p && pagar++ < 20) { this.buka[p] = true; const q = window.__store.getBusinessNote(p); p = q && q.parent_id; }
@@ -131,6 +140,7 @@ function notesXData(canEdit) {
       }
       if (r && r.error) { this.status = 'gagal'; this.statusWaktu = r.error; return; }
       this.dasar = r.updated_at || '';
+      this.tersimpan = { title: this.draf.title, body: this.draf.body };
       this.status = 'tersimpan';
       this.statusWaktu = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
       this.refresh();
@@ -187,6 +197,96 @@ function notesXData(canEdit) {
       this.refresh();
     },
 
+    // ---- MENYUSUL TULISAN ORANG LAIN TANPA MENEKAN APA PUN ---------------
+    //
+    // Halaman ini dipakai bertiga sepanjang hari, dan sebelumnya isinya hanya
+    // diambil sekali saat dibuka. Yang menulis melihat tulisannya tersimpan;
+    // yang lain melihat layar yang sama seperti sejam lalu, tanpa tanda apa
+    // pun bahwa ada yang tertinggal.
+    //
+    // Dikerjakan dengan menanyakan ulang secara berkala, BUKAN sambungan
+    // langsung. Sambungan langsung (Supabase Realtime) berarti menambah
+    // pustaka WebSocket ke aplikasi yang tidak punya tahap pembangunan —
+    // satu berkas besar lagi yang harus berhasil dimuat sebelum halaman ini
+    // bisa dipakai sama sekali. Untuk catatan yang ditulis bertiga, jeda
+    // belasan detik tidak terasa; ketergantungan yang gagal dimuat terasa.
+    JEDA_PANTAU: 15000,
+
+    mulaiPantau() {
+      // Halaman ini digambar ulang tiap kali rute berpindah. Tanpa membuang
+      // pemantau sebelumnya, tiap kunjungan meninggalkan satu lagi yang tetap
+      // berjalan — dan sepuluh kunjungan berarti sepuluh permintaan tiap
+      // belasan detik.
+      if (window.__notesPantau) clearInterval(window.__notesPantau);
+      // Komponen yang SEDANG dipakai layar. Pendengar di bawah dipasang sekali
+      // saja seumur tab, jadi ia tidak boleh memegang komponen dari kunjungan
+      // pertama — komponen itu sudah dibuang saat halaman digambar ulang, dan
+      // memperbaruinya tidak mengubah apa pun yang terlihat.
+      window.__notesAktif = this;
+      window.__notesPantau = setInterval(() => this.pantau(), this.JEDA_PANTAU);
+      if (!window.__notesLihat) {
+        window.__notesLihat = true;
+        document.addEventListener('visibilitychange', () => {
+          // Saat kembali ke tab ini, jangan menunggu satu putaran penuh:
+          // itulah detik seseorang paling ingin melihat yang terbaru.
+          if (document.visibilityState !== 'visible' || !window.__notesPantau) return;
+          const k = window.__notesAktif;
+          if (k) { try { k.pantau(); } catch (e) {} }
+        });
+      }
+    },
+
+    async pantau() {
+      // Halaman lain sudah menggantikan halaman ini. Pemantau tidak ikut
+      // dimatikan oleh perpindahan rute, jadi ia harus berhenti sendiri —
+      // kalau tidak, aplikasi terus menanyakan catatan tiap belasan detik
+      // sampai tab ditutup, untuk layar yang sudah tidak ada.
+      if (!String(window.location.hash || '').startsWith('#/catatan')) {
+        if (window.__notesPantau) { clearInterval(window.__notesPantau); window.__notesPantau = null; }
+        return;
+      }
+      // Tab yang tidak terlihat tidak perlu ditanyakan. Menanyakannya berarti
+      // membakar kuota dan baterai untuk layar yang tidak dilihat siapa pun.
+      if (document.visibilityState !== 'visible') return;
+      if (this.loading) return;
+      try { await window.__store.loadBusinessNotes(this.me); } catch (e) { return; }
+      this.refresh();
+      this.serap();
+    },
+
+    // Menyerap perubahan pada halaman yang SEDANG dibuka.
+    serap() {
+      if (!this.aktif || this.bentrok) return;
+      const n = window.__store.getBusinessNote(this.aktif);
+      if (!n) {
+        // Dihapus orang lain saat kita membukanya. Tulisannya tidak dibuang
+        // diam-diam — yang hilang halamannya, dan itu disebutkan.
+        this.kabar = 'Halaman ini baru dihapus oleh pemiliknya.';
+        return;
+      }
+      if (String(n.updated_at || '') === String(this.dasar || '')) return;
+
+      const adaTulisanSaya = (this.tersimpan.title !== this.draf.title)
+                          || (this.tersimpan.body !== this.draf.body);
+      if (adaTulisanSaya || this.status === 'mengetik' || this.status === 'menyimpan') {
+        // Ada yang belum tersimpan di sini. Menyerap sekarang akan menelannya,
+        // jadi yang muncul panel bentrok yang sudah ada — dengan dua pilihan
+        // yang sama, dan tanpa pilihan 'timpa saja'.
+        this.status = 'bentrok';
+        this.bentrok = {
+          pesan: 'Halaman ini baru diubah orang lain sementara Anda mengetik. Tulisan Anda TIDAK ditimpakan.',
+          milikMereka: { title: n.title, body: n.body, updated_at: n.updated_at },
+          milikSaya: { title: this.draf.title, body: this.draf.body },
+        };
+        return;
+      }
+      // Tidak ada tulisan sendiri yang menggantung: aman diserap langsung.
+      this.draf = { title: n.title || '', body: n.body || '' };
+      this.tersimpan = { title: n.title || '', body: n.body || '' };
+      this.dasar = n.updated_at || '';
+      this.kabar = 'Diperbarui ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    },
+
     async load() {
       this.loading = true;
       try { await window.__store.loadBusinessNotes(this.me); } catch (e) {}
@@ -196,6 +296,7 @@ function notesXData(canEdit) {
       this.galatMuat = window.__store.notesLoadMessage ? window.__store.notesLoadMessage() : '';
       this.refresh();
       this.loading = false;
+      this.mulaiPantau();
     },
     refresh() {
       const u = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
@@ -551,6 +652,16 @@ export function notesPage() {
                    tapi mereka tidak melihatnya", dan sebabnya hampir selalu
                    unitnya memang belum dibagikan. Layar yang diam soal itu
                    membuat orang mengira aplikasinya rusak. -->
+              <!-- Perubahan yang masuk sendiri tidak boleh terjadi diam-diam.
+                   Tulisan yang tiba-tiba berubah tanpa keterangan membuat
+                   orang mengira ia salah lihat, atau lebih buruk, mengira
+                   tulisannya sendiri hilang. -->
+              <div x-show="kabar" x-cloak class="mx-5 mt-3 rounded-xl bg-sky-50 border border-sky-200 px-3 py-2 flex items-center gap-2">
+                <span class="ms text-[16px] text-sky-500">sync</span>
+                <p class="text-[11.5px] text-sky-800 flex-1" x-text="kabar"></p>
+                <button @click="kabar=''" class="text-sky-400 hover:text-sky-700 text-[11.5px]">tutup</button>
+              </div>
+
               <div x-show="aktif" x-cloak class="mx-5 mt-3">
                 <template x-if="!bagiInfo().dibagikan">
                   <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 flex items-start gap-2">
