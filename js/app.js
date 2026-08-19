@@ -563,6 +563,10 @@ window.__generateVaxCert = async function(patientId, vaccineName, opts) {
     html,body{background:white;padding:0}
     .cert{box-shadow:none;border:none;width:210mm;height:297mm}
     .no-print{display:none!important}
+    /* Motif sudut digambar sebagai gradien latar, dan latar tidak ikut
+       tercetak kecuali diminta. Tanpa baris ini, sertifikat yang tercetak
+       terlihat polos dan berbeda dari yang barusan dilihat di layar. */
+    .motif{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   }
   </style></head><body>
   <div class="cert">

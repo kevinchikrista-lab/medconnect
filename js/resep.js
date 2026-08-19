@@ -271,12 +271,21 @@ function writeResep(w, cert) {
   /* Sisa ruang kosong di bawah obat terakhir dicoret menyilang — praktik baku
      pada kertas resep supaya tidak ada yang bisa menambahkan obat setelah
      dokter menandatangani. Ikut mengempis sendiri saat obatnya banyak. */
-  .rx-end{flex:1;min-height:0;margin:calc(2px*var(--s)) 0 0 calc(6mm*var(--s));
-    background:linear-gradient(to bottom right,transparent calc(50% - .6px),var(--rule) 50%,transparent calc(50% + .6px)),
-               linear-gradient(to top right,transparent calc(50% - .6px),var(--rule) 50%,transparent calc(50% + .6px))}
+  /* Coretan penutupnya digambar sebagai GARIS SVG, bukan background gradient.
+     Versi sebelumnya memakai dua linear-gradient, dan itu berarti coretannya
+     adalah gambar LATAR — peramban tidak mencetak latar kecuali kotak
+     "Background graphics" dicentang di dialog cetak, dan kotak itu mati secara
+     bawaan. Akibatnya coretannya terlihat di layar lalu hilang begitu ditekan
+     Ctrl+P: resep tercetak tanpa penutup, persis keadaan yang coretan itu ada
+     untuk mencegahnya. Goresan SVG adalah isi halaman, bukan latar, jadi ia
+     selalu ikut tercetak. */
+  .rx-end{flex:1;min-height:0;margin:calc(2px*var(--s)) 0 0 calc(6mm*var(--s))}
+  .rx-end svg{display:block;width:100%;height:100%}
+  .rx-end line{stroke:var(--rule);stroke-width:1;vector-effect:non-scaling-stroke}
   .rx-end-label{display:flex;align-items:center;gap:calc(8px*var(--s));margin-top:calc(5px*var(--s));
     font-size:calc(9px*var(--s));font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-  .rx-end-label::before,.rx-end-label::after{content:'';flex:1;height:1px;background:var(--rule)}
+  /* border, bukan background: garis tipis berlatar juga ikut hilang saat cetak. */
+  .rx-end-label::before,.rx-end-label::after{content:'';flex:1;height:0;border-top:1px solid var(--rule)}
   .tips{margin-top:calc(10px*var(--s));padding:calc(6px*var(--s)) calc(9px*var(--s));border-radius:5px;
     background:#f8fafc;border:1px solid var(--rule);font-size:calc(9.5px*var(--s));color:#4b5563;line-height:1.5}
   .tips b{color:var(--ink)}
@@ -305,7 +314,13 @@ function writeResep(w, cert) {
   .bar button{background:white;color:#374151;border:1px solid #cbd5e1;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif}
   .bar button.active{background:var(--accent);color:white;border-color:var(--accent)}
   .bar button.print{background:var(--accent);color:white;border-color:var(--accent);padding:8px 24px}
-  @media print{ body{background:white;padding:0} .page{box-shadow:none} .no-print{display:none!important} }
+  /* Panel bertinta (identitas, tips, catatan, badge) memang berlatar. Keduanya
+     sudah punya garis tepi sehingga tetap terbaca walau latarnya tidak ikut
+     tercetak, tapi bila perambannya mengizinkan, warnanya dipertahankan. */
+  @media print{
+    body{background:white;padding:0} .page{box-shadow:none} .no-print{display:none!important}
+    .ident,.tips,.notes,.badge-luar{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
   </style>
   <style id="pagesize">@page{size:210mm 297mm;margin:0}</style>
   </head><body>
@@ -346,7 +361,7 @@ function writeResep(w, cert) {
     <div class="rx-list">
       ${items.length ? items.map(itemHtml).join('') : '<p style="margin-left:6mm;color:#6b7280;font-size:13px">(tidak ada item obat)</p>'}
       ${d.notes ? `<div class="notes"><b>Catatan:</b> ${escMultiline(d.notes)}</div>` : ''}
-      <div class="rx-end"></div>
+      <div class="rx-end"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><line x1="0" y1="0" x2="100" y2="100"></line><line x1="100" y1="0" x2="0" y2="100"></line></svg></div>
       <div class="rx-end-label">Akhir resep</div>
     </div>
 
