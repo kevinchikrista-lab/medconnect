@@ -5553,6 +5553,126 @@ class Store {
     return buckets;
   }
 
+  // ---- Pengelompokan yang bisa dipilih sendiri -----------------------------
+  //
+  // Papan Kanban menjawab satu pertanyaan saja: "sudah sampai tahap mana?".
+  // Pertanyaan lain sama seringnya — "apa saja yang terlambat", "Anis
+  // pegang apa", "urusan perizinan sudah sampai mana" — dan semuanya
+  // memakai tugas yang sama, hanya disusun berbeda.
+  //
+  // Mengembalikan URUTAN, bukan objek: urutan kelompok adalah bagian dari
+  // artinya. "Terlambat" di paling atas bukan kebetulan, dan objek biasa
+  // tidak menjamin urutan kuncinya bertahan.
+  //
+  // Kelompok yang kosong dibuang, KECUALI kalau seluruhnya kosong — daftar
+  // berisi enam judul tanpa satu pun tugas di bawahnya lebih membingungkan
+  // daripada satu keterangan "tidak ada".
+  //
+  // label diisi di sini hanya untuk kelompok yang namanya berasal dari data
+  // (nama staf, nama kategori). Untuk kelompok tetap, label dikosongkan dan
+  // halaman yang mengisinya — di sanalah warna dan ikonnya sudah ada.
+  groupTasksBy(tasks, kunci, userId) {
+    return this._buangKelompokKosong(this._kelompokTugas(tasks, kunci, userId));
+  }
+
+  _buangKelompokKosong(kelompok) {
+    const isi = (kelompok || []).filter(g => g.items && g.items.length);
+    return isi;
+  }
+
+  _kelompokTugas(tasks, kunci, userId) {
+    const list = (tasks || []).slice();
+    const susun = (urutan, peta) => urutan.map(k => ({ key: k, label: '', items: peta[k] || [] }));
+
+    if (kunci === 'status') {
+      const c = this.groupTasksByColumn(list, userId);
+      return susun(['inbox', 'todo', 'focus', 'review', 'delegated', 'done'], c);
+    }
+    if (kunci === 'prioritas') {
+      const peta = { urgent: [], high: [], normal: [], low: [] };
+      list.forEach(t => {
+        const p = t.priority || 'normal';
+        (peta[p] || peta.normal).push(t);
+      });
+      return susun(['urgent', 'high', 'normal', 'low'], peta);
+    }
+    if (kunci === 'penerima') {
+      // Acara tidak punya satu penerima — ia punya banyak peserta. Menaruhnya
+      // di bawah salah satu nama akan menyembunyikannya dari peserta yang
+      // lain; menaruhnya di bawah semua nama akan menghitungnya berkali-kali.
+      // Karena itu acara berdiri sebagai kelompoknya sendiri.
+      const peta = {}; const acara = []; const tanpa = [];
+      list.forEach(t => {
+        if (this.isEvent(t)) { acara.push(t); return; }
+        const id = t.assignee_id || '';
+        if (!id) { tanpa.push(t); return; }
+        (peta[id] = peta[id] || []).push(t);
+      });
+      const keluar = Object.keys(peta)
+        .map(id => ({ key: 'u:' + id, label: this.staffName(id) || 'Tanpa nama', items: peta[id] }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'id'));
+      if (acara.length) keluar.push({ key: 'acara', label: 'Acara / Pertemuan', items: acara });
+      if (tanpa.length) keluar.push({ key: 'tanpa', label: 'Belum ada penerima', items: tanpa });
+      return keluar;
+    }
+    if (kunci === 'kategori') {
+      const peta = {}; const tanpa = [];
+      list.forEach(t => {
+        const k = String(t.category || '').trim();
+        if (!k) { tanpa.push(t); return; }
+        (peta[k] = peta[k] || []).push(t);
+      });
+      const keluar = Object.keys(peta).sort((a, b) => a.localeCompare(b, 'id'))
+        .map(k => ({ key: 'c:' + k, label: k, items: peta[k] }));
+      if (tanpa.length) keluar.push({ key: 'tanpa', label: 'Tanpa kategori', items: tanpa });
+      return keluar;
+    }
+    if (kunci === 'tidak') {
+      return [{ key: 'semua', label: 'Semua tugas', items: list }];
+    }
+    // Bawaan: menurut waktu. Yang paling sering ditanyakan tiap pagi.
+    const b = this.groupTasksByTime(list);
+    return susun(['overdue', 'today', 'tomorrow', 'week', 'later', 'someday', 'done'], b);
+  }
+
+  // Kotak-kotak satu bulan untuk tampilan Kalender, LENGKAP satu minggu penuh
+  // di awal dan akhir — kalau tidak, baris pertama mulai menggantung di
+  // tengah dan kolom hari tidak lagi sejajar dengan nama harinya.
+  //
+  // ym = 'YYYY-MM'. Minggu dimulai hari Senin, seperti kalender yang
+  // dipakai sehari-hari di sini.
+  calendarGrid(ym) {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
+    if (!m) return [];
+    const tahun = Number(m[1]), bulan = Number(m[2]);
+    if (bulan < 1 || bulan > 12) return [];
+    const pertama = new Date(tahun, bulan - 1, 1);
+    // getDay(): Minggu=0. Digeser supaya Senin=0.
+    const geser = (pertama.getDay() + 6) % 7;
+    const mulai = new Date(tahun, bulan - 1, 1 - geser);
+    const keluar = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(mulai.getFullYear(), mulai.getMonth(), mulai.getDate() + i);
+      keluar.push({
+        tanggal: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'),
+        hari: d.getDate(),
+        dalamBulan: d.getMonth() === bulan - 1,
+      });
+      // Berhenti begitu satu minggu penuh sudah melewati akhir bulan: bulan
+      // yang muat lima baris tidak perlu baris keenam yang kosong.
+      if (i >= 27 && (i + 1) % 7 === 0 && d.getMonth() !== bulan - 1) break;
+    }
+    return keluar;
+  }
+
+  // Geser 'YYYY-MM' sekian bulan. Dipakai tombol maju/mundur kalender.
+  shiftMonth(ym, delta) {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
+    if (!m) return String(ym || '');
+    const d = new Date(Number(m[1]), Number(m[2]) - 1 + (Number(delta) || 0), 1);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
   // Health Services
   getServices() { return this.data.health_services.filter(s => s.is_active); }
   getAllServices() { return this.data.health_services; }
