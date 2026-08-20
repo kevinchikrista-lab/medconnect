@@ -48,7 +48,9 @@ let sambungTimer = null;
 let gagalBerturut = 0;
 let tokenTerkirim = '';
 
-// topik -> { tabel, joinRef, tersambung, pendengar:Set }
+// topik -> { jenis, nama, joinRef, tersambung, pendengar:Set }
+//   jenis 'tabel'  : kabar perubahan baris dari Postgres (bel pintu)
+//   jenis 'siaran'  : pesan antar-peramban yang TIDAK menyentuh basis data
 const kanal = new Map();
 const pemerhatiStatus = new Set();
 
@@ -81,14 +83,21 @@ function gabungKanal(topik) {
   k.joinRef = String(++ref);
   k.tersambung = false;
   tokenTerkirim = tokenSekarang();
+  // Kanal siaran tidak mendaftar ke perubahan tabel mana pun: ia tidak
+  // menyentuh basis data sama sekali, jadi ia tetap bekerja walau
+  // supabase-realtime-catatan.sql belum dijalankan.
+  const pg = k.jenis === 'siaran' ? [] : [{ event: '*', schema: 'public', table: k.nama }];
   kirim({
     topic: topik,
     event: 'phx_join',
     payload: {
       config: {
+        // self:false — pengirim tidak menerima kembali pesannya sendiri.
+        // Tanpa ini, tiap huruf yang diketik akan kembali lagi ke layar yang
+        // mengetiknya dan memindahkan kursornya sendiri.
         broadcast: { ack: false, self: false },
         presence: { key: '' },
-        postgres_changes: [{ event: '*', schema: 'public', table: k.tabel }],
+        postgres_changes: pg,
       },
       access_token: tokenTerkirim,
     },
@@ -184,6 +193,19 @@ function sambung() {
       return;
     }
 
+    if (m.event === 'broadcast') {
+      // Siaran BERBEDA dari bel pintu: isinya memang dibaca, karena justru
+      // isinya yang jadi tujuan — ketikan yang belum tersimpan tidak ada di
+      // basis data, jadi tidak bisa diambil ulang lewat REST.
+      //
+      // Karena itu isinya berasal dari peramban lain dan TIDAK boleh
+      // dipercaya begitu saja. Yang menerima hanya boleh memakainya untuk
+      // menampilkan, tidak untuk menyimpan — lihat js/pages/notes.js.
+      const isi = m.payload && m.payload.payload;
+      if (k) k.pendengar.forEach(f => { try { f(isi); } catch (e) {} });
+      return;
+    }
+
     if (m.event === 'phx_close' || m.event === 'phx_error') {
       if (k) k.tersambung = false;
       jadwalkanSambungUlang();
@@ -198,12 +220,40 @@ function sambung() {
 //
 // Beberapa halaman boleh mendengarkan tabel yang sama; kanalnya dipakai
 // bersama, dan baru ditutup saat pendengar terakhir berhenti.
-export function dengarTabel(tabel, fn) {
+export function dengarTabel(tabel, fn) { return dengar('tabel', tabel, fn); }
+
+// Mendengarkan SIARAN: pesan yang dikirim langsung antar-peramban, tanpa
+// melewati basis data. Dipakai untuk hal yang memang belum tersimpan —
+// ketikan yang sedang berjalan.
+export function dengarSiaran(nama, fn) { return dengar('siaran', nama, fn); }
+
+// Mengirim siaran. Tidak menunggu apa pun dan tidak melaporkan gagal: kalau
+// sambungannya sedang putus, ketikan ini memang tidak sampai — dan yang
+// menjamin tulisannya tidak hilang bukan siaran ini, melainkan simpanan ke
+// basis data yang tetap berjalan.
+export function siarkan(nama, isi) {
+  if (CONFIG.DEMO_MODE) return false;
+  const topik = topikUntuk('siaran', nama);
+  const k = kanal.get(topik);
+  if (!k || !k.tersambung) return false;
+  return kirim({
+    topic: topik,
+    event: 'broadcast',
+    payload: { type: 'broadcast', event: nama, payload: isi },
+    ref: String(++ref),
+  });
+}
+
+function topikUntuk(jenis, nama) {
+  return 'realtime:medconnect-' + (jenis === 'siaran' ? 'siaran-' : '') + nama;
+}
+
+function dengar(jenis, nama, fn) {
   if (CONFIG.DEMO_MODE || typeof fn !== 'function') return () => {};
-  const topik = 'realtime:medconnect-' + tabel;
+  const topik = topikUntuk(jenis, nama);
   let k = kanal.get(topik);
   if (!k) {
-    k = { tabel, joinRef: '', tersambung: false, pendengar: new Set() };
+    k = { jenis, nama, joinRef: '', tersambung: false, pendengar: new Set() };
     kanal.set(topik, k);
     if (sock && sock.readyState === 1) gabungKanal(topik); else sambung();
   }

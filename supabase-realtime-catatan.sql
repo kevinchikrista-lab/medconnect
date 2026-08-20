@@ -12,6 +12,14 @@
 -- ulang tiap 15 detik seperti sebelumnya, dan tandanya di layar berbunyi
 -- "Menyusul tiap 15 detik", bukan "Langsung".
 --
+-- YANG TIDAK BERGANTUNG PADA BERKAS INI
+--
+-- Ketikan huruf demi huruf berjalan lewat SIARAN (broadcast) — pesan langsung
+-- antar-peramban yang tidak menyentuh basis data sama sekali, jadi ia tidak
+-- lewat publikasi ini dan tetap bekerja walau berkas ini belum dijalankan.
+-- Yang dijalankan berkas ini adalah kabar untuk perubahan yang SUDAH
+-- TERSIMPAN: halaman baru, halaman dihapus, dan isi yang sudah masuk server.
+--
 -- REPLICA IDENTITY FULL sengaja TIDAK dipasang. Itu membuat Postgres ikut
 -- mengirimkan seluruh isi baris yang lama pada setiap UPDATE dan DELETE —
 -- termasuk isi catatannya. Aplikasi ini tidak membacanya sama sekali (pesan
