@@ -30,6 +30,24 @@ export function tasksSetup() {
   window.__taskToday = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   window.__taskPriorities = PRIORITIES;
   window.__taskRecurrences = RECURRENCES;
+  window.__taskViews = VIEWS;
+  window.__taskGroupBy = GROUPBY;
+  window.__taskBulan = NAMA_BULAN;
+  // Judul, warna, dan ikon tiap kelompok. Diambil dari daftar yang sudah
+  // dipakai papan supaya "Terlambat" berwarna sama di mana pun ia muncul —
+  // kalau tiap tampilan punya warnanya sendiri, warna berhenti berarti.
+  window.__taskGroupMeta = (() => {
+    const m = {};
+    GROUPS.forEach(g => { m[g.key] = { label: g.label, tone: g.tone, icon: g.icon }; });
+    COLUMNS.forEach(c => { m[c.key] = { label: c.label, tone: c.tone, icon: c.icon }; });
+    // GROUPS dan COLUMNS sama-sama punya 'done'; yang dipakai label kolom
+    // ("Selesai"), bukan label kelompok waktu.
+    PRIORITIES.forEach(p => { m[p.key] = { label: p.label, tone: p.chip.split(' ').pop(), icon: 'flag' }; });
+    m.semua = { label: 'Semua tugas', tone: 'text-slate-600', icon: 'list' };
+    m.acara = { label: 'Acara / Pertemuan', tone: 'text-violet-600', icon: 'groups' };
+    m.tanpa = { label: 'Tanpa', tone: 'text-slate-400', icon: 'remove' };
+    return m;
+  })();
 }
 
 const PRIORITIES = [
@@ -83,6 +101,37 @@ const INBOX_STALE_DAYS = 7;
 // Kolom Selesai hanya memuat sekian hari terakhir secara bawaan.
 const DONE_WINDOW_DAYS = 30;
 
+// Tampilan yang bisa dipilih. Papan menjawab "sudah sampai tahap mana?";
+// pertanyaan lain sama seringnya dan memakai tugas yang sama, hanya disusun
+// berbeda — karena itu susunannya yang dipilih, bukan datanya yang disalin.
+const VIEWS = [
+  { key: 'papan', label: 'Papan', icon: 'view_kanban', ket: 'Kolom per tahap pekerjaan' },
+  { key: 'daftar', label: 'Daftar', icon: 'view_list', ket: 'Satu daftar panjang, bisa dikelompokkan' },
+  { key: 'tabel', label: 'Tabel', icon: 'table_rows', ket: 'Baris rapat, banyak muat dalam satu layar' },
+  { key: 'kalender', label: 'Kalender', icon: 'calendar_month', ket: 'Sebulan penuh menurut tanggalnya' },
+];
+
+// Dasar pengelompokan untuk tampilan Daftar & Tabel. 'penerima' hanya masuk
+// akal bagi yang melihat tugas semua orang.
+const GROUPBY = [
+  { key: 'waktu', label: 'Waktu', semua: false },
+  { key: 'status', label: 'Tahap pekerjaan', semua: false },
+  { key: 'prioritas', label: 'Prioritas', semua: false },
+  { key: 'penerima', label: 'Penerima', semua: true },
+  { key: 'kategori', label: 'Kategori', semua: false },
+  { key: 'tidak', label: 'Tanpa pengelompokan', semua: false },
+];
+
+const HARI_PENDEK = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+const NAMA_BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+// Pilihan tampilan disimpan di peramban, bukan di server: ini soal selera
+// melihat, bukan data klinik. Yang penting pilihannya masih sama besok pagi —
+// tampilan yang kembali ke bawaan tiap kali halaman dibuka membuat orang
+// berhenti mengubahnya sama sekali.
+const KUNCI_TAMPILAN = 'medconnect_tugas_tampilan';
+
 // Urutan kelompok waktu di DALAM tiap kolom.
 const GROUPS = [
   { key: 'overdue', label: 'Terlambat', icon: 'error', tone: 'text-red-600' },
@@ -100,6 +149,73 @@ export function tasksXData(mode) {
     loading: true, tasks: [], me: window.__taskMe || '', staff: window.__taskStaff || [],
     q: '', filterAssignee: '', filterPriority: '', expanded: '',
     tab: 'todo', allHistory: false,
+
+    // ---- Tampilan yang bisa dipilih sendiri ------------------------------
+    tampilan: 'papan', kelompok: 'waktu', menuTampilan: false,
+    kalBulan: (window.__taskToday || '').slice(0, 7),
+    kalPilih: window.__taskToday || '',
+    views: window.__taskViews || [], groupBy: window.__taskGroupBy || [],
+
+    // Pilihan dibaca DULU sebelum apa pun digambar. Kalau dibaca sesudahnya,
+    // papan sempat berkedip di layar orang yang sebenarnya memilih tabel.
+    bacaPilihan() {
+      let p = null;
+      try { p = JSON.parse(window.localStorage.getItem('${KUNCI_TAMPILAN}') || 'null'); } catch (e) { p = null; }
+      if (!p || typeof p !== 'object') return;
+      // Nilai dari peramban tidak dipercaya begitu saja: berkas ini bisa
+      // saja menyimpannya dari versi lain yang tampilannya sudah tidak ada,
+      // dan tampilan yang tidak dikenal berarti layar kosong tanpa sebab.
+      if (this.views.some(v => v.key === p.tampilan)) this.tampilan = p.tampilan;
+      if (this.pilihanKelompok.some(g => g.key === p.kelompok)) this.kelompok = p.kelompok;
+    },
+    simpanPilihan() {
+      try { window.localStorage.setItem('${KUNCI_TAMPILAN}', JSON.stringify({ tampilan: this.tampilan, kelompok: this.kelompok })); } catch (e) {}
+    },
+    pilihTampilan(k) { this.tampilan = k; this.menuTampilan = false; this.simpanPilihan(); },
+    pilihKelompok(k) { this.kelompok = k; this.simpanPilihan(); },
+    get pilihanKelompok() { return this.groupBy.filter(g => !g.semua || this.mode !== 'mine'); },
+    get viewAktif() { return this.views.find(v => v.key === this.tampilan) || this.views[0] || { label: 'Papan', icon: 'view_kanban' }; },
+    get labelKelompok() {
+      const g = this.pilihanKelompok.find(x => x.key === this.kelompok);
+      return g ? g.label : 'Waktu';
+    },
+
+    // Satu sumber untuk Daftar dan Tabel. Judul & warna kelompok tetap
+    // diambil dari daftar yang sudah ada supaya Terlambat berwarna sama di
+    // mana pun ia muncul.
+    get kelompokTampil() {
+      const g = window.__store.groupTasksBy(this.shown, this.kelompok, this.me);
+      const meta = window.__taskGroupMeta || {};
+      return g.map(x => {
+        const m = meta[x.key] || {};
+        return { key: x.key, items: x.items,
+          label: x.label || m.label || x.key,
+          tone: m.tone || 'text-slate-600', icon: m.icon || 'label' };
+      });
+    },
+
+    // ---- Kalender --------------------------------------------------------
+    get kalKotak() { return window.__store.calendarGrid(this.kalBulan); },
+    kalJudul() {
+      const m = /^(\\d{4})-(\\d{2})$/.exec(this.kalBulan || '');
+      if (!m) return '';
+      return (window.__taskBulan || [])[Number(m[2]) - 1] + ' ' + m[1];
+    },
+    kalGeser(n) {
+      this.kalBulan = window.__store.shiftMonth(this.kalBulan, n);
+      // Tanggal terpilih tidak ikut digeser: berpindah bulan untuk melihat-
+      // lihat tidak sama dengan memilih tanggal lain.
+    },
+    kalKeHariIni() { this.kalBulan = (window.__taskToday || '').slice(0, 7); this.kalPilih = window.__taskToday || ''; },
+    kalTugas(tgl) { return this.shown.filter(t => (t.due_date || '') === tgl); },
+    kalJumlahBelum(tgl) { return this.kalTugas(tgl).filter(t => this.status(t) !== 'done').length; },
+    get kalTerpilih() { return this.kalTugas(this.kalPilih); },
+    // Tugas tanpa tanggal tidak punya kotak di kalender. Tanpa keterangan ini
+    // ia lenyap dari layar begitu tampilan Kalender dipilih — dan yang lenyap
+    // dari layar akan dianggap tidak ada.
+    get kalTanpaTanggal() { return this.shown.filter(t => !t.due_date && this.status(t) !== 'done').length; },
+    kalHariIni(tgl) { return tgl === (window.__taskToday || ''); },
+
     modal: false, editing: null, saving: false, msg: '', newSub: '',
     form: { kind:'task', title:'', notes:'', category:'', priority:'normal', due_date:'', due_time:'', end_time:'', location:'', assignee_id:'', attendee_ids:[], recurrence:'none', recurrence_interval:1, subtasks:[], is_private:false },
     bolehPribadi: window.__taskBolehPribadi === true,
@@ -141,6 +257,7 @@ export function tasksXData(mode) {
 
     async load() {
       this.loading = true;
+      this.bacaPilihan();
       try { await window.__store.loadTasks(); } catch (e) {}
       this.staff = window.__store.getStaffList();
       this.tasks = window.__store.getAllTasks();
@@ -341,6 +458,44 @@ export function tasksXData(mode) {
     subDone(t) { return (t.subtasks || []).filter(s => s.done).length; },
     fmtDate(d) { if (!d) return 'Tanpa tanggal'; const dt = new Date(d + 'T00:00:00'); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' }); },
     dueLabel(t) { return this.fmtDate(t.due_date) + (t.due_time ? ' \\u00b7 ' + t.due_time : ''); },
+    // Tanggal lengkap untuk judul di bawah kalender. fmtDate memakai bentuk
+    // pendek karena ia dipakai di dalam kartu yang sempit; judul punya tempat,
+    // dan tanggal terpotong di judul membuat orang harus menghitung sendiri
+    // sedang melihat hari apa.
+    tanggalPanjang(d) {
+      if (!d) return 'Tanpa tanggal';
+      const dt = new Date(d + 'T00:00:00');
+      if (isNaN(dt)) return d;
+      return dt.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    },
+    terlambat(t) {
+      return this.status(t) !== 'done' && !!t.due_date && t.due_date < (window.__taskToday || '');
+    },
+
+    // ---- Ringkasan satu baris untuk tampilan Tabel ------------------------
+    // Tahap dipakai apa adanya dari kolom papan, supaya baris tabel dan kartu
+    // papan tidak pernah menyebut tahap yang berbeda untuk tugas yang sama.
+    tahapKey(t) {
+      const s = this.status(t);
+      if (s === 'done' || s === 'inbox' || s === 'review' || s === 'focus') return s;
+      return this.isMine(t) ? s : 'delegated';
+    },
+    tahapLabel(t) {
+      const m = (window.__taskGroupMeta || {})[this.tahapKey(t)];
+      return m ? m.label : 'To-Do';
+    },
+    tahapChip(t) {
+      return ({ inbox: 'bg-purple-50 text-purple-700', todo: 'bg-slate-100 text-slate-600',
+        focus: 'bg-amber-50 text-amber-700', review: 'bg-indigo-50 text-indigo-700',
+        delegated: 'bg-blue-50 text-blue-700', done: 'bg-green-50 text-green-700' })[this.tahapKey(t)] || 'bg-slate-100 text-slate-600';
+    },
+    penerimaLabel(t) {
+      if (this.isEvent(t)) {
+        const n = window.__store.attendeeIds(t).length;
+        return n ? n + ' peserta' : 'Belum ada peserta';
+      }
+      return t.assignee_id ? this.staffName(t.assignee_id) : 'Saya sendiri';
+    },
 
     openNew(kind) {
       this.editing = null; this.msg = ''; this.newSub = '';
@@ -755,6 +910,189 @@ function focusOverlay() {
   </div>`;
 }
 
+// Pemilih tampilan. Satu tombol yang menyebutkan tampilan yang SEDANG dipakai,
+// bukan empat tombol sejajar: yang dicari orang saat menekannya adalah "ada
+// pilihan apa lagi", dan pertanyaan itu tidak perlu memakan tempat terus-
+// menerus di layar yang isinya sudah padat.
+function viewSwitcher() {
+  return `
+  <div class="relative" @keydown.escape.window="menuTampilan = false">
+    <button type="button" @click="menuTampilan = !menuTampilan"
+      class="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition flex items-center gap-1.5">
+      <span class="ms text-[17px] text-brand-dark" x-text="viewAktif.icon"></span>
+      <span x-text="viewAktif.label"></span>
+      <span class="ms text-[16px] text-slate-400" x-text="menuTampilan ? 'expand_less' : 'expand_more'"></span>
+    </button>
+    <!-- Latar penutup: menekan di mana saja di luar menu menutupnya. Tanpa ini
+         menu hanya bisa ditutup dengan memilih sesuatu, dan orang yang cuma
+         ingin melihat daftarnya terpaksa mengubah tampilannya. -->
+    <div x-show="menuTampilan" x-cloak @click="menuTampilan = false" class="fixed inset-0 z-40"></div>
+    <div x-show="menuTampilan" x-cloak
+      class="absolute z-50 mt-1 w-64 bg-white rounded-xl shadow-lg border border-slate-100 p-1.5">
+      <p class="px-2.5 pt-1.5 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">Tampilkan sebagai</p>
+      <template x-for="v in views" :key="v.key">
+        <button type="button" @click="pilihTampilan(v.key)"
+          class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-slate-50 transition flex items-start gap-2.5"
+          :class="tampilan === v.key ? 'bg-blue-50' : ''">
+          <span class="ms text-[18px] mt-px" :class="tampilan === v.key ? 'text-brand-dark' : 'text-slate-400'" x-text="v.icon"></span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-[13px] font-semibold" :class="tampilan === v.key ? 'text-brand-dark' : 'text-slate-700'" x-text="v.label"></span>
+            <span class="block text-[11px] text-slate-400 leading-snug" x-text="v.ket"></span>
+          </span>
+          <span class="ms text-[16px] text-brand-dark" x-show="tampilan === v.key" x-cloak>check</span>
+        </button>
+      </template>
+    </div>
+  </div>`;
+}
+
+// Daftar: satu kolom panjang dengan judul kelompok. Kartu tugasnya PERSIS
+// kartu yang dipakai papan — kalau tampilan baru memakai kartunya sendiri,
+// tombol yang ada di papan akan hilang di sini tanpa ada yang menyadarinya.
+function listView(m) {
+  return `
+  <div x-show="tampilan === 'daftar'" x-cloak class="max-w-3xl">
+    <template x-for="g in kelompokTampil" :key="g.key">
+      <section class="mb-5">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="ms text-[16px]" :class="g.tone" x-text="g.icon"></span>
+          <h4 class="font-bold text-[11.5px] uppercase tracking-wide" :class="g.tone" x-text="g.label"></h4>
+          <span class="text-[11px] text-gray-400" x-text="'(' + g.items.length + ')'"></span>
+        </div>
+        <div class="space-y-2">${taskCard(m, 'g.items')}</div>
+      </section>
+    </template>
+    <div x-show="!kelompokTampil.length" x-cloak class="rounded-2xl border border-dashed border-slate-200 p-8 text-center">
+      <p class="text-sm text-gray-400">Tidak ada tugas yang cocok dengan saringan ini.</p>
+    </div>
+  </div>`;
+}
+
+// Tabel: sebanyak mungkin tugas dalam satu layar. Tidak ada sub-tugas, catatan,
+// atau timer di sini — yang dicari saat memilih tabel adalah gambaran
+// menyeluruh, dan rinciannya tetap satu ketukan jauhnya lewat baris judulnya.
+function tableView(canManage) {
+  return `
+  <div x-show="tampilan === 'tabel'" x-cloak class="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm min-w-[640px]">
+        <thead>
+          <tr class="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+            <th class="w-9 px-3 py-2"></th>
+            <th class="text-left px-2 py-2 font-bold">Tugas</th>
+            <th class="text-left px-2 py-2 font-bold w-32">Tahap</th>
+            <th class="text-left px-2 py-2 font-bold w-24">Prioritas</th>
+            ${canManage ? '<th class="text-left px-2 py-2 font-bold w-36">Penerima</th>' : ''}
+            <th class="text-left px-2 py-2 font-bold w-32">Tanggal</th>
+          </tr>
+        </thead>
+        <template x-for="g in kelompokTampil" :key="g.key">
+          <tbody>
+            <tr>
+              <td colspan="${canManage ? 6 : 5}" class="px-3 pt-3 pb-1.5 border-t border-slate-100">
+                <span class="inline-flex items-center gap-1.5">
+                  <span class="ms text-[15px]" :class="g.tone" x-text="g.icon"></span>
+                  <span class="font-bold text-[11px] uppercase tracking-wide" :class="g.tone" x-text="g.label"></span>
+                  <span class="text-[11px] text-gray-400" x-text="'(' + g.items.length + ')'"></span>
+                </span>
+              </td>
+            </tr>
+            <template x-for="t in g.items" :key="t.id">
+              <tr class="border-t border-slate-50 hover:bg-slate-50/60 transition">
+                <td class="px-3 py-2 align-top">
+                  <button @click="toggle(t)" class="mt-0.5 w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center transition"
+                    :class="status(t) === 'done' ? 'bg-green-500 border-green-500' : (inReview(t) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300 hover:border-green-500')">
+                    <span class="ms text-[12px] text-white" x-show="status(t) === 'done' || inReview(t)" x-cloak
+                      x-text="inReview(t) ? 'hourglass_bottom' : 'check'"></span>
+                  </button>
+                </td>
+                <td class="px-2 py-2 align-top">
+                  <button type="button" @click="tampilan = 'daftar'; expanded = t.id; simpanPilihan()"
+                    class="text-left font-medium text-slate-800 hover:text-brand-dark transition"
+                    :class="status(t) === 'done' ? 'line-through text-slate-400' : ''" x-text="t.title"></button>
+                  <span class="ms text-[14px] text-violet-500 align-middle ml-1" x-show="isEvent(t)" x-cloak title="Acara">groups</span>
+                  <span class="ms text-[14px] text-slate-400 align-middle ml-1" x-show="isPrivate(t)" x-cloak title="Pribadi">lock</span>
+                  <p class="text-[11px] text-slate-400" x-show="t.category" x-cloak x-text="t.category"></p>
+                </td>
+                <td class="px-2 py-2 align-top">
+                  <span class="px-2 py-0.5 rounded-full text-[11px] font-medium" :class="tahapChip(t)" x-text="tahapLabel(t)"></span>
+                </td>
+                <td class="px-2 py-2 align-top">
+                  <span class="inline-flex items-center gap-1.5 text-[12px] text-slate-600">
+                    <span class="w-2 h-2 rounded-full" :class="prioDot(t.priority)"></span><span x-text="prioLabel(t.priority)"></span>
+                  </span>
+                </td>
+                ${canManage ? `<td class="px-2 py-2 align-top text-[12px] text-slate-600" x-text="penerimaLabel(t)"></td>` : ''}
+                <td class="px-2 py-2 align-top text-[12px]" :class="terlambat(t) ? 'text-red-600 font-semibold' : 'text-slate-600'">
+                  <span x-text="dueLabel(t)"></span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </template>
+      </table>
+    </div>
+    <div x-show="!kelompokTampil.length" x-cloak class="p-8 text-center">
+      <p class="text-sm text-gray-400">Tidak ada tugas yang cocok dengan saringan ini.</p>
+    </div>
+  </div>`;
+}
+
+// Kalender: sebulan penuh. Yang dijawab di sini bukan "apa yang harus
+// dikerjakan", melainkan "minggu depan padat atau tidak" — dan pertanyaan itu
+// tidak bisa dijawab papan mana pun.
+function calendarView(m) {
+  return `
+  <div x-show="tampilan === 'kalender'" x-cloak>
+    <div class="bg-white rounded-2xl border border-slate-100 p-3 sm:p-4">
+      <div class="flex items-center justify-between mb-3 gap-2">
+        <button type="button" @click="kalGeser(-1)" class="w-8 h-8 rounded-lg hover:bg-slate-100 transition flex items-center justify-center text-slate-500"><span class="ms text-[20px]">chevron_left</span></button>
+        <h3 class="font-bold text-sm text-slate-800" x-text="kalJudul()"></h3>
+        <div class="flex items-center gap-1">
+          <button type="button" @click="kalKeHariIni()" class="px-2.5 py-1 rounded-lg text-[11.5px] font-semibold text-brand-dark bg-blue-50 hover:bg-blue-100 transition">Hari ini</button>
+          <button type="button" @click="kalGeser(1)" class="w-8 h-8 rounded-lg hover:bg-slate-100 transition flex items-center justify-center text-slate-500"><span class="ms text-[20px]">chevron_right</span></button>
+        </div>
+      </div>
+      <div class="grid grid-cols-7 gap-px mb-1">
+        ${HARI_PENDEK.map(h => `<div class="text-center text-[10.5px] font-bold uppercase tracking-wide text-slate-400 py-1">${h}</div>`).join('')}
+      </div>
+      <div class="grid grid-cols-7 gap-1">
+        <template x-for="k in kalKotak" :key="k.tanggal">
+          <button type="button" @click="kalPilih = k.tanggal"
+            class="aspect-square sm:aspect-auto sm:min-h-[68px] rounded-lg border p-1 sm:p-1.5 text-left transition flex flex-col"
+            :class="kalPilih === k.tanggal ? 'border-brand-dark bg-blue-50/60'
+                    : (k.dalamBulan ? 'border-slate-100 hover:border-slate-300 bg-white' : 'border-transparent bg-slate-50/60')">
+            <span class="text-[11.5px] font-semibold leading-none"
+              :class="!k.dalamBulan ? 'text-slate-300' : (kalHariIni(k.tanggal) ? 'text-white bg-brand-dark rounded-full w-5 h-5 inline-flex items-center justify-center' : 'text-slate-700')"
+              x-text="k.hari"></span>
+            <span class="mt-auto flex items-center gap-1" x-show="kalJumlahBelum(k.tanggal)" x-cloak>
+              <span class="w-1.5 h-1.5 rounded-full bg-brand-dark"></span>
+              <span class="text-[10.5px] font-semibold text-slate-500" x-text="kalJumlahBelum(k.tanggal)"></span>
+            </span>
+          </button>
+        </template>
+      </div>
+    </div>
+
+    <!-- Tugas tanpa tanggal tidak punya kotak di kalender. Menyebutkannya
+         di sini supaya tidak ada yang mengira tugasnya hilang. -->
+    <div x-show="kalTanpaTanggal" x-cloak class="mt-3 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+      <p class="text-[11.5px] text-amber-800 leading-relaxed">
+        <b><span x-text="kalTanpaTanggal"></span> tugas</b> belum punya tanggal, jadi tidak muncul di kalender.
+        <button type="button" @click="pilihTampilan('daftar'); pilihKelompok('waktu')" class="underline font-semibold">Lihat di Daftar</button>
+      </p>
+    </div>
+
+    <div class="mt-4 max-w-3xl">
+      <h4 class="font-bold text-[11.5px] uppercase tracking-wide text-slate-500 mb-2" x-text="tanggalPanjang(kalPilih)"></h4>
+      <div class="space-y-2">${taskCard(m, 'kalTerpilih')}</div>
+      <div x-show="!kalTerpilih.length" x-cloak class="rounded-2xl border border-dashed border-slate-200 p-6 text-center">
+        <p class="text-[12.5px] text-gray-400">Tidak ada tugas pada tanggal ini.</p>
+      </div>
+    </div>
+  </div>`;
+}
+
 export function tasksBody(mode) {
   const m = mode === 'mine' ? 'mine' : 'all';
   const canManage = m !== 'mine';
@@ -838,6 +1176,20 @@ export function tasksBody(mode) {
   </div>
 
   <div class="flex gap-2 flex-wrap items-center mb-5">
+    ${viewSwitcher()}
+    <!-- Pengelompokan hanya berlaku untuk Daftar & Tabel. Papan sudah
+         dikelompokkan menurut tahap (itulah papan), dan Kalender menurut
+         tanggal — menampilkan pilihan yang tidak mengubah apa pun akan
+         terbaca sebagai fitur yang rusak. -->
+    <label class="flex items-center gap-1.5" x-show="tampilan === 'daftar' || tampilan === 'tabel'" x-cloak>
+      <span class="text-[12px] text-slate-500 whitespace-nowrap">Kelompokkan:</span>
+      <select :value="kelompok" @change="pilihKelompok($event.target.value)"
+        class="px-2.5 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+        <template x-for="g in pilihanKelompok" :key="g.key">
+          <option :value="g.key" x-text="g.label"></option>
+        </template>
+      </select>
+    </label>
     <input type="text" x-model="q" placeholder="Cari tugas..." class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50 flex-1 min-w-[180px]">
     <select x-model="filterPriority" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
       <option value="">Semua prioritas</option>
@@ -850,7 +1202,7 @@ export function tasksBody(mode) {
   </div>
 
   <!-- Pemilih kolom untuk layar sempit; di layar lebar keempatnya tampil sekaligus. -->
-  <div class="flex gap-1.5 mb-4 overflow-x-auto lg:hidden">
+  <div class="flex gap-1.5 mb-4 overflow-x-auto lg:hidden" x-show="tampilan === 'papan'" x-cloak>
     ${cols.map(col => `<button @click="tab='${col.key}'" :class="tab==='${col.key}' ? 'bg-white border-slate-200 shadow-sm ${col.tone}' : 'bg-transparent border-transparent text-gray-500'"
       class="px-3 py-1.5 rounded-xl border text-[12.5px] font-semibold whitespace-nowrap transition flex items-center gap-1.5">
       ${col.label}<span class="px-1.5 rounded-full bg-slate-100 text-slate-600 text-[10.5px]" x-text="colCount('${col.key}')"></span>
@@ -863,9 +1215,13 @@ export function tasksBody(mode) {
     <!-- Enam kolom berjejer hanya muat di layar sangat lebar. Di laptop biasa
          dipecah dua baris bertiga, bukan dipepetkan sampai judul tugasnya
          terpotong — papan yang tidak terbaca sama saja dengan tidak ada. -->
-    <div class="grid grid-cols-1 ${canManage ? 'lg:grid-cols-3 xl:grid-cols-6' : 'lg:grid-cols-5'} gap-4 items-start">
+    <div x-show="tampilan === 'papan'" x-cloak class="grid grid-cols-1 ${canManage ? 'lg:grid-cols-3 xl:grid-cols-6' : 'lg:grid-cols-5'} gap-4 items-start">
       ${columns}
     </div>
+
+    ${listView(m)}
+    ${tableView(canManage)}
+    ${calendarView(m)}
 
     <div x-show="!tasks.length" x-cloak class="mt-4 bg-white rounded-2xl border border-slate-100 p-8 text-center">
       <span class="ms text-[36px] text-green-500">task_alt</span>
