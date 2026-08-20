@@ -91,6 +91,31 @@ function scanXDataBuilders(path) {
         }
         j += 2; continue;
       }
+      // Komentar dilewati sebagai satu kesatuan, TAPI isinya tetap diperiksa.
+      // Sebelumnya komentar tidak dikenali sama sekali, sehingga satu backtick
+      // di dalamnya (mis. menyebut `this` dengan gaya kode) dibaca sebagai
+      // akhir template literal: pemindaian berhenti di situ dan SELURUH sisa
+      // fungsi tidak pernah diperiksa. Berhentinya diam-diam — tidak ada yang
+      // gagal, jadi tidak ada yang tahu.
+      if (c === '/' && (c2 === '/' || c2 === '*')) {
+        const baris = c2 === '/';
+        const e = baris ? text.indexOf('\n', j) : text.indexOf('*/', j);
+        const akhir = e === -1 ? text.length : e;
+        const seg = text.slice(j, akhir);
+        const salah = seg.indexOf('`') !== -1 ? '`' : (seg.indexOf('"') !== -1 ? '"' : '');
+        if (salah) {
+          const pos = j + seg.indexOf(salah);
+          const line = text.slice(0, pos).split('\n').length;
+          const ctx = text.slice(Math.max(0, pos - 70), pos + 20).replace(/\n/g, ' ');
+          const sebab = salah === '`'
+            ? 'backtick di dalam komentar ' + m[1] + '() — menutup template literal-nya'
+            : 'tanda kutip ganda di dalam ' + m[1] + '() (isinya masuk ke x-data)';
+          console.error(`❌ ${path}:${line} — ${sebab}\n   ...${ctx}...`);
+          failures++;
+        }
+        j = baris ? akhir : akhir + 2;
+        continue;
+      }
       if (c === '`') break;                       // akhir template literal
       if (c === '$' && c2 === '{') {              // interpolasi: dinilai saat render
         let d = 1; j += 2;

@@ -11,6 +11,7 @@
 
 import { store } from '../store.js';
 import { mdToHtml, mdSnippet } from '../markdown.js';
+import { dengarTabel, dengarStatus, dengarSiaran, siarkan } from '../realtime.js';
 
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -62,6 +63,9 @@ export function notesSetup() {
   // Alpine tanpa perlu menyalin fungsinya ke dalam atribut x-data.
   window.__md = mdToHtml;
   window.__mdSnippet = mdSnippet;
+  // Dibuka lewat window supaya bisa dipakai dari ekspresi Alpine tanpa
+  // menyalin fungsinya ke dalam atribut x-data.
+  window.__realtime = { dengarTabel, dengarStatus, dengarSiaran, siarkan };
 }
 
 function notesXData(canEdit) {
@@ -108,18 +112,105 @@ function notesXData(canEdit) {
       this.tersimpan = { title: n.title || '', body: n.body || '' };
       this.dasar = n.updated_at || '';
       this.kabar = '';
+      this.dariSiaran = false; this.pengetik = '';
       let p = n.parent_id;
       let pagar = 0;
       while (p && pagar++ < 20) { this.buka[p] = true; const q = window.__store.getBusinessNote(p); p = q && q.parent_id; }
     },
 
-    // Setiap ketikan menunda penyimpanan sedetik. Menyimpan pada tiap huruf
-    // berarti puluhan permintaan per kalimat; menunggu lebih lama membuat
-    // orang menutup tab sebelum tulisannya masuk.
+    // Setiap ketikan menunda penyimpanan. Menyimpan pada tiap huruf berarti
+    // puluhan permintaan per kalimat; menunggu terlalu lama membuat orang
+    // menutup tab sebelum tulisannya masuk.
+    //
+    // Semula sedetik. Diperpendek jadi 500 ms karena sekarang jeda inilah yang
+    // menentukan berapa lama tulisan seseorang sampai ke layar rekannya:
+    // sesudah tersimpan, kabarnya datang lewat sambungan langsung dalam
+    // sepersekian detik. Jeda ini tetap dihitung dari ketikan TERAKHIR, jadi
+    // mengetik terus-menerus tetap menghasilkan satu simpanan, bukan dua kali
+    // lebih banyak.
+    JEDA_KETIK: 500,
     ketik() {
       this.status = 'mengetik';
+      // Sejak ketikan pertama, tulisan ini milik saya — bukan lagi salinan
+      // siaran orang lain. Penanda ini yang menghentikan layar saya diambil
+      // alih siaran berikutnya.
+      this.dariSiaran = false;
+      this.siarkanKetikan();
       if (this.simpanTimer) clearTimeout(this.simpanTimer);
-      this.simpanTimer = setTimeout(() => this.simpanSekarang(), 1000);
+      this.simpanTimer = setTimeout(() => this.simpanSekarang(), this.JEDA_KETIK);
+    },
+
+    // ---- KETIKAN YANG DISIARKAN LANGSUNG, HURUF DEMI HURUF ----------------
+    //
+    // Menyimpan tiap huruf ke basis data bukan pilihan: puluhan tulisan per
+    // kalimat, dan tiap satu di antaranya melahirkan kabar ke semua orang.
+    // Siaran menempuh jalan lain — pesannya langsung antar-peramban lewat
+    // kanal yang sama, TANPA menyentuh basis data sama sekali. Yang menjamin
+    // tulisannya tidak hilang tetap simpanan 500 ms itu; siaran ini hanya
+    // membuat rekannya bisa melihat sambil ditulis.
+    //
+    // 120 ms: cukup rapat untuk terbaca sebagai huruf demi huruf pada
+    // kecepatan mengetik manusia, cukup longgar untuk tidak mengirim satu
+    // pesan per tombol saat orang mengetik cepat.
+    JEDA_SIAR: 120,
+    JEDA_PENGETIK: 2500,
+    siarTimer: null, siarTertunda: false,
+    siarkanKetikan() {
+      if (!this.aktif) return;
+      const rt = window.__realtime;
+      if (!rt || typeof rt.siarkan !== 'function') return;
+      if (this.siarTimer) { this.siarTertunda = true; return; }
+      this.kirimSiaran();
+      this.siarTimer = setTimeout(() => {
+        this.siarTimer = null;
+        // Huruf terakhir sebelum orang berhenti mengetik justru yang paling
+        // penting. Tanpa pengiriman susulan ini, layar rekannya berhenti satu
+        // ketukan sebelum kalimatnya selesai.
+        if (this.siarTertunda) { this.siarTertunda = false; this.siarkanKetikan(); }
+      }, this.JEDA_SIAR);
+    },
+    kirimSiaran() {
+      const rt = window.__realtime;
+      if (!rt || !this.aktif) return;
+      rt.siarkan('catatan-ketik', {
+        id: this.aktif, title: this.draf.title, body: this.draf.body,
+        dari: this.me, nama: window.__store.staffName(this.me),
+      });
+    },
+
+    // Menerima ketikan orang lain.
+    //
+    // Isinya datang dari peramban lain, jadi TIDAK dipercaya sebagai data:
+    // hanya ditampilkan, tidak pernah ikut disimpan. Yang tersimpan ke basis
+    // data tetap hasil ketikan orang yang menulisnya sendiri.
+    terimaSiaran(isi) {
+      if (!isi || typeof isi !== 'object') return;
+      if (isi.dari === this.me) return;
+      if (String(isi.id || '') !== String(this.aktif || '')) return;
+
+      this.pengetik = String(isi.nama || 'Seseorang');
+      if (this.pengetikTimer) clearTimeout(this.pengetikTimer);
+      // Padam sendiri sesudah hening. Tanpa ini, 'Anis sedang mengetik' akan
+      // menempel di layar sampai halaman ditutup — dan penanda yang tidak
+      // pernah padam berhenti berarti apa-apa.
+      this.pengetikTimer = setTimeout(() => { this.pengetik = ''; }, this.JEDA_PENGETIK);
+
+      // Tulisan saya sendiri tidak boleh ditimpa. Ini penjagaan yang sama
+      // dengan serap(), hanya lebih awal: di sini bahkan belum ada yang
+      // tersimpan untuk dibandingkan.
+      if (this.bentrok) return;
+      const adaTulisanSaya = (this.tersimpan.title !== this.draf.title)
+                          || (this.tersimpan.body !== this.draf.body);
+      if (adaTulisanSaya || this.status === 'mengetik' || this.status === 'menyimpan') return;
+
+      this.draf = { title: String(isi.title || ''), body: String(isi.body || '') };
+      // tersimpan ikut disamakan supaya penjagaan di atas tidak salah mengira
+      // tulisan orang lain sebagai tulisan saya yang belum tersimpan.
+      this.tersimpan = { title: this.draf.title, body: this.draf.body };
+      // Yang di layar sekarang belum tentu ada di basis data — ia baru ketikan
+      // yang sedang berjalan. serap() memakai penanda ini untuk membetulkannya
+      // dari basis data begitu simpanan yang sungguhan tiba.
+      this.dariSiaran = true;
     },
     async simpanSekarang() {
       if (this.simpanTimer) { clearTimeout(this.simpanTimer); this.simpanTimer = null; }
@@ -141,6 +232,7 @@ function notesXData(canEdit) {
       if (r && r.error) { this.status = 'gagal'; this.statusWaktu = r.error; return; }
       this.dasar = r.updated_at || '';
       this.tersimpan = { title: this.draf.title, body: this.draf.body };
+      this.dariSiaran = false;
       this.status = 'tersimpan';
       this.statusWaktu = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
       this.refresh();
@@ -204,26 +296,54 @@ function notesXData(canEdit) {
     // yang lain melihat layar yang sama seperti sejam lalu, tanpa tanda apa
     // pun bahwa ada yang tertinggal.
     //
-    // Dikerjakan dengan menanyakan ulang secara berkala, BUKAN sambungan
-    // langsung. Sambungan langsung (Supabase Realtime) berarti menambah
-    // pustaka WebSocket ke aplikasi yang tidak punya tahap pembangunan —
-    // satu berkas besar lagi yang harus berhasil dimuat sebelum halaman ini
-    // bisa dipakai sama sekali. Untuk catatan yang ditulis bertiga, jeda
-    // belasan detik tidak terasa; ketergantungan yang gagal dimuat terasa.
+    // Dua lapis, dan sengaja dua-duanya.
+    //
+    // Lapis pertama SAMBUNGAN LANGSUNG (Supabase Realtime lewat WebSocket
+    // bawaan peramban — lihat js/realtime.js, tanpa pustaka tambahan): begitu
+    // ada yang menyimpan, layar yang lain menyusul dalam hitungan sepersekian
+    // detik.
+    //
+    // Lapis kedua MENANYAKAN BERKALA, yang tetap dipertahankan. Bukan karena
+    // kurang percaya pada yang pertama, melainkan karena WebSocket adalah
+    // hal pertama yang diblokir jaringan kantor, hotspot rumah sakit, dan
+    // sebagian jaringan seluler. Kalau sambungannya putus tanpa lapis kedua,
+    // halaman ini kembali diam total — dan diamnya tidak bisa dibedakan dari
+    // 'memang belum ada yang menulis'.
+    //
+    // Selama sambungan langsungnya hidup, jedanya dilonggarkan: yang berkala
+    // tinggal jaring pengaman, bukan cara utamanya.
     JEDA_PANTAU: 15000,
+    JEDA_PANTAU_LANGGENG: 60000,
+    langsung: 'mati',       // mati | menyambung | hidup | gagal
+    belTimer: null,
+    pengetik: '', pengetikTimer: null,
+    // Benar kalau isi layar berasal dari SIARAN (ketikan yang sedang
+    // berjalan), bukan dari basis data. Bedanya penting: yang dari siaran
+    // belum tentu pernah tersimpan.
+    dariSiaran: false,
+
+    get siaranLangsung() { return this.langsung === 'hidup'; },
+    labelSambungan() {
+      if (this.langsung === 'hidup') return 'Langsung';
+      if (this.langsung === 'menyambung') return 'Menyambung...';
+      return 'Menyusul tiap 15 detik';
+    },
 
     mulaiPantau() {
       // Halaman ini digambar ulang tiap kali rute berpindah. Tanpa membuang
       // pemantau sebelumnya, tiap kunjungan meninggalkan satu lagi yang tetap
       // berjalan — dan sepuluh kunjungan berarti sepuluh permintaan tiap
       // belasan detik.
-      if (window.__notesPantau) clearInterval(window.__notesPantau);
       // Komponen yang SEDANG dipakai layar. Pendengar di bawah dipasang sekali
       // saja seumur tab, jadi ia tidak boleh memegang komponen dari kunjungan
       // pertama — komponen itu sudah dibuang saat halaman digambar ulang, dan
       // memperbaruinya tidak mengubah apa pun yang terlihat.
       window.__notesAktif = this;
-      window.__notesPantau = setInterval(() => this.pantau(), this.JEDA_PANTAU);
+      // paksa: kunjungan baru selalu memasang pemantau baru. Tanpa ini,
+      // pasangJeda() melihat jedanya tidak berubah lalu pulang — dan halaman
+      // tinggal tanpa pemantau sama sekali.
+      this.pasangJeda(true);
+      this.mulaiLangsung();
       if (!window.__notesLihat) {
         window.__notesLihat = true;
         document.addEventListener('visibilitychange', () => {
@@ -236,6 +356,64 @@ function notesXData(canEdit) {
       }
     },
 
+    pasangJeda(paksa) {
+      const jeda = this.siaranLangsung ? this.JEDA_PANTAU_LANGGENG : this.JEDA_PANTAU;
+      if (!paksa && window.__notesJeda === jeda && window.__notesPantau) return;
+      if (window.__notesPantau) clearInterval(window.__notesPantau);
+      window.__notesJeda = jeda;
+      // Lewat window.__notesAktif, bukan lewat kata-kunci this: pemantau yang memegang
+      // komponen kunjungan lama akan terus bekerja pada layar yang sudah
+      // dibuang — sibuk, tapi tidak mengubah apa pun yang terlihat.
+      window.__notesPantau = setInterval(() => {
+        const k = window.__notesAktif;
+        if (k) { try { k.pantau(); } catch (e) {} }
+      }, jeda);
+    },
+
+    mulaiLangsung() {
+      // Pendengar dari kunjungan sebelumnya dibuang lebih dulu, sama seperti
+      // pemantau berkalanya — kalau tidak, tiap kunjungan menambah satu kanal
+      // yang tetap terbuka sampai tab ditutup.
+      if (window.__notesLepas) { try { window.__notesLepas(); } catch (e) {} window.__notesLepas = null; }
+      if (window.__notesLepasStatus) { try { window.__notesLepasStatus(); } catch (e) {} window.__notesLepasStatus = null; }
+      const rt = window.__realtime;
+      if (!rt || typeof rt.dengarTabel !== 'function') return;
+
+      window.__notesLepasStatus = rt.dengarStatus((s) => {
+        const k = window.__notesAktif;
+        if (!k) return;
+        k.langsung = s;
+        // Jeda jaring pengaman mengikuti keadaan sambungan: dilonggarkan saat
+        // hidup, dirapatkan lagi begitu putus.
+        k.pasangJeda();
+      });
+
+      // Perubahan pada catatan MAUPUN pada unit usahanya. Berbagi unit adalah
+      // yang menentukan halaman mana yang boleh dilihat siapa; kalau hanya
+      // catatannya yang didengarkan, orang yang baru diberi akses tetap harus
+      // memuat ulang halaman untuk melihatnya.
+      const lepasCatatan = rt.dengarTabel('business_notes', () => this.bel());
+      const lepasUnit = rt.dengarTabel('business_units', () => this.bel());
+      // Ketikan yang sedang berjalan. Kanal ini tidak menyentuh basis data,
+      // jadi ia tetap bekerja walau supabase-realtime-catatan.sql belum
+      // dijalankan.
+      const lepasKetik = typeof rt.dengarSiaran === 'function'
+        ? rt.dengarSiaran('catatan-ketik', (isi) => {
+            const k = window.__notesAktif;
+            if (k) { try { k.terimaSiaran(isi); } catch (e) {} }
+          })
+        : () => {};
+      window.__notesLepas = () => { lepasCatatan(); lepasUnit(); lepasKetik(); };
+    },
+
+    // Satu kali simpan bisa menghasilkan beberapa kabar berturut-turut
+    // (catatan berubah, unitnya ikut tersentuh). Tanpa jeda pendek ini, satu
+    // ketukan menghasilkan tiga permintaan yang isinya sama.
+    bel() {
+      if (this.belTimer) clearTimeout(this.belTimer);
+      this.belTimer = setTimeout(() => { this.belTimer = null; this.pantau(); }, 200);
+    },
+
     async pantau() {
       // Halaman lain sudah menggantikan halaman ini. Pemantau tidak ikut
       // dimatikan oleh perpindahan rute, jadi ia harus berhenti sendiri —
@@ -243,6 +421,12 @@ function notesXData(canEdit) {
       // sampai tab ditutup, untuk layar yang sudah tidak ada.
       if (!String(window.location.hash || '').startsWith('#/catatan')) {
         if (window.__notesPantau) { clearInterval(window.__notesPantau); window.__notesPantau = null; }
+        window.__notesJeda = 0;
+        // Sambungan langsungnya ikut dilepas. Soket yang dibiarkan terbuka
+        // untuk halaman yang sudah ditinggalkan tetap memakan kuota lewat
+        // detaknya, dan tetap membangunkan komponen yang sudah dibuang.
+        if (window.__notesLepas) { try { window.__notesLepas(); } catch (e) {} window.__notesLepas = null; }
+        if (window.__notesLepasStatus) { try { window.__notesLepasStatus(); } catch (e) {} window.__notesLepasStatus = null; }
         return;
       }
       // Tab yang tidak terlihat tidak perlu ditanyakan. Menanyakannya berarti
@@ -264,10 +448,26 @@ function notesXData(canEdit) {
         this.kabar = 'Halaman ini baru dihapus oleh pemiliknya.';
         return;
       }
-      if (String(n.updated_at || '') === String(this.dasar || '')) return;
-
       const adaTulisanSaya = (this.tersimpan.title !== this.draf.title)
                           || (this.tersimpan.body !== this.draf.body);
+
+      if (String(n.updated_at || '') === String(this.dasar || '')) {
+        // Basis datanya tidak berubah — biasanya memang tidak ada apa-apa.
+        //
+        // KECUALI kalau yang di layar berasal dari siaran: ketikan yang
+        // sedang berjalan belum tentu pernah tersimpan. Kalau orangnya sudah
+        // berhenti mengetik (this.pengetik sudah padam) dan simpanannya tetap
+        // tidak sampai, yang tertinggal di layar ini tulisan yatim — terlihat
+        // ada, padahal tidak ada di mana pun. Dikembalikan ke isi basis data.
+        if (!this.dariSiaran || this.pengetik || adaTulisanSaya) return;
+        if ((n.title || '') === this.draf.title && (n.body || '') === this.draf.body) { this.dariSiaran = false; return; }
+        this.draf = { title: n.title || '', body: n.body || '' };
+        this.tersimpan = { title: this.draf.title, body: this.draf.body };
+        this.dariSiaran = false;
+        this.kabar = 'Ketikan yang tadi terlihat ternyata belum tersimpan di server. Layar dikembalikan ke isi terakhir yang benar-benar tersimpan.';
+        return;
+      }
+
       if (adaTulisanSaya || this.status === 'mengetik' || this.status === 'menyimpan') {
         // Ada yang belum tersimpan di sini. Menyerap sekarang akan menelannya,
         // jadi yang muncul panel bentrok yang sudah ada — dengan dua pilihan
@@ -284,6 +484,11 @@ function notesXData(canEdit) {
       this.draf = { title: n.title || '', body: n.body || '' };
       this.tersimpan = { title: n.title || '', body: n.body || '' };
       this.dasar = n.updated_at || '';
+      // Yang di layar sekarang berasal dari basis data, bukan lagi dari
+      // siaran. Kalau penandanya dibiarkan menyala, pembetulan ketikan-yatim
+      // di atas akan mengira isi yang sudah benar-benar tersimpan ini masih
+      // menggantung, lalu menariknya mundur tanpa sebab.
+      this.dariSiaran = false;
       this.kabar = 'Diperbarui ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
     },
 
@@ -660,6 +865,25 @@ export function notesPage() {
                 <span class="ms text-[16px] text-sky-500">sync</span>
                 <p class="text-[11.5px] text-sky-800 flex-1" x-text="kabar"></p>
                 <button @click="kabar=''" class="text-sky-400 hover:text-sky-700 text-[11.5px]">tutup</button>
+              </div>
+
+              <!-- Keadaan sambungan, disebutkan apa adanya. Halaman yang
+                   mengaku 'langsung' padahal soketnya sedang putus akan
+                   membuat orang menunggu kabar yang tidak akan datang, lalu
+                   berhenti percaya pada tandanya sama sekali. -->
+              <div class="mx-5 mt-2 flex items-center gap-1.5" x-show="aktif" x-cloak
+                :title="siaranLangsung ? 'Perubahan rekan langsung tampil di sini' : 'Sambungan langsung tidak tersedia — halaman ini menanyakan ulang tiap 15 detik'">
+                <span class="w-1.5 h-1.5 rounded-full"
+                  :class="langsung === 'hidup' ? 'bg-green-500' : (langsung === 'menyambung' ? 'bg-amber-400' : 'bg-slate-300')"></span>
+                <span class="text-[10.5px]" :class="siaranLangsung ? 'text-green-700' : 'text-slate-400'" x-text="labelSambungan()"></span>
+                <!-- Tulisan yang bergerak sendiri tanpa keterangan terbaca
+                     sebagai layar rusak. Namanya disebutkan supaya jelas ini
+                     rekan yang sedang menulis, bukan aplikasinya yang kacau. -->
+                <span x-show="pengetik" x-cloak
+                  class="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10.5px] font-medium">
+                  <span class="ms text-[12px]">edit</span>
+                  <span x-text="pengetik + ' sedang mengetik...'"></span>
+                </span>
               </div>
 
               <div x-show="aktif" x-cloak class="mx-5 mt-3">
