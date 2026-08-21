@@ -1153,7 +1153,7 @@ export function doctorEMRNew(params) {
     sideOpen: window.innerWidth > 1024,
     visitType: 'consultation',
     visitDate: '${todayLocal()}',
-    form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', visit_type:'consultation' },
+    form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_code:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', visit_type:'consultation' },
     ${physicalExamXData()}
     icdSearch: '', icdResults: [], icdOpen: false, icdSearch2: '', icdResults2: [], icdOpen2: false, secondaries: [],
     searchICD(q, which) {
@@ -1190,7 +1190,22 @@ export function doctorEMRNew(params) {
     selectICD(item, which) {
       const val = item.code + ' - ' + item.name_id;
       if(which===2){ if(!this.secondaries.includes(val)) this.secondaries.push(val); this.icdSearch2=''; this.icdResults2=[]; this.icdOpen2=false; }
-      else { this.form.diagnosis=val; this.icdSearch=val; this.icdOpen=false; }
+      else {
+        this.form.diagnosis=val; this.icdSearch=val; this.icdOpen=false;
+        // Kodenya disimpan TERPISAH, bukan cuma menempel di depan teksnya.
+        // Kode yang hanya ada sebagai awalan teks akan hilang begitu ada yang
+        // menyunting kalimatnya, dan tidak pernah ada sama sekali kalau
+        // diagnosisnya diketik dengan tangan. SATUSEHAT (resource Condition)
+        // dan klaim BPJS sama-sama menuntut kodenya, bukan kalimatnya.
+        this.form.diagnosis_code = item.code;
+      }
+    },
+    // Diagnosis yang diketik tangan tidak punya kode. Dibiarkan kosong, BUKAN
+    // ditebak dari kalimatnya — tebakan kode diagnosis yang salah lebih
+    // berbahaya daripada kode yang kosong, karena yang kosong kelihatan.
+    ketikDiagnosis() {
+      const p = window.__store.pisahDiagnosis(this.form.diagnosis);
+      this.form.diagnosis_code = p.code;
     },
     ${secondaryDxMethods()}
     vaxForm: { vaccine_name:'', vaccine_brand:'', vax_mode:'series', dose_number:1, total_doses:1, batch_number:'', dose_schedule:[], booster_interval_months:12, next_dose_date:'', location:'${locations[0]}', notes:'' },
@@ -1985,7 +2000,11 @@ export function doctorEMREdit(params) {
   // x-data expression, so Alpine never initialized and the whole page rendered
   // broken (content slid under the sidebar, buttons blank).
   window.__emrEdit = {
-    anamnesis: record.anamnesis || '', diagnosis: record.diagnosis || '', diagnosis_secondary: record.diagnosis_secondary || '',
+    anamnesis: record.anamnesis || '', diagnosis: record.diagnosis || '',
+    // Baris lama belum punya kolomnya; kodenya dipotong dari teks diagnosisnya
+    // supaya menyunting rekam medis lama sekaligus melengkapinya.
+    diagnosis_code: store.kodeDiagnosis(record),
+    diagnosis_secondary: record.diagnosis_secondary || '',
     therapy: record.therapy || '', location: record.location || locations[0], follow_up_date: record.follow_up_date || '',
     follow_up_notes: record.follow_up_notes || '', notes: record.notes || ''
   };
@@ -2035,7 +2054,22 @@ export function doctorEMREdit(params) {
     selectICD(item, which) {
       const val = item.code + ' - ' + item.name_id;
       if(which===2){ if(!this.secondaries.includes(val)) this.secondaries.push(val); this.icdSearch2=''; this.icdResults2=[]; this.icdOpen2=false; }
-      else { this.form.diagnosis=val; this.icdSearch=val; this.icdOpen=false; }
+      else {
+        this.form.diagnosis=val; this.icdSearch=val; this.icdOpen=false;
+        // Kodenya disimpan TERPISAH, bukan cuma menempel di depan teksnya.
+        // Kode yang hanya ada sebagai awalan teks akan hilang begitu ada yang
+        // menyunting kalimatnya, dan tidak pernah ada sama sekali kalau
+        // diagnosisnya diketik dengan tangan. SATUSEHAT (resource Condition)
+        // dan klaim BPJS sama-sama menuntut kodenya, bukan kalimatnya.
+        this.form.diagnosis_code = item.code;
+      }
+    },
+    // Diagnosis yang diketik tangan tidak punya kode. Dibiarkan kosong, BUKAN
+    // ditebak dari kalimatnya — tebakan kode diagnosis yang salah lebih
+    // berbahaya daripada kode yang kosong, karena yang kosong kelihatan.
+    ketikDiagnosis() {
+      const p = window.__store.pisahDiagnosis(this.form.diagnosis);
+      this.form.diagnosis_code = p.code;
     },
     ${secondaryDxMethods()}
     saveEdit() {

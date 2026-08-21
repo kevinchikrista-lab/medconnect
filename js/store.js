@@ -100,6 +100,11 @@ function sanitizeDates(record, keys) {
 // vaksinasinya tetap sampai ke server — lihat _syncInsert.
 const KOLOM_VAX_BARU = ['off_schedule', 'off_schedule_reason', 'off_schedule_note'];
 
+// Kolom yang baru ditambahkan supabase-satusehat-pondasi.sql. Sama seperti di
+// atas: kalau migrasinya belum dijalankan, baris tetap tersimpan tanpa kolom
+// ini — bukan gagal seluruhnya.
+const KOLOM_RM_BARU = ['diagnosis_code'];
+
 // Parses the published Google Sheet CSV for home care BMHP/Jasa prices.
 // Handles quoted fields (commas inside item names) and looks columns up by
 // header name so re-ordering columns in the sheet doesn't break parsing.
@@ -1518,7 +1523,12 @@ class Store {
     // Insert with empty date strings normalized to null (see sanitizeDates)
     // — otherwise the whole insert fails and the record is stranded on its
     // client placeholder id, which then breaks any e-resep made for it.
-    await this._syncInsert('medical_records', newRecord, sanitizeDates(newRecord, ['visit_date', 'follow_up_date']));
+    // diagnosis_code disebut sebagai kolom OPSIONAL: kalau
+    // supabase-satusehat-pondasi.sql belum dijalankan, kolomnya belum ada dan
+    // server menolak seluruh baris. Rekam medisnya lebih penting daripada
+    // kodenya — jadi dicoba ulang tanpa kolom itu, bukan gagal seluruhnya.
+    await this._syncInsert('medical_records', newRecord,
+      sanitizeDates(newRecord, ['visit_date', 'follow_up_date']), KOLOM_RM_BARU);
     return newRecord;
   }
 
@@ -2746,7 +2756,7 @@ class Store {
     if (!CONFIG.DEMO_MODE && typeof rx.record_id === 'string' && rx.record_id.startsWith('id_')) {
       const rec = this.data.medical_records.find(r => r.id === rx.record_id);
       if (rec) {
-        await this._syncInsert('medical_records', rec, sanitizeDates(rec, ['visit_date', 'follow_up_date']));
+        await this._syncInsert('medical_records', rec, sanitizeDates(rec, ['visit_date', 'follow_up_date']), KOLOM_RM_BARU);
         if (typeof rec.id === 'string' && !rec.id.startsWith('id_')) rx.record_id = rec.id;
       }
       if (typeof rx.record_id === 'string' && rx.record_id.startsWith('id_')) {
@@ -2938,6 +2948,152 @@ class Store {
   // Unfiltered, across every doctor — for SuperAdmin's clinic-wide calendar.
   getAllAppointments() { return this.data.appointments; }
   getAllRecords() { return this.data.medical_records; }
+
+  // ==========================================================================
+  // KESIAPAN SATUSEHAT
+  //
+  // SATUSEHAT memakai HL7 FHIR R4 dan menolak data yang tidak lengkap: pasien
+  // tanpa NIK tervalidasi Dukcapil tidak mendapat IHS Number, dan tanpa IHS
+  // Number kunjungannya tidak bisa dikirim sama sekali. Diagnosis tanpa kode
+  // ICD-10 tidak bisa jadi resource Condition. Obat tanpa kode KFA tidak bisa
+  // jadi MedicationRequest.
+  //
+  // Yang dihitung di sini BUKAN laporan, melainkan DAFTAR KERJA: tiap angka
+  // menunjuk baris mana yang harus dilengkapi. Angka tanpa penunjuk hanya
+  // memberi tahu bahwa ada masalah, tanpa memberi tahu di mana.
+  //
+  // Berguna walau pendaftaran SATUSEHAT belum selesai: NIK ganda dan diagnosis
+  // tanpa kode sama-sama merugikan klaim BPJS dan rekap bulanan.
+  // ==========================================================================
+
+  // NIK Indonesia: 16 angka, tidak lebih tidak kurang. Yang diperiksa di sini
+  // hanya BENTUKNYA — kebenarannya baru diketahui saat Dukcapil memvalidasi
+  // lewat SATUSEHAT, dan itu tidak bisa ditebak dari sini.
+  nikSah(nik) {
+    return /^[0-9]{16}$/.test(String(nik == null ? '' : nik).trim());
+  }
+
+  // Memecah 'A09 - Diare' jadi kodenya dan namanya.
+  //
+  // Diagnosis disimpan sebagai satu teks sejak awal. Kodenya masih bisa
+  // dipotong dari depan KALAU dokternya memilih dari kotak pencarian; kalau
+  // diketik dengan tangan, tidak ada kode sama sekali — dan itu yang perlu
+  // ditunjukkan, bukan ditebak.
+  pisahDiagnosis(teks) {
+    const t = String(teks == null ? '' : teks).trim();
+    if (!t) return { code: '', nama: '' };
+    // Tidak peka huruf besar-kecil: kotak pencarian selalu menulis huruf
+    // besar, tapi diagnosis yang diketik tangan bisa saja 'a09 - diare' — dan
+    // itu tetap kode yang sah, cuma ditulis apa adanya.
+    //
+    // Huruf U sengaja DIKECUALIKAN ([A-TV-Z]): WHO memakainya untuk kode
+    // darurat (U07.1 = COVID-19) yang tidak ada di daftar bawaan aplikasi ini,
+    // jadi kalimat yang kebetulan diawali U tidak salah tertangkap sebagai kode.
+    const m = /^([A-TV-Z][0-9]{2}(?:\.[0-9]{1,2})?)\s*[-–—:]?\s*(.*)$/i.exec(t);
+    if (!m) return { code: '', nama: t };
+    return { code: m[1].toUpperCase(), nama: (m[2] || '').trim() };
+  }
+
+  // Kode ICD-10 sebuah rekam medis. Kolom diagnosis_code dipakai lebih dulu;
+  // kalau belum terisi (baris lama), dipotong dari teks diagnosisnya.
+  kodeDiagnosis(rec) {
+    if (!rec) return '';
+    const tersimpan = String(rec.diagnosis_code || '').trim().toUpperCase();
+    if (tersimpan) return tersimpan;
+    return this.pisahDiagnosis(rec.diagnosis).code;
+  }
+
+  // Pasien yang NIK-nya sama. Dua baris pasien dengan NIK sama berarti satu
+  // orang tercatat dua kali — dan SATUSEHAT akan memetakan keduanya ke IHS
+  // Number yang sama, sehingga riwayatnya bercampur di tempat yang tidak bisa
+  // kita perbaiki lagi. Harus dibereskan SEBELUM pengiriman pertama.
+  nikGanda() {
+    const peta = new Map();
+    (this.data.patients || []).forEach(p => {
+      if (!this.nikSah(p.nik)) return;
+      const k = String(p.nik).trim();
+      if (!peta.has(k)) peta.set(k, []);
+      peta.get(k).push(p);
+    });
+    const keluar = [];
+    peta.forEach((daftar, nik) => { if (daftar.length > 1) keluar.push({ nik, pasien: daftar }); });
+    return keluar.sort((a, b) => a.nik.localeCompare(b.nik));
+  }
+
+  kesiapanSatusehat() {
+    const pasien = this.data.patients || [];
+    const rekam = this.data.medical_records || [];
+    const dokter = this.data.doctors || [];
+    const tempat = this.data.practice_locations || [];
+    const obat = this.data.prescription_items || [];
+
+    const pasienKurang = pasien.filter(p => !this.nikSah(p.nik));
+    const ganda = this.nikGanda();
+    const rekamKurang = rekam.filter(r => String(r.diagnosis || '').trim() && !this.kodeDiagnosis(r));
+    const dokterKurang = dokter.filter(d => !this.nikSah(d.nik));
+    const tempatKurang = tempat.filter(t => !String(t.ihs_id || '').trim());
+
+    // Nama obat dihitung sebagai NAMA BERBEDA, bukan per baris resep: yang
+    // dipetakan ke KFA adalah obatnya, dan satu obat yang diresepkan lima
+    // puluh kali tetap satu pekerjaan.
+    const namaObat = new Map();
+    obat.forEach(o => {
+      const n = String(o.drug_name || '').trim();
+      if (!n) return;
+      const k = n.toLowerCase();
+      if (!namaObat.has(k)) namaObat.set(k, { nama: n, kfa: '', jumlah: 0, racikan: false });
+      const e = namaObat.get(k);
+      e.jumlah++;
+      if (o.is_compound) e.racikan = true;
+      if (!e.kfa && String(o.kfa_code || '').trim()) e.kfa = String(o.kfa_code).trim();
+    });
+    const obatSemua = Array.from(namaObat.values()).sort((a, b) => b.jumlah - a.jumlah);
+    const obatKurang = obatSemua.filter(o => !o.kfa);
+
+    const bagian = [
+      { key: 'nik_ganda', judul: 'NIK ganda', total: ganda.length, kurang: ganda.length,
+        // Sengaja paling atas walau jumlahnya paling kecil: ini SATU-SATUNYA
+        // yang akibatnya tidak bisa diperbaiki lagi sesudah terkirim.
+        gawat: ganda.length > 0,
+        pesan: 'Dua pasien memakai NIK yang sama. Harus dibereskan SEBELUM pengiriman pertama — sesudah terkirim, riwayat keduanya bercampur di SATUSEHAT dan tidak bisa dipisahkan lagi.',
+        rincian: ganda },
+      { key: 'pasien_nik', judul: 'NIK pasien', total: pasien.length, kurang: pasienKurang.length,
+        pesan: 'Pasien tanpa NIK 16 digit tidak mendapat IHS Number, dan kunjungannya tidak bisa dikirim sama sekali.',
+        rincian: pasienKurang },
+      { key: 'dokter_nik', judul: 'NIK dokter & nakes', total: dokter.length, kurang: dokterKurang.length,
+        pesan: 'Nakes juga perlu IHS Number, dan itu didapat dari NIK-nya.',
+        rincian: dokterKurang },
+      { key: 'diagnosis', judul: 'Kode ICD-10 pada diagnosis', total: rekam.length, kurang: rekamKurang.length,
+        pesan: 'Diagnosis yang diketik tangan tidak punya kode ICD-10, jadi tidak bisa jadi resource Condition. Buka rekam medisnya dan pilih ulang diagnosisnya dari kotak pencarian.',
+        rincian: rekamKurang },
+      { key: 'obat_kfa', judul: 'Kode KFA obat', total: obatSemua.length, kurang: obatKurang.length,
+        pesan: 'Tiap nama obat perlu dipetakan sekali ke kode KFA (Kamus Farmasi dan Alat Kesehatan). Sekali dipetakan, berlaku untuk seluruh resep berikutnya.',
+        rincian: obatKurang },
+      { key: 'tempat', judul: 'Kode lokasi (IHS Location)', total: tempat.length, kurang: tempatKurang.length,
+        pesan: 'Tiap tempat praktik perlu didaftarkan ke SATUSEHAT dan kode IHS-nya disimpan di sini.',
+        rincian: tempatKurang },
+    ];
+
+    const kurangTotal = bagian.reduce((s, b) => s + b.kurang, 0);
+    // Kunjungan yang BENAR-BENAR siap dikirim hari ini: pasiennya punya NIK
+    // DAN diagnosisnya punya kode. Angka inilah yang paling jujur — bukan
+    // persentase per bagian, yang bisa terlihat bagus sementara tidak ada satu
+    // pun kunjungan yang utuh.
+    const siapKirim = rekam.filter(r => {
+      const p = (this.data.patients || []).find(x => x.id === r.patient_id);
+      if (!p || !this.nikSah(p.nik)) return false;
+      if (String(r.diagnosis || '').trim() && !this.kodeDiagnosis(r)) return false;
+      return true;
+    }).length;
+
+    return {
+      bagian, kurangTotal,
+      siap: kurangTotal === 0 && ganda.length === 0,
+      kunjungan: { total: rekam.length, siap: siapKirim },
+      obatSemua,
+    };
+  }
+
 
   getUpcomingAppointments(patientId) {
     const today = todayLocal();

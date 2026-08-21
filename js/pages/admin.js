@@ -2237,6 +2237,121 @@ export function adminLocations() {
   </div>`;
 }
 
+// ===========================================================================
+// KESIAPAN SATUSEHAT
+//
+// SATUSEHAT menolak data yang tidak lengkap: pasien tanpa NIK tervalidasi
+// Dukcapil tidak mendapat IHS Number, dan tanpa IHS Number kunjungannya tidak
+// bisa dikirim sama sekali.
+//
+// Halaman ini BUKAN laporan. Tiap angka menunjuk baris mana yang harus
+// dilengkapi, dengan tautan langsung ke tempat memperbaikinya. Angka tanpa
+// penunjuk hanya memberi tahu bahwa ada masalah — tanpa memberi tahu di mana,
+// dan pekerjaan yang tidak bisa ditunjuk tidak akan pernah dikerjakan.
+//
+// Berguna walau pendaftaran SATUSEHAT belum selesai: NIK ganda dan diagnosis
+// tanpa kode sama-sama merugikan klaim BPJS dan rekap bulanan.
+// ===========================================================================
+export function adminSatusehat() {
+  const k = store.kesiapanSatusehat();
+  const namaPasien = (id) => (store.getPatient(id) || {}).full_name || 'Pasien';
+
+  // Isi rincian tiap bagian, dalam bentuk yang bisa langsung ditindak.
+  const rincian = (b) => {
+    if (!b.kurang) return '';
+    const baris = [];
+    if (b.key === 'nik_ganda') {
+      b.rincian.slice(0, 20).forEach(g => baris.push(
+        `<li class="py-1.5"><span class="font-mono text-[11.5px] text-red-700">${escHtml(g.nik)}</span>
+         <span class="text-slate-500"> dipakai oleh </span>
+         ${g.pasien.map(p => `<a href="#/doctor/emr/${p.id}" class="text-brand-dark font-medium hover:underline">${escHtml(p.full_name || 'Tanpa nama')}</a>`).join('<span class="text-slate-400"> dan </span>')}</li>`));
+    } else if (b.key === 'pasien_nik') {
+      b.rincian.slice(0, 40).forEach(p => baris.push(
+        `<li class="py-1.5 flex items-center justify-between gap-2">
+           <span>${escHtml(p.full_name || 'Tanpa nama')} <span class="text-slate-400 text-[11px]">${escHtml(p.rm_number || '')}</span></span>
+           <a href="#/doctor/emr/${p.id}" class="text-[11.5px] font-semibold text-brand-dark hover:underline shrink-0">Lengkapi</a></li>`));
+    } else if (b.key === 'dokter_nik') {
+      b.rincian.slice(0, 40).forEach(d => baris.push(
+        `<li class="py-1.5">${escHtml(d.full_name || 'Tanpa nama')} <span class="text-slate-400 text-[11px]">${escHtml(d.sip_number || 'tanpa SIP')}</span></li>`));
+    } else if (b.key === 'diagnosis') {
+      b.rincian.slice(0, 40).forEach(r => baris.push(
+        `<li class="py-1.5 flex items-center justify-between gap-2">
+           <span class="min-w-0"><span class="text-slate-500 text-[11px]">${escHtml(formatDate(r.visit_date))} &middot; ${escHtml(namaPasien(r.patient_id))}</span><br>${escHtml(r.diagnosis || '')}</span>
+           <a href="#/doctor/emr/edit/${r.id}" class="text-[11.5px] font-semibold text-brand-dark hover:underline shrink-0">Beri kode</a></li>`));
+    } else if (b.key === 'obat_kfa') {
+      b.rincian.slice(0, 60).forEach(o => baris.push(
+        `<li class="py-1.5 flex items-center justify-between gap-2">
+           <span>${escHtml(o.nama)}${o.racikan ? ' <span class="text-[10.5px] text-amber-700">(racikan)</span>' : ''}</span>
+           <span class="text-[11px] text-slate-400 shrink-0">${o.jumlah}&times; dipakai</span></li>`));
+    } else if (b.key === 'tempat') {
+      b.rincian.slice(0, 20).forEach(t => baris.push(
+        `<li class="py-1.5">${escHtml(t.name || 'Tanpa nama')}</li>`));
+    }
+    const sisa = b.kurang - baris.length;
+    return `<ul class="mt-2 divide-y divide-slate-100 text-[12.5px] text-slate-700">${baris.join('')}</ul>`
+      + (sisa > 0 ? `<p class="mt-2 text-[11.5px] text-slate-400">&hellip; dan ${sisa} lagi.</p>` : '');
+  };
+
+  const kartu = k.bagian.map((b, i) => `
+    <div class="bg-white rounded-2xl border ${b.gawat ? 'border-red-200' : 'border-slate-100'} overflow-hidden">
+      <button type="button" @click="buka === ${i} ? buka = -1 : buka = ${i}"
+        class="w-full text-left p-4 flex items-start gap-3 hover:bg-slate-50 transition">
+        <span class="ms text-[22px] mt-0.5 ${b.kurang === 0 ? 'text-green-600' : (b.gawat ? 'text-red-600' : 'text-amber-600')}">${b.kurang === 0 ? 'check_circle' : (b.gawat ? 'error' : 'pending')}</span>
+        <span class="flex-1 min-w-0">
+          <span class="flex items-center gap-2 flex-wrap">
+            <span class="font-bold text-[13.5px] text-ink">${b.judul}</span>
+            ${b.kurang === 0
+              ? '<span class="px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-green-50 text-green-700">lengkap</span>'
+              : `<span class="px-2 py-0.5 rounded-full text-[10.5px] font-bold ${b.gawat ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-800'}">${b.kurang} perlu dilengkapi</span>`}
+            ${b.total ? `<span class="text-[11px] text-slate-400">dari ${b.total}</span>` : ''}
+          </span>
+          <span class="block text-[11.5px] text-muted leading-relaxed mt-1">${b.pesan}</span>
+        </span>
+        <span class="ms text-[18px] text-slate-300 mt-0.5" x-text="buka === ${i} ? 'expand_less' : 'expand_more'"></span>
+      </button>
+      ${b.kurang ? `<div x-show="buka === ${i}" x-cloak class="px-4 pb-4 -mt-1">${rincian(b)}</div>` : ''}
+    </div>`).join('');
+
+  const persen = k.kunjungan.total ? Math.round((k.kunjungan.siap / k.kunjungan.total) * 100) : 0;
+
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, buka: ${k.bagian.findIndex(b => b.kurang > 0)} }" class="min-h-screen bg-wash">
+    ${adminSidebar('satusehat')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${adminHeader()}
+      <main class="p-4 lg:p-6 max-w-4xl mx-auto">
+        <h2 class="text-xl font-bold text-gray-800">Kesiapan SATUSEHAT</h2>
+        <p class="text-[12.5px] text-muted mt-0.5 leading-relaxed">Yang harus lengkap sebelum rekam medis bisa dikirim ke SATUSEHAT. Tiap baris menunjuk tempat memperbaikinya.</p>
+
+        <!-- Angka yang paling jujur. Persentase per bagian bisa terlihat bagus
+             sementara tidak ada satu pun kunjungan yang utuh: pasiennya punya
+             NIK tapi diagnosisnya tanpa kode, atau sebaliknya. -->
+        <div class="mt-4 bg-white rounded-2xl border border-slate-100 p-5">
+          <p class="text-[11.5px] font-bold uppercase tracking-wide text-slate-500">Kunjungan yang siap dikirim hari ini</p>
+          <p class="mt-1 text-2xl font-extrabold ${persen === 100 ? 'text-green-700' : 'text-ink'}">${k.kunjungan.siap} <span class="text-base font-semibold text-slate-400">dari ${k.kunjungan.total} kunjungan</span></p>
+          <div class="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div class="h-full rounded-full ${persen === 100 ? 'bg-green-500' : 'bg-brand-dark'}" style="width:${persen}%"></div>
+          </div>
+          <p class="mt-2 text-[11.5px] text-muted leading-relaxed">Sebuah kunjungan baru terhitung siap kalau pasiennya punya NIK 16 digit <b>dan</b> diagnosisnya punya kode ICD-10. Salah satu kurang, kunjungannya tidak bisa dikirim.</p>
+        </div>
+
+        <div class="mt-4 space-y-3">${kartu}</div>
+
+        <div class="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
+          <h3 class="font-bold text-[13.5px] text-ink">Yang belum bisa dikerjakan dari sini</h3>
+          <p class="text-[11.5px] text-muted leading-relaxed mt-1">Tiga hal berikut keluar atas nama klinik, bukan atas nama aplikasi, jadi harus diurus pemilik klinik:</p>
+          <ol class="mt-2 space-y-1.5 text-[12.5px] text-slate-700 list-decimal list-inside">
+            <li>Kode faskes dari <span class="font-medium">registrasifasyankes.kemkes.go.id</span></li>
+            <li>Pendaftaran MedConnect sebagai Sistem RME di portal SATUSEHAT</li>
+            <li>client_id &amp; client_secret (sandbox dulu, produksi kemudian)</li>
+          </ol>
+          <p class="text-[11.5px] text-muted leading-relaxed mt-2">Selama ketiganya belum ada, halaman ini tetap berguna: yang dilengkapi di sini juga dipakai klaim BPJS dan rekap bulanan.</p>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
 function adminSidebar(active) {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
   const items = [
@@ -2262,6 +2377,7 @@ function adminSidebar(active) {
     { id: 'stock', label: 'Stok Opening', icon: 'inventory_2', href: '#/admin/stock' },
     { id: 'locations', label: 'Tempat Praktik & Kop', icon: 'location_on', href: '#/admin/locations' },
     { id: 'homecare', label: 'BMHP & Jasa', icon: 'home_health', href: '#/admin/homecare/history' },
+    { id: 'satusehat', label: 'Kesiapan SATUSEHAT', icon: 'cloud_sync', href: '#/admin/satusehat' },
     { id: 'bugs', label: 'Laporan Bug', icon: 'bug_report', href: '#/admin/bugs' },
   ].map(i => ({ ...i, href: i.href || `#/admin/${i.id === 'dashboard' ? 'dashboard' : i.id}` }));
   return `
