@@ -32,47 +32,29 @@ function aksesRM(patientId) {
   return store.recordAccess(user, patientId) || { boleh: false, alasan: '' };
 }
 
-// Layar untuk pasien yang belum jadi urusannya. Sengaja menyebutkan NAMA
-// pasiennya: dokter itu sampai di sini karena mengetik atau menekan nama
-// tersebut, dan menyembunyikannya hanya membuat layarnya membingungkan tanpa
-// menambah satu pun perlindungan. Yang ditutup adalah ISI rekam medisnya.
+// Layar penolakan. Sesudah daftar pasien dibuka untuk seluruh dokter, layar
+// ini TIDAK lagi muncul bagi dokter mana pun — yang tersisa hanya peran yang
+// memang tidak berurusan dengan isi rekam medis (apotek, atau akun pasien yang
+// mengetik alamat halaman dokter langsung).
+//
+// Formulir "buka akses & tulis alasan" ikut dibuang bersama penyaringannya:
+// pintu darurat hanya berarti kalau ada pintu yang terkunci, dan sekarang
+// tidak ada.
 function rmTerkunci(patient) {
   const doc = getDoctor();
   const q = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, alasan: '', sibuk: false, galat: '',
-    async bukaAkses() {
-      if (this.sibuk) return;
-      this.sibuk = true; this.galat = '';
-      const r = await window.__store.claimPatientAccess('${patient.id}', this.alasan);
-      this.sibuk = false;
-      if (r && r.error) { this.galat = r.error; return; }
-      window.__showToast && window.__showToast('Akses dibuka', 'Pembukaan ini tercatat dan dilaporkan ke pemilik klinik.');
-      setTimeout(function(){ window.location.reload(); }, 400);
-    } }" class="min-h-screen bg-wash">
+  <div x-data="{ sideOpen: window.innerWidth > 1024 }" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-2xl mx-auto">
         <div class="bg-white rounded-2xl border border-slate-100 p-6">
           <div class="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center mb-4"><span class="ms text-[26px] text-slate-500">lock</span></div>
-          <h2 class="text-lg font-bold text-ink">Rekam medis ${q(patient.full_name || 'pasien ini')} tertutup untuk Anda</h2>
-          <p class="text-[12.5px] text-muted leading-relaxed mt-1.5">Anda belum pernah memeriksa pasien ini, dan belum ada janji temu, resep, atau vaksinasi atas nama Anda. Rekam medis hanya terbuka bagi dokter yang menanganinya.</p>
-
-          <div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <p class="text-[12.5px] font-bold text-amber-900">Perlu membukanya sekarang?</p>
-            <p class="text-[11.5px] text-amber-800 leading-relaxed mt-1">Kalau pasien ini memang sedang Anda hadapi &mdash; pasien baru, gawat darurat, atau menggantikan dokter lain &mdash; tuliskan alasannya. Aksesnya terbuka 24 jam, <b>tercatat atas nama Anda</b>, dan dilaporkan ke pemilik klinik.</p>
-            <input type="text" x-model="alasan" placeholder="Mis. pasien datang gawat darurat, dokter penanggung jawab tidak di tempat"
-              class="mt-2.5 w-full px-3 py-2.5 rounded-xl border border-amber-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50">
-            <p x-show="galat" x-cloak class="mt-2 text-[11.5px] text-red-700" x-text="galat"></p>
-            <button @click="bukaAkses()" :disabled="sibuk" class="mt-3 w-full px-4 py-2.5 rounded-xl text-sm font-bold text-white bg-amber-600 disabled:opacity-50">
-              <span x-show="!sibuk">Buka Akses &amp; Catat Alasannya</span>
-              <span x-show="sibuk" x-cloak>Menyimpan...</span>
-            </button>
-          </div>
-
+          <h2 class="text-lg font-bold text-ink">Rekam medis ${q(patient.full_name || 'pasien ini')} tertutup untuk akun ini</h2>
+          <p class="text-[12.5px] text-muted leading-relaxed mt-1.5">Isi rekam medis hanya terbuka untuk dokter dan pengelola klinik. Akun apotek melihat resepnya saja.</p>
           <div class="mt-4 flex gap-2">
-            <a href="#/doctor/patients" class="flex-1 text-center px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 bg-slate-100">Kembali ke Pasien Saya</a>
+            <a href="#/doctor/patients" class="flex-1 text-center px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 bg-slate-100">Kembali ke daftar pasien</a>
           </div>
         </div>
       </main>
@@ -355,24 +337,22 @@ export function doctorPatients() {
   // isi klinik bukan cuma bocor saat dibuka — ia juga membuat pencarian nama
   // menjadi cara mengetahui siapa saja yang pernah datang ke klinik ini, dan
   // itu sendiri sudah keterangan yang tidak berhak ia miliki.
+  // SELURUH pasien klinik. Menyaringnya per dokter membuat pasien yang baru
+  // datang tidak bisa dipilih untuk diperiksa — padahal memilihnya untuk
+  // diperiksa itulah yang membuatnya jadi pasien dokter tersebut.
+  const patients = store.getPatients();
+  // Pasien yang punya jejak dengan dokter ini; dipakai hanya untuk menandai,
+  // bukan untuk menyaring.
   const miliknya = store.patientIdsForDoctor(doc && doc.id);
-  const semua = store.getPatients();
-  const patients = semua.filter(p => miliknya.has(p.id));
-  const jumlahLain = semua.length - patients.length;
+  const jumlahSaya = patients.filter(p => miliknya.has(p.id)).length;
+  window.__patientsMine = Array.from(miliknya);
   // Editable snapshot keyed by id — the modal looks patients up by id (safe:
   // no free-text embedded in attributes), avoiding the special-char break.
   window.__patientsForEdit = patients.map(p => ({ id: p.id, full_name: p.full_name || '', nik: p.nik || '', birth_date: p.birth_date || '', gender: p.gender || '', phone: p.phone || '', address: p.address || '', blood_type: p.blood_type || '', allergies: p.allergies || '', family_name: p.family_name || '', family_phone: p.family_phone || '', family_relation: p.family_relation || '' }));
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', showNewForm: false,
-    rmCari: '', rmGalat: '',
-    bukaRM() {
-      const s = (this.rmCari || '').trim();
-      this.rmGalat = '';
-      if (!s) { this.rmGalat = 'Masukkan No. RM pasiennya.'; return; }
-      const id = window.__store.patientIdByRm ? window.__store.patientIdByRm(s) : '';
-      if (!id) { this.rmGalat = 'Tidak ada pasien dengan No. RM itu. Pastikan nomornya lengkap dan persis.'; return; }
-      window.location.hash = '#/doctor/emr/' + id;
-    },
+    saya: window.__patientsMine || [],
+    pernahSaya(id) { return this.saya.indexOf(id) !== -1; },
     newPatient: { full_name:'',nik:'',birth_date:'',gender:'',phone:'',address:'',blood_type:'',allergies:'',family_name:'',family_phone:'',family_relation:'',email:'',password:'pasien123' },
     regSaving: false, regMsg: '', regMsgErr: false,
     async registerPatient() {
@@ -410,32 +390,14 @@ export function doctorPatients() {
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <div>
-            <h2 class="text-xl font-bold text-gray-800">Pasien Saya</h2>
-            <p class="text-[12px] text-muted mt-0.5">${patients.length} pasien yang Anda tangani${jumlahLain > 0 ? ` &middot; ${jumlahLain} pasien lain di klinik ini tidak ditampilkan` : ''}</p>
+            <h2 class="text-xl font-bold text-gray-800">Pasien Klinik</h2>
+            <p class="text-[12px] text-muted mt-0.5">${patients.length} pasien${jumlahSaya > 0 ? ` &middot; ${jumlahSaya} pernah Anda tangani` : ''}</p>
           </div>
           <div class="flex gap-2">
             <div class="relative flex-1"><svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><input type="text" x-model="search" class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Cari nama, NIK, telepon..."></div>
             <button @click="showNewForm = !showNewForm" class="px-4 py-2 rounded-lg text-sm font-medium text-white whitespace-nowrap" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Pasien Baru</button>
           </div>
         </div>
-        <!-- Pintu untuk pasien yang belum jadi urusannya: DICOCOKKAN PERSIS
-             dengan No. RM, bukan pencarian bebas. Pencarian bebas atas
-             seluruh pasien klinik akan mengembalikan lagi kebocoran yang baru
-             saja ditutup — siapa pun bisa menelusuri daftar nama dengan
-             mengetik satu huruf. No. RM harus didapat dari luar layar ini. -->
-        <div x-show="!showNewForm" x-cloak class="bg-white border border-slate-100 rounded-2xl p-4 mb-6">
-          <div class="flex flex-col sm:flex-row sm:items-end gap-2">
-            <div class="flex-1">
-              <label class="block text-[11px] font-semibold text-gray-600 mb-1">Buka pasien lain dengan No. RM</label>
-              <input type="text" x-model="rmCari" @keydown.enter="bukaRM()" placeholder="Mis. RM-2026-0142"
-                class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
-            </div>
-            <button @click="bukaRM()" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-700 bg-slate-100 whitespace-nowrap">Cari No. RM</button>
-          </div>
-          <p x-show="rmGalat" x-cloak class="mt-1.5 text-[11.5px] text-red-700" x-text="rmGalat"></p>
-          <p class="mt-1.5 text-[11px] text-gray-400">Rekam medisnya tetap tertutup sampai Anda menuliskan alasan membukanya, dan pembukaan itu dicatat.</p>
-        </div>
-
         <div x-show="showNewForm" x-cloak class="bg-white border border-slate-100 rounded-3xl p-6 mb-6">
           <h3 class="font-semibold text-gray-800 mb-4">Registrasi Pasien Baru</h3>
           <div x-show="regMsg" x-cloak class="mb-3 p-2 rounded-lg text-sm" :class="regMsgErr ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'" x-text="regMsg"></div>
@@ -465,7 +427,7 @@ export function doctorPatients() {
                 ${patients.map(p => `
                 <template x-if="!search || window.__store.patientMatches(window.__store.getPatient('${p.id}'), search)">
                   <tr class="hover:bg-gray-50 transition">
-                    <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${escHtml((p.full_name||'').split(' ').map(n=>n[0]).join('').slice(0,2))}</div><div><p class="font-medium text-gray-800 text-sm">${escHtml(p.full_name)}</p><p class="text-xs text-gray-400">${p.blood_type ? 'Gol. '+escHtml(p.blood_type) : ''} ${p.allergies && p.allergies !== '-' ? '| Alergi: '+escHtml(p.allergies) : ''}</p></div></div></td>
+                    <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">${escHtml((p.full_name||'').split(' ').map(n=>n[0]).join('').slice(0,2))}</div><div><p class="font-medium text-gray-800 text-sm">${escHtml(p.full_name)}${miliknya.has(p.id) ? ` <span class="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-teal-700 bg-teal-50 align-middle">pasien Anda</span>` : ''}</p><p class="text-xs text-gray-400">${p.blood_type ? 'Gol. '+escHtml(p.blood_type) : ''} ${p.allergies && p.allergies !== '-' ? '| Alergi: '+escHtml(p.allergies) : ''}</p></div></div></td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden sm:table-cell">${escHtml(p.nik)}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">${escHtml(p.gender)}</td>
                     <td class="px-4 py-3 text-sm text-gray-600 hidden lg:table-cell">${escHtml(p.phone)}</td>
@@ -1511,13 +1473,15 @@ export function doctorEMRNew(params) {
 export function doctorRecords() {
   const doc = getDoctor();
   const allRecords = store.getRecordsByDoctor(doc?.id);
-  // Patient list for the "pick a patient" dialog behind the + Kunjungan button.
-  // Pemilih pasien di tombol "+ Kunjungan Baru" ikut dibatasi. Daftar lengkap
-  // di sini akan menjadi jalan memutar untuk hal yang sama: melihat siapa saja
-  // yang pernah datang ke klinik ini.
-  const bolehDilihat = store.patientIdsForDoctor(doc && doc.id);
+  // Pemilih pasien di tombol "+ Kunjungan Baru" memuat SELURUH pasien klinik.
+  // Inilah tempat seorang dokter memilih siapa yang akan ia periksa; daftar
+  // yang disaring per dokter membuat pasien dokter lain tidak bisa dipilih
+  // sama sekali.
+  //
+  // Daftar KUNJUNGAN di bawah tetap hanya milik dokter ini
+  // (store.getRecordsByDoctor di atas) — yang dibuka adalah pintunya, bukan
+  // isi panel rekam medisnya.
   window.__recordPatients = store.getPatients()
-    .filter(p => bolehDilihat.has(p.id))
     .map(p => ({ id: p.id, full_name: p.full_name || '', rm_number: p.rm_number || '', nik: p.nik || '' }));
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, search: '', pickOpen: false, pickSearch: '', patients: window.__recordPatients || [],
