@@ -1,4 +1,5 @@
 import { store } from './store.js';
+import { CATATAN_NARKOBA, CATATAN_RUJUKAN } from './lab-panel.js';
 
 // Surat Keterangan Dokter (SKD) — Sehat, Sakit, & Rujukan.
 // Same anti-duplication model as the vaccination certificate: mint a unique
@@ -60,6 +61,11 @@ export async function createSKD(opts) {
   const doctor = (opts.doctor && opts.doctor.full_name) ? opts.doctor : (JSON.parse(sessionStorage.getItem('medconnect_profile') || 'null') || {});
   const isRujukan = opts.type === 'rujukan';
   const isSehat = opts.type === 'sehat';
+  // Dua jenis surat hasil pemeriksaan. Keduanya memuat tabel hasil yang sama;
+  // yang membedakan hanya kesimpulannya — 'narkoba' menarik kesimpulan bebas
+  // atau tidak, 'lab' hanya menyampaikan hasilnya tanpa menyimpulkan apa pun.
+  const isNarkoba = opts.type === 'narkoba';
+  const isLab = opts.type === 'lab' || isNarkoba;
 
   // No. RM is assigned by the system (a continuous sequence), never typed.
   let rmNumber = patient.rm_number || '';
@@ -91,8 +97,11 @@ export async function createSKD(opts) {
   // dan surat keterangan tidak pernah berbagi satu urutan. Menggabungkannya
   // membuat nomor rujukan melompat-lompat mengikuti surat sakit yang terbit di
   // sela-selanya, dan itu yang pertama kali dipertanyakan saat diaudit.
-  const kunciSeri = isRujukan ? 'RUJUKAN' : 'SKD';
-  const kodeSurat = isRujukan ? 'RUJ' : 'SKD';
+  // Surat hasil pemeriksaan juga punya buku nomornya sendiri, dengan alasan
+  // yang sama seperti rujukan: menggabungkannya membuat nomor melompat-lompat
+  // mengikuti surat lain yang terbit di sela-selanya.
+  const kunciSeri = isRujukan ? 'RUJUKAN' : (isLab ? 'LAB' : 'SKD');
+  const kodeSurat = isRujukan ? 'RUJ' : (isLab ? 'LAB' : 'SKD');
   let certNum, certRecord;
   try {
     const seq = await store.getNextDocNumber(kunciSeri, year);
@@ -136,6 +145,16 @@ export async function createSKD(opts) {
       td: opts.tekanan_darah || '', nadi: opts.nadi || '', suhu: opts.suhu || '',
       rr: opts.rr || '', bb: opts.berat_badan || '', tb: opts.tinggi_badan || '',
     } : null,
+    // ---- Khusus surat hasil pemeriksaan ---------------------------------
+    // Hasilnya DIBEKUKAN ke dalam surat, bukan dibaca ulang dari katalog saat
+    // dicetak. Nilai rujukan bisa berubah kalau reagen kliniknya berganti, dan
+    // surat lama yang tiba-tiba menyebut rujukan baru berarti menyatakan hal
+    // yang berbeda dari yang ditandatangani dokternya.
+    lab_items: isLab ? (opts.lab_items || []) : [],
+    lab_kesimpulan: isLab ? (opts.lab_kesimpulan || '') : '',
+    lab_keperluan: isLab ? (opts.lab_keperluan || '') : '',
+    lab_catatan: isLab ? (opts.lab_catatan || '') : '',
+    lab_metode: isLab ? (opts.lab_metode || '') : '',
     approval: { status: opts.status || 'approved', doctor_id: opts.approvalDoctorId || '', reject_reason: '', created_by: opts.createdBy || '', by_pharmacy: opts.byPharmacyId || '' },
     // KOP SURAT MENGIKUTI TEMPAT PRAKTIK DOKTERNYA, bukan dipaku ke Klinik
     // Prima. Aplikasi ini menghubungkan banyak fasilitas: surat dr. Niko yang
@@ -153,7 +172,8 @@ export async function createSKD(opts) {
   // certificates.patient_id is a UUID column, so never send a client
   // placeholder id ('id_...') from an unsynced patient.
   const safePatientId = String(opts.patientId).startsWith('id_') ? null : opts.patientId;
-  const perihal = isRujukan ? 'RUJUKAN' : (isSehat ? 'SEHAT' : 'SAKIT');
+  const perihal = isRujukan ? 'RUJUKAN'
+    : (isNarkoba ? 'NARKOBA' : (isLab ? 'LABORATORIUM' : (isSehat ? 'SEHAT' : 'SAKIT')));
   // KUNJUNGAN YANG MENDASARI SURAT INI. Surat keterangan sakit tanpa rekam
   // medis adalah pernyataan tentang pemeriksaan yang tidak ada catatannya —
   // dan itu yang pertama dicari saat surat dipertanyakan. Karena itu surat
@@ -202,6 +222,8 @@ function writeLetter(w, cert) {
   const jenis = (cert.perihal || '').toUpperCase();
   const isRujukan = jenis === 'RUJUKAN';
   const isSehat = jenis === 'SEHAT';
+  const isNarkoba = jenis === 'NARKOBA';
+  const isLab = jenis === 'LABORATORIUM' || isNarkoba;
   const draft = approvalStatus(cert) !== 'approved';
   const certNum = cert.cert_number || '';
   const origin = window.location.origin;
@@ -225,7 +247,35 @@ function writeLetter(w, cert) {
     ? `<div class="blok"><div class="blok-j">${judul}</div><div class="blok-i">${esc(isi)}</div></div>`
     : '';
 
-  const bodyHtml = isRujukan ? `
+  // Tabel hasil. Kolom nilai rujukan ikut dicetak: hasil tanpa rujukannya
+  // memaksa yang membacanya mencari sendiri angka pembandingnya, dan surat
+  // yang begitu tidak bisa dibaca oleh siapa pun selain yang menulisnya.
+  const labRows = (d.lab_items || []).map(it => {
+    const tanda = String(it.tanda || '');
+    const warna = tanda === 'H' || tanda === 'L' || tanda === '*' ? ' lab-luar' : '';
+    return `<tr>
+      <td class="lab-n">${esc(it.nama || '')}</td>
+      <td class="lab-h${warna}">${esc(it.hasil || '-')}${tanda ? ` <b>${esc(tanda)}</b>` : ''}</td>
+      <td class="lab-s">${esc(it.satuan || '')}</td>
+      <td class="lab-r">${esc(it.rujukan || '')}</td>
+    </tr>`;
+  }).join('');
+
+  const labHtml = `
+    <p class="lead">Pada hari ini, terhadap pasien dengan identitas diri di atas telah dilakukan pemeriksaan${d.lab_metode ? ' ' + esc(d.lab_metode) : ''} dengan hasil sebagai berikut:</p>
+    <table class="lab">
+      <thead><tr><th>Pemeriksaan</th><th>Hasil</th><th>Satuan</th><th>Nilai Rujukan</th></tr></thead>
+      <tbody>${labRows || '<tr><td colspan="4" class="lab-n">Tidak ada pemeriksaan yang dicatat.</td></tr>'}</tbody>
+    </table>
+    ${(d.lab_items || []).some(it => it.tanda)
+      ? '<p class="lab-ket"><b>H</b> = di atas nilai rujukan &nbsp;·&nbsp; <b>L</b> = di bawah nilai rujukan &nbsp;·&nbsp; <b>*</b> = perlu perhatian</p>' : ''}
+    ${d.lab_kesimpulan ? `<p class="lead" style="margin-top:10px">Kesimpulan:</p><p class="conclusion">${esc(d.lab_kesimpulan).toUpperCase()}</p>` : ''}
+    ${d.lab_keperluan ? `<table class="periksa"><tr><td class="k">Dipergunakan untuk</td><td class="s">:</td><td class="v">${esc(d.lab_keperluan).toUpperCase()}</td></tr></table>` : ''}
+    ${d.lab_catatan ? `<p class="lab-catatan">${esc(d.lab_catatan)}</p>` : ''}
+    <p class="lab-catatan lab-catatan-kecil">${esc(CATATAN_RUJUKAN)}</p>
+  `;
+
+  const bodyHtml = isLab ? labHtml : (isRujukan ? `
     <p class="lead">Mohon pemeriksaan dan penanganan lebih lanjut atas pasien dengan identitas di atas.</p>
     ${bagian('Anamnesis', d.anamnesis)}
     ${vitalRingkas ? `<div class="blok"><div class="blok-j">Tanda Vital</div><div class="blok-i">${vitalRingkas}</div></div>` : ''}
@@ -254,9 +304,9 @@ function writeLetter(w, cert) {
       <tr><td class="k">Dari Tanggal</td><td class="s">:</td><td class="v">${fmtDate(d.from_date)}</td></tr>
       <tr><td class="k">Hingga Tanggal</td><td class="s">:</td><td class="v">${fmtDate(d.to_date)}</td></tr>
     </table>
-  `);
+  `));
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${isRujukan ? 'Surat Rujukan' : 'Surat Keterangan ' + (isSehat ? 'Sehat' : 'Sakit')} - ${esc(cert.patient_name)}</title>
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${isRujukan ? 'Surat Rujukan' : 'Surat Keterangan ' + (isNarkoba ? 'Bebas Narkoba' : (isLab ? 'Hasil Laboratorium' : (isSehat ? 'Sehat' : 'Sakit')))} - ${esc(cert.patient_name)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
   :root{ --ink:#111827; --muted:#6b7280; --rule:#d1d5db; --accent:#1c3980; }
@@ -285,6 +335,21 @@ function writeLetter(w, cert) {
   .identitas td.s{width:6mm}
   .identitas td.v{font-weight:600}
   .lead{font-size:13px;margin:10px 0}
+  /* Tabel hasil pemeriksaan. Kolomnya sengaja tetap lebarnya supaya deretan
+     hasil terbaca sebagai kolom, bukan sebagai kalimat yang menggantung. */
+  table.lab{width:100%;border-collapse:collapse;margin:8px 0 4px}
+  table.lab th{font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;
+    text-align:left;border-bottom:1.5px solid var(--rule);padding:4px 6px}
+  table.lab td{font-size:13px;padding:4px 6px;border-bottom:1px solid #f1f3f5;vertical-align:top}
+  table.lab td.lab-n{width:52%}
+  table.lab td.lab-h{width:18%;font-weight:600}
+  table.lab td.lab-s{width:12%;color:#6b7280}
+  table.lab td.lab-r{width:18%;color:#6b7280;white-space:nowrap}
+  table.lab td.lab-luar{color:#b91c1c}
+  p.lab-ket{font-size:11px;color:#6b7280;margin-top:4px}
+  p.lab-catatan{font-size:11.5px;color:#374151;line-height:1.5;margin-top:8px;
+    border-left:3px solid var(--rule);padding-left:8px}
+  p.lab-catatan-kecil{font-size:10.5px;color:#6b7280;border-left-color:#e5e7eb}
   table.periksa{border-collapse:collapse;margin:6px 0 6px 4mm}
   table.periksa td{font-size:13px;padding:3px 0;vertical-align:top}
   table.periksa td.k{width:60mm;color:#374151}
@@ -327,8 +392,8 @@ function writeLetter(w, cert) {
     </div>
     <div class="content">
       ${draft ? '<div class="draft-banner">DRAFT — Surat ini BELUM DISAHKAN oleh dokter. Belum sah untuk digunakan sampai disetujui (ACC).</div>' : ''}
-      <div class="title"><h1>${isRujukan ? 'SURAT RUJUKAN' : 'SURAT KETERANGAN DOKTER'}</h1></div>
-      ${isRujukan ? '' : `<div class="perihal">Perihal : SURAT KETERANGAN ${isSehat ? 'SEHAT' : 'SAKIT'}</div>`}
+      <div class="title"><h1>${isRujukan ? 'SURAT RUJUKAN' : (isLab ? 'SURAT KETERANGAN HASIL PEMERIKSAAN' : 'SURAT KETERANGAN DOKTER')}</h1></div>
+      ${isRujukan ? '' : `<div class="perihal">Perihal : SURAT KETERANGAN ${isNarkoba ? 'BEBAS NARKOBA' : (isLab ? 'HASIL LABORATORIUM' : (isSehat ? 'SEHAT' : 'SAKIT'))}</div>`}
       <div class="no-surat">No. Surat : <b>${esc(certNum)}</b></div>
 
       ${isRujukan ? `<div class="tujuan">
