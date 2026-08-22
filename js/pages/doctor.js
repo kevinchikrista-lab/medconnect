@@ -7,6 +7,7 @@ import { waButton, waHref, waKontrolMsg, waVaksinMsg, waSentBadge, apptResponseB
 import { crmSetup, crmXData, crmBody } from './crm.js';
 import { calendarTasksSetup, calendarTasksXData, calendarTasksBlock } from './tasks.js';
 import { vaxAnakXData, vaxAnakBody } from './vaksin.js';
+import { LAB_PANEL, KELOMPOK, teksRujukan, susunHasil, kalimatNarkoba, CATATAN_NARKOBA } from '../lab-panel.js';
 
 function getDoctor() {
   const user = JSON.parse(sessionStorage.getItem('medconnect_user'));
@@ -491,6 +492,17 @@ export function doctorEMR(params) {
   // Prefill the Surat Keterangan form from the latest visit's vital signs +
   // diagnosis, so the doctor rarely has to retype anything (all still editable).
   const q = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
+  // Katalog pemeriksaan + penolongnya dibuka lewat window, bukan disalin ke
+  // dalam atribut x-data: namanya memuat tanda kurung dan garis miring, dan
+  // satu tanda kutip ganda di dalam x-data akan memotong atributnya.
+  window.__labPanel = LAB_PANEL.map(t => ({ key: t.key, nama: t.nama, kelompok: t.kelompok,
+    jenis: t.jenis, satuan: t.satuan || '', pilihan: t.pilihan || [], catatan: t.catatan || '' }));
+  window.__labKelompok = KELOMPOK;
+  window.__labRujukan = (key, gender) => teksRujukan(LAB_PANEL.find(t => t.key === key), gender);
+  window.__labSusun = (pilihan, gender) => susunHasil(pilihan, gender);
+  window.__labKalimatNarkoba = (items) => kalimatNarkoba(items);
+  window.__labCatatanNarkoba = CATATAN_NARKOBA;
+
   const latestVs = (records[0] && records[0].vital_signs) || {};
   const skdPrefill = {
     no_rm: q(patient.rm_number || ''),
@@ -515,7 +527,46 @@ export function doctorEMR(params) {
       diagnosis: '${skdPrefill.diagnosis}', rest_days: '', from_date: '${skdPrefill.today}', to_date: '',
       tujuan_faskes: '', tujuan_dokter: '', anamnesis: '', pemeriksaan: '', penunjang: '',
       terapi: '', alasan: '', harapan: 'Mohon pemeriksaan dan penanganan lebih lanjut sesuai kompetensi.',
-      icd10: '', suhu: '', rr: '' },
+      icd10: '', suhu: '', rr: '',
+      lab_keperluan: '', lab_metode: '', lab_catatan: '' },
+
+    // ---- Surat hasil pemeriksaan -----------------------------------------
+    // Dicentang dulu, baru diisi hasilnya. Yang dicentang tanpa diisi TIDAK
+    // ikut tercetak: barisnya yang kosong akan terbaca sebagai 'diperiksa,
+    // hasilnya tidak ada', padahal yang benar adalah belum diperiksa.
+    labPilih: {},
+    labHasil: {},
+    labRujukan: {},
+    labPanel: window.__labPanel || [],
+    labKelompok: window.__labKelompok || [],
+    labCentang(key) {
+      this.labPilih[key] = !this.labPilih[key];
+      if (!this.labPilih[key]) { this.labHasil[key] = ''; return; }
+      // Rujukan bawaan diisikan supaya bisa langsung disunting kalau reagen
+      // kliniknya berbeda — bukan disembunyikan lalu tercetak diam-diam.
+      if (!this.labRujukan[key]) this.labRujukan[key] = window.__labRujukan(key, this.skd.gender);
+    },
+    labTerpilih() { return this.labPanel.filter(t => this.labPilih[t.key]); },
+    get labJumlah() { return this.labTerpilih().length; },
+    // Yang sudah dicentang DAN sudah ada hasilnya — inilah yang akan tercetak.
+    labSiap() {
+      return this.labTerpilih().filter(t => String(this.labHasil[t.key] || '').trim()).length;
+    },
+    labSusun() {
+      return window.__labSusun(this.labTerpilih().map(t => ({
+        key: t.key, hasil: this.labHasil[t.key], rujukan: this.labRujukan[t.key],
+      })), this.skd.gender);
+    },
+    // Tanda H / L / * dihitung dari nilai yang sedang diketik, jadi kelainannya
+    // terlihat SEBELUM suratnya terbit — bukan baru ketahuan sesudah dicetak.
+    labTanda(key) {
+      const it = window.__labSusun([{ key, hasil: this.labHasil[key], rujukan: this.labRujukan[key] }], this.skd.gender)[0];
+      return it ? it.tanda : '';
+    },
+    get labKesimpulan() {
+      if (this.skdType !== 'narkoba') return '';
+      return window.__labKalimatNarkoba(this.labSusun());
+    },
     // Membuka formulir surat DARI sebuah kunjungan: isinya diambil dari
     // kunjungan itu, bukan dari kunjungan terakhir. Rujukan yang memuat
     // anamnesis kunjungan lain lebih berbahaya daripada rujukan yang kosong.
@@ -541,7 +592,24 @@ export function doctorEMR(params) {
       // so they're saved for next time, then print the letter. The RM number is
       // assigned automatically by the system (see ensureRmNumber), not typed.
       window.__store.updatePatientProfile('${patient.id}', { birth_date: this.skd.birth_date, gender: this.skd.gender, address: this.skd.address });
-      window.__generateSKD({ patientId: '${patient.id}', type: this.skdType, recordId: this.skdRecordId, ...this.skd });
+      const surat = { patientId: '${patient.id}', type: this.skdType, recordId: this.skdRecordId, ...this.skd };
+      if (this.skdType === 'lab' || this.skdType === 'narkoba') {
+        const items = this.labSusun();
+        // Surat hasil pemeriksaan tanpa satu pun hasil adalah surat yang
+        // menyatakan sesuatu yang tidak dikerjakan. Ditahan di sini, bukan
+        // dibiarkan terbit lalu ketahuan sesudah dicetak.
+        if (!items.length) { alert('Belum ada pemeriksaan yang dicentang DAN diisi hasilnya. Surat hasil pemeriksaan tidak bisa diterbitkan tanpa hasil.'); return; }
+        surat.lab_items = items;
+        if (this.skdType === 'narkoba') {
+          surat.lab_kesimpulan = this.labKesimpulan;
+          // Kalimat penapisan SELALU ikut. Dokter boleh menambahkan catatan
+          // sendiri, tapi tidak menghilangkan yang ini: surat yang menyimpulkan
+          // tanpa menyebut batas pemeriksaannya menyatakan lebih daripada yang
+          // bisa dibuktikan alatnya.
+          surat.lab_catatan = [window.__labCatatanNarkoba, String(this.skd.lab_catatan || '').trim()].filter(Boolean).join(' ');
+        }
+      }
+      window.__generateSKD(surat);
       this.skdOpen = false;
       this.skdRecordId = '';
       setTimeout(() => this.loadSKD && this.loadSKD(), 600);
@@ -1015,6 +1083,8 @@ export function doctorEMR(params) {
               <button @click="skdType='sehat'" :class="skdType==='sehat' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 min-w-[140px] px-3 py-2 rounded-lg text-sm font-medium transition">Keterangan Sehat</button>
               <button @click="skdType='sakit'; syncSuratDate()" :class="skdType==='sakit' ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 min-w-[140px] px-3 py-2 rounded-lg text-sm font-medium transition">Keterangan Sakit</button>
               <button @click="skdType='rujukan'" :class="skdType==='rujukan' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 min-w-[140px] px-3 py-2 rounded-lg text-sm font-medium transition">Surat Rujukan</button>
+              <button @click="skdType='lab'" :class="skdType==='lab' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 min-w-[140px] px-3 py-2 rounded-lg text-sm font-medium transition">Hasil Laboratorium</button>
+              <button @click="skdType='narkoba'" :class="skdType==='narkoba' ? 'bg-purple-700 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 min-w-[140px] px-3 py-2 rounded-lg text-sm font-medium transition">Bebas Narkoba</button>
             </div>
 
             <!-- KUNJUNGAN YANG MENDASARI SURAT INI. Ditampilkan apa adanya,
@@ -1065,6 +1135,100 @@ export function doctorEMR(params) {
                 <div><label class="block text-xs text-gray-600 mb-1">Dari Tanggal</label><input type="date" x-model="skd.from_date" @change="syncSuratDate()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div><p class="text-[11px] text-teal-700 mt-1 sm:col-span-3" x-show="skdType==='sakit' && skd.from_date" x-cloak>Tanggal surat mengikuti hari pertama sakit (<span x-text="skd.from_date"></span>) &mdash; supaya tanggal suratnya tidak jatuh sesudah izin yang diterangkannya.</p>
                 <div><label class="block text-xs text-gray-600 mb-1">Hingga Tanggal</label><input type="date" x-model="skd.to_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
               </div>
+            </div>
+
+            <!-- SURAT HASIL PEMERIKSAAN. Dicentang dulu, baru diisi hasilnya.
+                 Nilai rujukannya ikut tampil dan bisa disunting: rentangnya
+                 bergantung reagen yang dipakai, dan yang tercetak harus
+                 rentang alat klinik ini, bukan angka umum. -->
+            <div x-show="skdType==='lab' || skdType==='narkoba'" x-cloak class="space-y-3">
+              <div class="p-3 rounded-lg bg-purple-50 border border-purple-100">
+                <p class="text-[11.5px] text-purple-900 leading-relaxed">
+                  Centang pemeriksaan yang <b>benar-benar dikerjakan</b>, lalu isi hasilnya.
+                  Yang dicentang tanpa hasil tidak ikut tercetak &mdash; baris kosong pada surat
+                  terbaca sebagai &ldquo;diperiksa, hasilnya tidak ada&rdquo;.
+                </p>
+                <p class="text-[11.5px] text-purple-800 mt-1.5" x-show="!skd.gender" x-cloak>
+                  <b>Jenis kelamin pasien belum terisi.</b> Asam urat, Hb, kreatinin, dan HDL
+                  punya rentang berbeda untuk laki-laki dan perempuan &mdash; tanpa itu,
+                  nilai rujukannya tidak bisa ditentukan dan dikosongkan.
+                </p>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label class="block text-xs text-gray-600 mb-1">Metode / keterangan pemeriksaan</label>
+                  <input type="text" x-model="skd.lab_metode" placeholder="Mis. rapid test, stik, atau nama alat"
+                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Dipergunakan untuk</label>
+                  <input type="text" x-model="skd.lab_keperluan" placeholder="Mis. melamar pekerjaan"
+                    class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+              </div>
+
+              <template x-for="kel in labKelompok" :key="kel">
+                <div x-show="labPanel.some(t => t.kelompok === kel)">
+                  <p class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mt-2 mb-1" x-text="kel"></p>
+                  <div class="rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+                    <template x-for="t in labPanel.filter(x => x.kelompok === kel)" :key="t.key">
+                      <div class="p-2.5" :class="labPilih[t.key] ? 'bg-purple-50/40' : 'bg-white'">
+                        <label class="flex items-start gap-2.5 cursor-pointer">
+                          <input type="checkbox" :checked="labPilih[t.key]" @change="labCentang(t.key)"
+                            class="mt-0.5 w-4 h-4 rounded border-slate-300 text-purple-600">
+                          <span class="min-w-0 flex-1">
+                            <span class="text-[13px] font-medium text-slate-800" x-text="t.nama"></span>
+                            <span class="text-[11px] text-slate-400" x-show="t.catatan" x-cloak x-text="' \u00b7 ' + t.catatan"></span>
+                          </span>
+                        </label>
+                        <div x-show="labPilih[t.key]" x-cloak class="mt-2 ml-6.5 pl-1 flex flex-wrap items-end gap-2">
+                          <div x-show="t.jenis === 'angka'" class="flex items-end gap-1.5">
+                            <div>
+                              <label class="block text-[10.5px] text-gray-500 mb-0.5">Hasil</label>
+                              <input type="text" inputmode="decimal" :value="labHasil[t.key] || ''" @input="labHasil[t.key] = $event.target.value"
+                                class="w-24 px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                            </div>
+                            <span class="text-[12px] text-slate-500 pb-2" x-text="t.satuan"></span>
+                          </div>
+                          <div x-show="t.jenis === 'pilihan'">
+                            <label class="block text-[10.5px] text-gray-500 mb-0.5">Hasil</label>
+                            <select :value="labHasil[t.key] || ''" @change="labHasil[t.key] = $event.target.value"
+                              class="px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                              <option value="">&mdash; pilih &mdash;</option>
+                              <template x-for="p in t.pilihan" :key="p"><option :value="p" x-text="p"></option></template>
+                            </select>
+                          </div>
+                          <div>
+                            <label class="block text-[10.5px] text-gray-500 mb-0.5">Nilai rujukan</label>
+                            <input type="text" :value="labRujukan[t.key] || ''" @input="labRujukan[t.key] = $event.target.value"
+                              class="w-32 px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50">
+                          </div>
+                          <!-- Kelainannya terlihat SEBELUM suratnya terbit,
+                               bukan baru ketahuan sesudah dicetak. -->
+                          <span x-show="labTanda(t.key)" x-cloak
+                            class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-50 text-red-700 mb-1.5"
+                            x-text="labTanda(t.key) === 'H' ? 'di atas rujukan' : (labTanda(t.key) === 'L' ? 'di bawah rujukan' : 'perlu perhatian')"></span>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+
+              <div x-show="skdType==='narkoba'" x-cloak class="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <p class="text-[12px] font-bold text-amber-900">Kesimpulan surat</p>
+                <p class="text-[13px] font-semibold text-amber-900 mt-0.5" x-text="labKesimpulan || 'Belum ada golongan narkoba yang dicentang dan diisi hasilnya.'"></p>
+                <p class="text-[11px] text-amber-800 leading-relaxed mt-1.5">
+                  Kalimat penapisan ikut tercetak pada suratnya. Rapid test urin adalah
+                  pemeriksaan skrining: hasil positif perlu konfirmasi laboratorium rujukan,
+                  dan hasil negatif tidak meniadakan pemakaian di luar rentang waktu deteksi.
+                </p>
+              </div>
+
+              <div>
+                <label class="block text-xs text-gray-600 mb-1">Catatan tambahan pada surat (opsional)</label>
+                <textarea x-model="skd.lab_catatan" rows="2" placeholder="Mis. pasien dianjurkan kontrol ulang 2 minggu"
+                  class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50 resize-none"></textarea>
+              </div>
+
+              <p class="text-[11.5px] text-slate-500" x-text="labSiap() + ' dari ' + labJumlah + ' pemeriksaan yang dicentang sudah ada hasilnya.'"></p>
             </div>
 
             <!-- Rujukan. Empat kelompok, mengikuti apa yang benar-benar
