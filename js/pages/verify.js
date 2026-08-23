@@ -52,6 +52,11 @@ export function verifyPage(params) {
               <div class="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0"><svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div>
               <div><p class="text-red-300 font-semibold text-sm">Surat Tidak Sah</p><p class="text-red-200/70 text-xs">Surat ini ditolak dokter dan tidak berlaku.</p></div>
             </div>
+            <!-- Dibatalkan -->
+            <div x-show="status === 'cancelled'" x-cloak class="flex items-center gap-3 mb-5 p-3 rounded-xl bg-slate-500/15 border border-slate-400/40">
+              <div class="w-10 h-10 rounded-full bg-slate-500/25 flex items-center justify-center flex-shrink-0"><svg class="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div>
+              <div><p class="text-slate-200 font-semibold text-sm">Dibatalkan / Tidak Valid</p><p class="text-slate-300/70 text-xs">Dokumen ini telah dibatalkan oleh penerbitnya dan tidak berlaku lagi.</p></div>
+            </div>
             <div class="space-y-3 text-sm">
               <div class="flex justify-between py-2 border-b border-white/10"><span class="text-teal-200/60">Nama Pasien</span><span class="text-white font-medium" x-text="cert.patient_name"></span></div>
               <!-- SKD (Surat Keterangan Dokter) -->

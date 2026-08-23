@@ -30,6 +30,18 @@ window.__skdLoadingDoc = SKD_LOADING_DOC;
 window.__logWaReminder = (table, id) => store.logWaReminder(table, id);
 window.__rerender = () => { try { router.resolve(); } catch (e) {} };
 
+// Batalkan surat keterangan yang sudah terbit (soft-cancel). Nomornya tetap
+// bisa dipindai, tapi halaman verifikasi menampilkan "Dibatalkan / Tidak Valid".
+window.__batalkanSKD = async (id, done) => {
+  const cert = (store.data.certificates || []).find(c => c.id === id);
+  const nomor = cert ? cert.cert_number : '';
+  if (!confirm('Batalkan surat ' + (nomor || 'ini') + '?\n\nNomor surat ini akan dianggap DIBATALKAN. Saat QR-nya dipindai, halaman verifikasi akan menampilkan "Dibatalkan / Tidak Valid".')) return;
+  const r = await store.cancelSKD(id);
+  if (r && r.error) { if (window.__showToast) window.__showToast('Gagal', r.error); else alert(r.error); return; }
+  if (window.__showToast) window.__showToast('Dibatalkan', 'Surat ' + (nomor || '') + ' telah dibatalkan.');
+  if (done) done();
+};
+
 // Hapus satu kunjungan / rekam medis. Konfirmasinya menyebut tanggalnya, bukan
 // sekadar "yakin?" — supaya yang dihapus benar-benar yang dimaksud, dan alasan
 // penolakannya (mis. masih ada e-resep) sampai ke pengguna apa adanya.

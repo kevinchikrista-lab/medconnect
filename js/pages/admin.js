@@ -1277,6 +1277,15 @@ export function adminPatientDetail(params) {
     skdStatus(s) { return (s.details && s.details.approval && s.details.approval.status) || 'approved'; },
     async loadSKD() { try { this.skdList = await window.__store.getSKDForPatient('${patient.id}'); } catch(e) { this.skdList = []; } this.skdLoading = false; },
     reprintSKD(id) { window.__printSKD(id); },
+    async cancelSKD(id) {
+      const s = (this.skdList || []).find(x => x.id === id);
+      const nomor = s ? s.cert_number : '';
+      if (!confirm('Batalkan surat ' + (nomor || 'ini') + '?\n\nNomor surat ini akan dianggap DIBATALKAN, dan saat QR-nya dipindai akan tampil "Dibatalkan / Tidak Valid".')) return;
+      const r = await window.__store.cancelSKD(id);
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      window.__showToast && window.__showToast('Dibatalkan', 'Surat ' + (nomor || '') + ' telah dibatalkan.');
+      await this.loadSKD();
+    },
     async submitSKD() {
       const doc = (window.__skdDoctors||[]).find(d => d.id === this.skdDoctorId);
       if (!doc) { alert('Pilih dokter yang meng-ACC surat ini terlebih dahulu.'); return; }
@@ -1359,7 +1368,7 @@ export function adminPatientDetail(params) {
               <div>
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="((s.perihal||'')==='SEHAT')?'bg-teal-100 text-teal-700':'bg-amber-100 text-amber-700'" x-text="'Surat '+((s.perihal||'').charAt(0)+(s.perihal||'').slice(1).toLowerCase())"></span>
-                  <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="{ 'bg-green-100 text-green-700': skdStatus(s)==='approved', 'bg-orange-100 text-orange-700': skdStatus(s)==='pending', 'bg-red-100 text-red-700': skdStatus(s)==='rejected' }" x-text="({ approved:'Sah', pending:'Menunggu ACC', rejected:'Ditolak' })[skdStatus(s)]"></span>
+                  <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="{ 'bg-green-100 text-green-700': skdStatus(s)==='approved', 'bg-orange-100 text-orange-700': skdStatus(s)==='pending', 'bg-red-100 text-red-700': skdStatus(s)==='rejected', 'bg-slate-200 text-slate-600': skdStatus(s)==='cancelled' }" x-text="({ approved:'Sah', pending:'Menunggu ACC', rejected:'Ditolak', cancelled:'Dibatalkan' })[skdStatus(s)]"></span>
                 </div>
                 <p class="text-sm font-medium text-gray-800 mt-1" x-text="'No. '+s.cert_number"></p>
                 <p class="text-xs text-gray-500" x-text="'Dokter: '+(s.doctor_name||'-')"></p>
@@ -1368,6 +1377,7 @@ export function adminPatientDetail(params) {
               <div class="flex items-center gap-2">
                 <button @click="window.__editSKD(s.id, () => loadSKD())" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Edit</button>
                 <button @click="reprintSKD(s.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition" x-text="skdStatus(s)==='approved' ? 'Cetak Ulang' : 'Lihat'"></button>
+                <button x-show="skdStatus(s)==='approved'" @click="cancelSKD(s.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition">Batalkan</button>
               </div>
             </div>
           </template>

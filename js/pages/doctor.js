@@ -658,7 +658,16 @@ export function doctorEMR(params) {
     // terlihat di layar sama dengan yang nanti tercetak.
     syncSuratDate() { if (this.skdType !== 'sehat' && this.skd.from_date) this.skd.letter_date = this.skd.from_date; },
     async loadSKD() { try { this.skdList = await window.__store.getSKDForPatient('${patient.id}'); } catch(e) { this.skdList = []; } this.skdLoading = false; },
-    skdStat(s) { return (s.details && s.details.approval && s.details.approval.status) || 'approved'; }
+    skdStat(s) { return (s.details && s.details.approval && s.details.approval.status) || 'approved'; },
+    async cancelSKD(id) {
+      const s = (this.skdList || []).find(x => x.id === id);
+      const nomor = s ? s.cert_number : '';
+      if (!confirm('Batalkan surat ' + (nomor || 'ini') + '?\n\nNomor surat ini akan dianggap DIBATALKAN, dan saat QR-nya dipindai akan tampil "Dibatalkan / Tidak Valid".')) return;
+      const r = await window.__store.cancelSKD(id);
+      if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
+      window.__showToast && window.__showToast('Dibatalkan', 'Surat ' + (nomor || '') + ' telah dibatalkan.');
+      await this.loadSKD();
+    }
   }" x-init="loadLab(); loadSKD(); if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
@@ -752,8 +761,8 @@ export function doctorEMR(params) {
                     ? '<p class="text-sm text-gray-400">Belum ada surat diterbitkan dari kunjungan ini</p>'
                     : `<div class="space-y-1.5">${suratList.map(c => {
                         const st = (c.details && c.details.approval && c.details.approval.status) || 'approved';
-                        const warna = st === 'approved' ? 'bg-green-100 text-green-700' : (st === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700');
-                        const label = { approved: 'Sah', pending: 'Menunggu ACC', rejected: 'Ditolak' }[st] || st;
+                        const warna = st === 'approved' ? 'bg-green-100 text-green-700' : (st === 'rejected' ? 'bg-red-100 text-red-700' : (st === 'cancelled' ? 'bg-slate-200 text-slate-600' : 'bg-orange-100 text-orange-700'));
+                        const label = { approved: 'Sah', pending: 'Menunggu ACC', rejected: 'Ditolak', cancelled: 'Dibatalkan' }[st] || st;
                         const jenis = store.suratJenisLabel(c);
                         const jw = jenis === 'Rujukan' ? 'bg-indigo-100 text-indigo-700' : (jenis === 'Sehat' ? 'bg-teal-100 text-teal-700' : 'bg-amber-100 text-amber-700');
                         return `<div class="bg-white border border-gray-100 rounded-xl p-2.5 flex items-center justify-between gap-2 flex-wrap">
@@ -764,7 +773,7 @@ export function doctorEMR(params) {
                             </div>
                             <p class="text-xs text-gray-500 mt-0.5">No. ${escHtml(c.cert_number || '-')}</p>
                           </div>
-                          <button onclick="window.__printSKD('${c.id}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition shrink-0">${st === 'approved' ? 'Cetak Ulang' : 'Lihat'}</button>
+                          <button onclick="window.__printSKD('${c.id}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition shrink-0">${st === 'approved' ? 'Cetak Ulang' : 'Lihat'}</button>${st === 'approved' ? `<button onclick="window.__batalkanSKD('${c.id}', function(){ window.__rerender && window.__rerender() })" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition shrink-0">Batalkan</button>` : ''}
                         </div>`;
                       }).join('')}</div>`}
                 </div>
@@ -993,7 +1002,7 @@ export function doctorEMR(params) {
                          hanya di halaman Kewajiban RM: yang membuka daftar ini
                          adalah orang yang sedang memeriksa suratnya. -->
                     <span x-show="!s.record_id && !(s.details && s.details.record_id)" x-cloak class="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-white" title="Surat ini belum tertaut ke kunjungan mana pun">tanpa RM</span>
-                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="{ 'bg-green-100 text-green-700': skdStat(s)==='approved', 'bg-orange-100 text-orange-700': skdStat(s)==='pending', 'bg-red-100 text-red-700': skdStat(s)==='rejected' }" x-text="({ approved:'Sah', pending:'Menunggu ACC', rejected:'Ditolak' })[skdStat(s)]"></span>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="{ 'bg-green-100 text-green-700': skdStat(s)==='approved', 'bg-orange-100 text-orange-700': skdStat(s)==='pending', 'bg-red-100 text-red-700': skdStat(s)==='rejected', 'bg-slate-200 text-slate-600': skdStat(s)==='cancelled' }" x-text="({ approved:'Sah', pending:'Menunggu ACC', rejected:'Ditolak', cancelled:'Dibatalkan' })[skdStat(s)]"></span>
                   </div>
                   <p class="text-sm font-medium text-gray-800 mt-1" x-text="'No. '+s.cert_number"></p>
                   <p class="text-xs text-gray-500" x-text="'Dokter: '+(s.doctor_name||'-')"></p>
@@ -1001,6 +1010,7 @@ export function doctorEMR(params) {
                 <div class="flex items-center gap-2">
                   <button @click="window.__editSKD(s.id, () => loadSKD())" class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Edit</button>
                   <button @click="window.__printSKD(s.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 transition" x-text="skdStat(s)==='approved' ? 'Cetak Ulang' : 'Lihat'"></button>
+                  <button x-show="skdStat(s)==='approved'" @click="cancelSKD(s.id)" class="px-3 py-1.5 rounded-lg text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition">Batalkan</button>
                 </div>
               </div>
             </template>

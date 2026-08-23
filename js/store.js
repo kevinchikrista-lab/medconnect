@@ -631,6 +631,29 @@ class Store {
     return { success: true };
   }
 
+  // Membatalkan surat keterangan yang sudah terbit (soft-cancel): nomornya
+  // TETAP bisa dipindai, tapi halaman verifikasi menampilkan "Dibatalkan /
+  // Tidak Valid" alih-alih "Sah". Dipakai saat surat lama digantikan data yang
+  // baru — nomor lama dianggap batal, bukan dihapus.
+  async cancelSKD(certId, reason) {
+    const cert = await this.getCertificateById(certId);
+    if (!cert) return { error: 'Surat tidak ditemukan' };
+    const prev = cert.details || {};
+    const prevStatus = (prev.approval && prev.approval.status) || 'approved';
+    if (prevStatus === 'cancelled') return { error: 'Surat ini sudah dibatalkan' };
+    const details = {
+      ...prev,
+      approval: { ...(prev.approval || {}), status: 'cancelled', reject_reason: reason || 'Dibatalkan', cancelled_at: new Date().toISOString() },
+    };
+    await this.updateCertificate(certId, { details });
+    const dokter = (prev.approval && prev.approval.doctor_id) ? this.getDoctor(prev.approval.doctor_id) : null;
+    if (dokter && dokter.user_id) this.addNotification(dokter.user_id, 'Surat Dibatalkan', `Surat Keterangan ${cert.perihal || ''} untuk ${cert.patient_name || 'pasien'} (${cert.cert_number || ''}) telah dibatalkan.`, 'system');
+    if (prev.approval && prev.approval.created_by && (!dokter || prev.approval.created_by !== dokter.user_id)) {
+      this.addNotification(prev.approval.created_by, 'Surat Dibatalkan', `Surat Keterangan ${cert.perihal || ''} untuk ${cert.patient_name || 'pasien'} (${cert.cert_number || ''}) telah dibatalkan.`, 'system');
+    }
+    return { success: true };
+  }
+
   // ---- Konfirmasi kehadiran pasien (public confirmation page) ----
   // Jam yang sudah terisi untuk dokter+tanggal (menandai slot penuh).
   async getTakenSlots(doctorId, date) {
