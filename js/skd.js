@@ -378,7 +378,15 @@ function writeLetter(w, cert) {
   .tujuan .d{font-size:12px;color:#374151}
   .draft-banner{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:11px;font-weight:600;text-align:center;padding:6px;border-radius:6px;margin-bottom:10px;position:relative;z-index:6}
   .print-btn{margin-top:20px;background:var(--accent);color:white;border:none;padding:12px 32px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif}
-  @media print{ @page{size:A4 portrait;margin:0} body{background:white;padding:0} .page{box-shadow:none;width:210mm} .no-print{display:none!important} }
+  /* overflow:visible di sini SENGAJA menimpa overflow:hidden pada .page.
+     overflow:hidden dipakai di layar supaya kartu suratnya rapi (memotong
+     watermark yang diputar di tepi kartu) -- tapi surat rujukan yang
+     panjang bisa melebihi satu halaman fisik, dan overflow:hidden pada
+     kontainer yang lebih tinggi dari satu halaman cetak membuat sebagian
+     browser memotong/mengosongkan halaman lanjutannya alih-alih meneruskan
+     isinya. Yang dipotong saat print harus konten yang sungguh tidak
+     terlihat, bukan isi surat yang belum sempat terbaca. */
+  @media print{ @page{size:A4 portrait;margin:0} body{background:white;padding:0} .page{box-shadow:none;width:210mm;overflow:visible} .no-print{display:none!important} }
   </style></head><body>
   <div class="page">
     ${draft ? '<div class="watermark"><span>DRAFT<br>BELUM DISAHKAN</span></div>' : ''}
