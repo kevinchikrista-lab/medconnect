@@ -662,7 +662,7 @@ export function doctorEMR(params) {
     async cancelSKD(id) {
       const s = (this.skdList || []).find(x => x.id === id);
       const nomor = s ? s.cert_number : '';
-      if (!confirm('Batalkan surat ' + (nomor || 'ini') + '?\n\nNomor surat ini akan dianggap DIBATALKAN, dan saat QR-nya dipindai akan tampil "Dibatalkan / Tidak Valid".')) return;
+      if (!confirm('Batalkan surat ' + (nomor || 'ini') + '?\\n\\nNomor surat ini akan dianggap DIBATALKAN, dan saat QR-nya dipindai akan tampil “Dibatalkan / Tidak Valid”.')) return;
       const r = await window.__store.cancelSKD(id);
       if (r && r.error) { window.__showToast && window.__showToast('Gagal', r.error); return; }
       window.__showToast && window.__showToast('Dibatalkan', 'Surat ' + (nomor || '') + ' telah dibatalkan.');
