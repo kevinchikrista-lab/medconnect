@@ -30,7 +30,8 @@ ok('HbsAg ada dan hasilnya reaktif/non-reaktif', () => {
 // Rapid test menunjukkan reaksi, bukan menegakkan diagnosis. Surat yang
 // menulis 'positif HIV' menyatakan hal yang tidak dibuktikan pemeriksaan itu.
 ok('serologi memakai Reaktif/Non-reaktif, bukan Positif/Negatif',
-   () => ['hbsag','anti_hiv','sifilis'].every(k => cari(k).pilihan.join() === 'Non-reaktif,Reaktif'));
+   () => ['hbsag','anti_hiv','anti_hcv','vdrl','tpha'].every(k => cari(k).pilihan.join() === 'Non-reaktif,Reaktif'));
+ok('VDRL dan TPHA terpisah, bukan satu baris gabungan', () => !cari('sifilis') && !!cari('vdrl') && !!cari('tpha'));
 ok('panel narkoba lengkap enam golongan', () => {
   const n = L.LAB_PANEL.filter(t => t.kelompok === 'Narkoba');
   return n.length === 6 && ['amp','met','thc','mop','coc','bzo'].every(k => n.some(t => t.key === k));

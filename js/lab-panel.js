@@ -79,7 +79,15 @@ export const LAB_PANEL = [
     catatan: 'Reaktif berarti sudah ada kekebalan' },
   { key: 'anti_hiv', kelompok: 'Rapid Test', nama: 'Anti-HIV',
     jenis: 'pilihan', pilihan: ['Non-reaktif', 'Reaktif'], normal: 'Non-reaktif' },
-  { key: 'sifilis', kelompok: 'Rapid Test', nama: 'Sifilis (TPHA / VDRL)',
+  { key: 'anti_hcv', kelompok: 'Rapid Test', nama: 'Anti-HCV',
+    jenis: 'pilihan', pilihan: ['Non-reaktif', 'Reaktif'], normal: 'Non-reaktif' },
+  // VDRL (non-treponemal) dan TPHA (treponemal) dulunya satu baris "Sifilis
+  // (TPHA / VDRL)" — dipisah karena keduanya pemeriksaan yang berbeda, boleh
+  // dicentang salah satu saja, dan hasilnya bisa berbeda (mis. VDRL reaktif
+  // TPHA non-reaktif pada reaksi biologis semu).
+  { key: 'vdrl', kelompok: 'Rapid Test', nama: 'VDRL',
+    jenis: 'pilihan', pilihan: ['Non-reaktif', 'Reaktif'], normal: 'Non-reaktif' },
+  { key: 'tpha', kelompok: 'Rapid Test', nama: 'TPHA',
     jenis: 'pilihan', pilihan: ['Non-reaktif', 'Reaktif'], normal: 'Non-reaktif' },
   { key: 'malaria', kelompok: 'Rapid Test', nama: 'Malaria (RDT)',
     jenis: 'pilihan', pilihan: ['Negatif', 'Positif'], normal: 'Negatif' },
