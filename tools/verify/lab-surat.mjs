@@ -1,4 +1,5 @@
 // Surat Keterangan Hasil Pemeriksaan & Bebas Narkoba.
+import { readFileSync } from 'fs';
 function mk(){const m=new Map();return{getItem:k=>(m.has(k)?m.get(k):null),setItem:(k,v)=>m.set(k,String(v)),removeItem:k=>m.delete(k),clear:()=>m.clear()};}
 global.localStorage=mk(); global.sessionStorage=mk();
 global.fetch=async()=>({ok:false,status:0,json:async()=>({})});
@@ -281,6 +282,20 @@ SKD.renderSKDInto(w3, suratSehat);
 ok('surat sehat tetap seperti semula', () => /SURAT KETERANGAN DOKTER/.test(cetakSehat)
    && /SEHAT FISIK DAN MENTAL/.test(cetakSehat) && !/<table class="lab">/.test(cetakSehat));
 ok('...dan tetap memakai buku nomor SKD', () => /\/SKD\//.test(suratSehat.cert_number));
+
+// Surat rujukan yang panjang (anamnesis, pemeriksaan, penunjang, terapi,
+// alasan, harapan sekaligus) bisa melebihi satu halaman fisik -- kalau itu
+// terjadi sementara .page masih overflow:hidden saat dicetak, sebagian
+// browser memotong/mengosongkan halaman lanjutannya. @media print WAJIB
+// menimpanya jadi overflow:visible.
+ok('halaman cetak tidak lagi overflow:hidden saat @media print (surat panjang bisa lebih dari 1 halaman)', () => {
+  const src = readFileSync('../../js/skd.js', 'utf8');
+  const baris = src.split('\n').find(l => l.includes('@media print'));
+  if (!baris) return false;
+  const mulai = baris.indexOf('.page{');
+  const akhir = baris.indexOf('}', mulai);
+  return mulai !== -1 && baris.slice(mulai, akhir).includes('overflow:visible');
+});
 
 console.log('\n' + (fails ? `❌ ${fails} gagal` : '✅ semua lolos'));
 process.exit(fails ? 1 : 0);
