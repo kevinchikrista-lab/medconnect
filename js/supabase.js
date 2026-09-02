@@ -156,6 +156,20 @@ export const supabase = {
     } catch (e) { return { error: e.message || 'Network error' }; }
   },
 
+  // Edge Function -- server-side kode yang jalan di Supabase, dipakai untuk
+  // apa pun yang perlu menyimpan rahasia (mis. client_secret SATUSEHAT) yang
+  // tidak boleh ada di kode yang berjalan di browser siapa pun.
+  async invoke(fn, body = {}) {
+    try {
+      const res = await authedFetch(`${SUPA_URL}/functions/v1/${fn}`, {
+        method: 'POST', body: JSON.stringify(body)
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return { error: json.error || `Gagal memanggil ${fn} (${res.status})` };
+      return json;
+    } catch (e) { return { error: e.message || 'Network error' }; }
+  },
+
   // ---- Storage (private buckets, accessed via signed URLs) ----
   async uploadFile(bucket, path, file) {
     const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
