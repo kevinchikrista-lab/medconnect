@@ -1455,14 +1455,29 @@ export function doctorEMRNew(params) {
     savedRecordId: null,
     oldRecords: window.__oldRecords || [], selectedOldId: '', oldPanelOpen: window.innerWidth > 1024,
     get selectedOld() { return this.oldRecords.find(r => r.id === this.selectedOldId) || null; },
-    fmtOldDate(d) { if (!d) return '-'; const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); }
-  }" class="min-h-screen bg-wash">
+    fmtOldDate(d) { if (!d) return '-'; const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); },
+    kedatangan: null,
+    // TTV yang sudah diambil di depan (mis. oleh perawat) dituangkan ke
+    // formulir supaya dokter tidak mengetik ulang -- tapi HANYA kalau
+    // formnya masih kosong. Dokter yang sudah mulai mengisi sendiri tidak
+    // boleh ditimpa diam-diam oleh data yang datang belakangan.
+    async cekKedatangan() {
+      try { this.kedatangan = await window.__store.fetchCheckinForPatientToday('${patient.id}'); } catch (e) { this.kedatangan = null; }
+      if (this.kedatangan) {
+        if (this.kedatangan.td && !this.form.vital_signs.td) this.form.vital_signs.td = this.kedatangan.td;
+        if (this.kedatangan.nadi && !this.form.vital_signs.nadi) this.form.vital_signs.nadi = this.kedatangan.nadi;
+        if (this.kedatangan.suhu && !this.form.vital_signs.suhu) this.form.vital_signs.suhu = this.kedatangan.suhu;
+      }
+    }
+  }" x-init="cekKedatangan()" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-7xl mx-auto">
         <div class="flex items-center justify-between mb-6">
-          <div class="flex items-center gap-2 text-sm text-gray-500"><a href="#/doctor/emr/${patient.id}" class="hover:text-teal-600 transition">${escHtml(patient.full_name)}</a><span>/</span><span class="text-gray-800 font-medium">Kunjungan Baru</span></div>
+          <div class="flex items-center gap-2 text-sm text-gray-500"><a href="#/doctor/emr/${patient.id}" class="hover:text-teal-600 transition">${escHtml(patient.full_name)}</a><span>/</span><span class="text-gray-800 font-medium">Kunjungan Baru</span>
+            <span x-show="kedatangan" x-cloak class="px-2.5 py-1 rounded-full text-[11px] font-bold" :class="kedatangan && kedatangan.payment_type === 'bpjs' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'" x-text="kedatangan && (kedatangan.payment_type === 'bpjs' ? 'BPJS' : 'Umum')"></span>
+          </div>
 
           <div class="flex gap-2">
             <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>

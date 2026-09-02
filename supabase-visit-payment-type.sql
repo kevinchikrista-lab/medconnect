@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS public.patient_checkins (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- TTV sederhana yang diambil sebelum pasien masuk ke dokter (mis. oleh
+-- perawat/admin di depan) -- td = tekanan darah, ikut konvensi nama yang
+-- sudah dipakai di medical_records.vital_signs. Kolom teks, bukan angka:
+-- "120/80" bukan angka tunggal, dan nilai kosong berarti belum diukur.
+ALTER TABLE public.patient_checkins ADD COLUMN IF NOT EXISTS td text;
+ALTER TABLE public.patient_checkins ADD COLUMN IF NOT EXISTS nadi text;
+ALTER TABLE public.patient_checkins ADD COLUMN IF NOT EXISTS suhu text;
+
 CREATE INDEX IF NOT EXISTS idx_checkins_patient_date ON public.patient_checkins (patient_id, visit_date);
 CREATE INDEX IF NOT EXISTS idx_checkins_visit_date ON public.patient_checkins (visit_date);
 
@@ -78,6 +86,13 @@ SELECT 'kolom', 'medical_records.payment_type',
        CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
                          WHERE table_schema='public' AND table_name='medical_records' AND column_name='payment_type')
             THEN 'OK' ELSE 'BELUM' END
+
+UNION ALL
+SELECT 'kolom', 'patient_checkins.' || c,
+       CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                         WHERE table_schema='public' AND table_name='patient_checkins' AND column_name=c)
+            THEN 'OK' ELSE 'BELUM' END
+FROM unnest(ARRAY['td','nadi','suhu']) AS c
 
 UNION ALL
 SELECT 'kebijakan', tablename || ' / ' || policyname, 'ada'
