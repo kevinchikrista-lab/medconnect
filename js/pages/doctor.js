@@ -509,10 +509,13 @@ export function doctorEMR(params) {
     bb: q(latestVs.bb || ''), tb: q(latestVs.tb || ''), td: q(latestVs.td || ''), nadi: q(latestVs.nadi || ''),
     diagnosis: q(records[0] && records[0].diagnosis || ''), today: todayLocal(),
     birth_date: patient.birth_date || '', gender: q(patient.gender || ''), address: q(patient.address || ''),
+    golongan_darah: q(patient.blood_type || ''),
   };
 
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, activeTab: 'records',
+    kedatangan: null,
+    async cekKedatangan() { try { this.kedatangan = await window.__store.fetchCheckinForPatientToday('${patient.id}'); } catch (e) { this.kedatangan = null; } },
     skdOpen: false, skdType: 'sehat',
     // KUNJUNGAN YANG MENDASARI SURAT INI. Surat keterangan sakit tanpa rekam
     // medis adalah pernyataan tentang pemeriksaan yang tidak ada catatannya —
@@ -523,6 +526,7 @@ export function doctorEMR(params) {
     skd: { no_rm: '${skdPrefill.no_rm}', letter_date: '${skdPrefill.today}',
       birth_date: '${skdPrefill.birth_date}', gender: '${skdPrefill.gender}', address: '${skdPrefill.address}',
       berat_badan: '${skdPrefill.bb}', tinggi_badan: '${skdPrefill.tb}', tekanan_darah: '${skdPrefill.td}', nadi: '${skdPrefill.nadi}',
+      golongan_darah: '${skdPrefill.golongan_darah}', buta_warna: '',
       keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
       diagnosis: '${skdPrefill.diagnosis}', rest_days: '', from_date: '${skdPrefill.today}', to_date: '',
       tujuan_faskes: '', tujuan_dokter: '', anamnesis: '', pemeriksaan: '', penunjang: '',
@@ -668,7 +672,7 @@ export function doctorEMR(params) {
       window.__showToast && window.__showToast('Dibatalkan', 'Surat ' + (nomor || '') + ' telah dibatalkan.');
       await this.loadSKD();
     }
-  }" x-init="loadLab(); loadSKD(); if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
+  }" x-init="loadLab(); loadSKD(); cekKedatangan(); if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -696,7 +700,10 @@ export function doctorEMR(params) {
           <button @click="activeTab='vaccinations'" :class="activeTab==='vaccinations' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Vaksinasi (${vaccinations.length})</button>
           <button @click="activeTab='penunjang'" :class="activeTab==='penunjang' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Penunjang (<span x-text="labList.length"></span>)</button>
           <button @click="activeTab='surat'" :class="activeTab==='surat' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Surat (<span x-text="skdList.length"></span>)</button>
-          <span class="ml-auto flex items-center">${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp', { patientId: patient.id })}</span>
+          <span class="ml-auto flex items-center gap-2">
+            <span x-show="kedatangan" x-cloak class="px-2.5 py-1 rounded-full text-[11px] font-bold" :class="kedatangan && kedatangan.payment_type === 'bpjs' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'" x-text="kedatangan && kedatangan.payment_type === 'bpjs' ? 'Kunjungan BPJS' : 'Kunjungan Umum'"></span>
+            ${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp', { patientId: patient.id })}
+          </span>
           <button @click="suratLepas()" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition">Surat Keterangan</button>
           <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
         </div>
@@ -1132,6 +1139,8 @@ export function doctorEMR(params) {
                 <div><label class="block text-xs text-gray-600 mb-1">Tinggi Badan (CM)</label><input type="text" x-model="skd.tinggi_badan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
                 <div><label class="block text-xs text-gray-600 mb-1">Tekanan Darah (MMHG)</label><input type="text" x-model="skd.tekanan_darah" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="120/80"></div>
                 <div><label class="block text-xs text-gray-600 mb-1">Nadi (X/MIN)</label><input type="text" x-model="skd.nadi" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Golongan Darah</label><select x-model="skd.golongan_darah" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">&mdash; pilih &mdash;</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Pemeriksaan Buta Warna</label><select x-model="skd.buta_warna" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">&mdash; pilih &mdash;</option><option>Normal</option><option>Buta warna parsial (defisiensi merah-hijau)</option><option>Buta warna total</option></select></div>
               </div>
               <div><label class="block text-xs text-gray-600 mb-1">Dipergunakan untuk</label><input type="text" x-model="skd.keperluan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Melamar pekerjaan"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Kesimpulan</label><input type="text" x-model="skd.kesimpulan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>

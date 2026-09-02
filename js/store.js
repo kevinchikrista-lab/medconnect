@@ -103,7 +103,7 @@ const KOLOM_VAX_BARU = ['off_schedule', 'off_schedule_reason', 'off_schedule_not
 // Kolom yang baru ditambahkan supabase-satusehat-pondasi.sql. Sama seperti di
 // atas: kalau migrasinya belum dijalankan, baris tetap tersimpan tanpa kolom
 // ini — bukan gagal seluruhnya.
-const KOLOM_RM_BARU = ['diagnosis_code'];
+const KOLOM_RM_BARU = ['diagnosis_code', 'payment_type'];
 
 // Parses the published Google Sheet CSV for home care BMHP/Jasa prices.
 // Handles quoted fields (commas inside item names) and looks columns up by
@@ -1536,6 +1536,15 @@ class Store {
     // sort-by-input-time getters above have something to sort by in the
     // local optimistic copy immediately, before the next Supabase refresh.
     const newRecord = { id: generateId(), ...record, visit_date: record.visit_date || todayLocal(), created_at: new Date().toISOString() };
+    // Jenis kunjungan (BPJS/Umum) ikut dari kedatangan yang didaftarkan ADMIN
+    // hari itu, kalau ada -- dokter tidak memilih ulang. Tanpa pendaftaran
+    // kedatangan (jalur lama / walk-in tanpa lewat admin), payment_type
+    // dikosongkan, bukan ditebak sebagai Umum.
+    let kedatangan = null;
+    if (!newRecord.payment_type) {
+      kedatangan = this.getCheckinForPatientToday(newRecord.patient_id);
+      if (kedatangan) newRecord.payment_type = kedatangan.payment_type;
+    }
     this.data.medical_records.push(newRecord);
     if (record.follow_up_date) {
       const apt = { id: generateId(), patient_id: record.patient_id, doctor_id: record.doctor_id, date: record.follow_up_date, time_slot: '09:00', type: 'follow_up', status: 'scheduled', queue_number: null, notes: record.follow_up_notes || 'Kontrol ulang' };
@@ -1546,13 +1555,105 @@ class Store {
     // Insert with empty date strings normalized to null (see sanitizeDates)
     // — otherwise the whole insert fails and the record is stranded on its
     // client placeholder id, which then breaks any e-resep made for it.
-    // diagnosis_code disebut sebagai kolom OPSIONAL: kalau
-    // supabase-satusehat-pondasi.sql belum dijalankan, kolomnya belum ada dan
-    // server menolak seluruh baris. Rekam medisnya lebih penting daripada
-    // kodenya — jadi dicoba ulang tanpa kolom itu, bukan gagal seluruhnya.
+    // diagnosis_code & payment_type disebut sebagai kolom OPSIONAL: kalau
+    // migrasinya belum dijalankan, kolomnya belum ada dan server menolak
+    // seluruh baris. Rekam medisnya lebih penting daripada kolom itu — jadi
+    // dicoba ulang tanpa kolom itu, bukan gagal seluruhnya.
     await this._syncInsert('medical_records', newRecord,
       sanitizeDates(newRecord, ['visit_date', 'follow_up_date']), KOLOM_RM_BARU);
+    // Menandai kedatangannya "sudah ditangani" TERPISAH dari insert rekam
+    // medisnya sendiri -- kegagalan menandai ini (mis. migrasinya belum
+    // dijalankan) tidak boleh menggagalkan rekam medis yang baru saja
+    // berhasil tersimpan.
+    if (kedatangan) this._tandaiKedatanganSelesai(kedatangan.id, newRecord.id);
     return newRecord;
+  }
+
+  // ---- Kedatangan pasien (BPJS / Umum) ------------------------------------
+  // Didaftarkan ADMIN saat pasien datang, SEBELUM dokter memeriksa. Dokter
+  // membaca ini (lihat createRecord di atas), tidak memilihnya sendiri.
+  async createCheckin({ patient_id, payment_type, doctor_id, notes }) {
+    if (!patient_id) return { error: 'Pilih pasien terlebih dahulu.' };
+    if (payment_type !== 'bpjs' && payment_type !== 'umum') return { error: 'Pilih jenis kunjungan: BPJS atau Umum.' };
+    const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
+    const rec = {
+      id: generateId(), patient_id, visit_date: todayLocal(), payment_type,
+      doctor_id: doctor_id || null, medical_record_id: null, notes: notes || '',
+      created_by: (user || {}).id || null, created_at: new Date().toISOString(),
+    };
+    if (!this.data.patient_checkins) this.data.patient_checkins = [];
+    this.data.patient_checkins.unshift(rec);
+    this._save();
+    await this._syncInsert('patient_checkins', rec);
+    return rec;
+  }
+
+  async getCheckinsToday() {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('patient_checkins', { eq: { visit_date: todayLocal() }, order: 'created_at.desc' });
+        if (rows && !rows.error) {
+          const lain = (this.data.patient_checkins || []).filter(c => c.visit_date !== todayLocal());
+          this.data.patient_checkins = [...rows, ...lain];
+          this._save();
+        }
+      } catch (e) { console.warn('Gagal memuat kedatangan hari ini:', e); }
+    }
+    return (this.data.patient_checkins || []).filter(c => c.visit_date === todayLocal());
+  }
+
+  // Dipakai createRecord: kedatangan pasien ini HARI INI yang belum
+  // ditangani dokter mana pun (medical_record_id masih kosong). Kalau ada
+  // lebih dari satu (jarang -- pasien datang dua kali sehari), yang paling
+  // baru didaftarkan yang dipakai. Cuma membaca cache lokal -- dipanggil
+  // SESUDAH fetchCheckinForPatientToday (di bawah) supaya cache-nya segar.
+  getCheckinForPatientToday(patientId) {
+    return (this.data.patient_checkins || [])
+      .filter(c => c.patient_id === patientId && c.visit_date === todayLocal() && !c.medical_record_id)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0] || null;
+  }
+
+  // Dipakai halaman dokter: admin bisa mendaftarkan kedatangan dari
+  // komputer/tab yang BEDA (mis. resepsionis di depan, dokter di ruang
+  // periksa) -- cache lokal dokter belum tentu punya baris yang baru saja
+  // dibuat admin. Ini mengambil langsung dari Supabase untuk SATU pasien
+  // saja, supaya halaman rekam medis tidak perlu memuat kedatangan seluruh
+  // pasien hari itu cuma untuk menampilkan satu badge.
+  async fetchCheckinForPatientToday(patientId) {
+    if (!CONFIG.DEMO_MODE) {
+      try {
+        const rows = await supabase.select('patient_checkins', {
+          eq: { patient_id: patientId, visit_date: todayLocal() }, order: 'created_at.desc',
+        });
+        if (rows && !rows.error && rows.length) {
+          if (!this.data.patient_checkins) this.data.patient_checkins = [];
+          for (const row of rows) {
+            const i = this.data.patient_checkins.findIndex(c => c.id === row.id);
+            if (i === -1) this.data.patient_checkins.push(row); else this.data.patient_checkins[i] = row;
+          }
+        }
+      } catch (e) { console.warn('Gagal memuat kedatangan pasien:', e); }
+    }
+    return this.getCheckinForPatientToday(patientId);
+  }
+
+  async cancelCheckin(id) {
+    this.data.patient_checkins = (this.data.patient_checkins || []).filter(c => c.id !== id);
+    this._save();
+    if (!CONFIG.DEMO_MODE) { try { await supabase.delete('patient_checkins', id); } catch (e) { /* best-effort */ } }
+  }
+
+  // Ditandai lewat RPC (bukan update langsung): dokter cuma diizinkan
+  // mengubah SATU kolom ini lewat kebijakan RLS-nya, supaya tidak bisa
+  // mengubah payment_type/patient_id yang sudah diputuskan admin.
+  async _tandaiKedatanganSelesai(checkinId, recordId) {
+    const c = (this.data.patient_checkins || []).find(x => x.id === checkinId);
+    if (c) c.medical_record_id = recordId;
+    this._save();
+    if (!CONFIG.DEMO_MODE) {
+      try { await supabase.rpc('tandai_checkin_selesai', { p_checkin_id: checkinId, p_record_id: recordId }); }
+      catch (e) { console.warn('Gagal menandai kedatangan selesai:', e); }
+    }
   }
 
   // Prescriptions — ordered by the linked medical record's created_at (when
