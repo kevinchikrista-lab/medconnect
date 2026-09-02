@@ -514,6 +514,8 @@ export function doctorEMR(params) {
 
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, activeTab: 'records',
+    kedatangan: null,
+    async cekKedatangan() { try { this.kedatangan = await window.__store.fetchCheckinForPatientToday('${patient.id}'); } catch (e) { this.kedatangan = null; } },
     skdOpen: false, skdType: 'sehat',
     // KUNJUNGAN YANG MENDASARI SURAT INI. Surat keterangan sakit tanpa rekam
     // medis adalah pernyataan tentang pemeriksaan yang tidak ada catatannya —
@@ -670,7 +672,7 @@ export function doctorEMR(params) {
       window.__showToast && window.__showToast('Dibatalkan', 'Surat ' + (nomor || '') + ' telah dibatalkan.');
       await this.loadSKD();
     }
-  }" x-init="loadLab(); loadSKD(); if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
+  }" x-init="loadLab(); loadSKD(); cekKedatangan(); if (!skd.no_rm) window.__store.ensureRmNumber('${patient.id}').then(rm => { skd.no_rm = rm; })" class="min-h-screen bg-wash">
     ${doctorSidebar('emr')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${doctorHeader(doc)}
@@ -698,7 +700,10 @@ export function doctorEMR(params) {
           <button @click="activeTab='vaccinations'" :class="activeTab==='vaccinations' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Vaksinasi (${vaccinations.length})</button>
           <button @click="activeTab='penunjang'" :class="activeTab==='penunjang' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Penunjang (<span x-text="labList.length"></span>)</button>
           <button @click="activeTab='surat'" :class="activeTab==='surat' ? 'bg-teal-600 text-white' : 'bg-white text-gray-600 border border-gray-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition">Surat (<span x-text="skdList.length"></span>)</button>
-          <span class="ml-auto flex items-center">${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp', { patientId: patient.id })}</span>
+          <span class="ml-auto flex items-center gap-2">
+            <span x-show="kedatangan" x-cloak class="px-2.5 py-1 rounded-full text-[11px] font-bold" :class="kedatangan && kedatangan.payment_type === 'bpjs' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'" x-text="kedatangan && kedatangan.payment_type === 'bpjs' ? 'Kunjungan BPJS' : 'Kunjungan Umum'"></span>
+            ${waButton(patient.phone, waSapaMsg(patient.full_name), 'WhatsApp', { patientId: patient.id })}
+          </span>
           <button @click="suratLepas()" class="px-4 py-2 rounded-lg text-sm font-medium text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 transition">Surat Keterangan</button>
           <a href="#/doctor/emr/${patient.id}/new" class="px-4 py-2 rounded-lg text-sm font-medium text-white" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">+ Kunjungan Baru</a>
         </div>
