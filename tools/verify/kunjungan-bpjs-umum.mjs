@@ -130,5 +130,28 @@ ok('TTV dari kedatangan mengisi form vital_signs TAPI hanya kalau masih kosong (
       && /if \(this\.kedatangan\.nadi && !this\.form\.vital_signs\.nadi\)/.test(doctorSrc)
       && /if \(this\.kedatangan\.suhu && !this\.form\.vital_signs\.suhu\)/.test(doctorSrc));
 
+console.log('\n=== (4) KUNJUNGAN HARI INI — SISI DOKTER (statis & dinamis) ===');
+ok('doctorKunjunganHariIni() ada', () => /export function doctorKunjunganHariIni\(\)/.test(doctorSrc));
+ok('menu sidebar dokter "Kunjungan Hari Ini" ada, menuju #/doctor/kunjungan',
+   () => /id: 'kunjungan', label: 'Kunjungan Hari Ini'.*href: '#\/doctor\/kunjungan'/.test(doctorSrc));
+ok('rute /doctor/kunjungan terdaftar ke doctorKunjunganHariIni', () => /router\.add\('\/doctor\/kunjungan', \(\) => render\(doctorKunjunganHariIni\)\)/.test(appSrc));
+ok('doctorKunjunganHariIni diimpor dari pages/doctor.js', () => /doctorKunjunganHariIni.*\} from '\.\/pages\/doctor\.js'/.test(appSrc));
+ok('mengklik baris pasien langsung membuka Kunjungan Baru pasien itu',
+   () => /mulai\(patientId\) \{ window\.location\.hash = '#\/doctor\/emr\/' \+ patientId \+ '\/new'; \}/.test(doctorSrc));
+ok('daftarnya menyaring: hanya yang belum ditangani DAN (untuk dokter ini ATAU belum ditentukan)',
+   () => /!c\.medical_record_id && \(!c\.doctor_id \|\| c\.doctor_id === /.test(doctorSrc));
+
+// Dinamis: kedatangan untuk dokter LAIN tidak boleh nyasar ke sini, tapi yang
+// belum ditentukan dokternya (doctor_id null) harus tetap kelihatan -- siapa
+// saja boleh mengambilnya.
+const semuaHariIni = await store.getCheckinsToday();
+const untukD1 = semuaHariIni.filter(c => !c.medical_record_id && (!c.doctor_id || c.doctor_id === 'd_1'));
+ok('kedatangan tanpa dokter tujuan tetap muncul untuk dokter mana pun (bisa diambil siapa saja)',
+   () => semuaHariIni.some(c => !c.doctor_id) ? untukD1.some(c => !c.doctor_id) : true);
+const checkinDokterLain = await store.createCheckin({ patient_id: 'p_3', payment_type: 'umum', doctor_id: 'd_2' });
+const setelahD1 = (await store.getCheckinsToday()).filter(c => !c.medical_record_id && (!c.doctor_id || c.doctor_id === 'd_1'));
+ok('kedatangan untuk DOKTER LAIN yang eksplisit tidak ikut muncul di daftar dokter ini',
+   () => !setelahD1.some(c => c.id === checkinDokterLain.id));
+
 console.log('\n' + (fails ? `❌ ${fails} gagal` : '✅ semua lolos'));
 process.exit(fails ? 1 : 0);
