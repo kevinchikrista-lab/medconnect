@@ -2925,6 +2925,58 @@ export function doctorCrm() {
   </div>`;
 }
 
+// ===========================================================================
+// KUNJUNGAN HARI INI (sisi dokter)
+//
+// Admin mendaftarkan kedatangan pasien lewat halamannya sendiri (lihat
+// adminKunjunganHariIni di js/pages/admin.js) -- notifikasi memberi tahu,
+// tapi notifikasi tidak menunjuk ke mana pun. Ini tempat dokter BENAR-BENAR
+// melanjutkannya: daftar pasien yang sudah didaftarkan hari ini (untuknya
+// atau belum ditentukan dokternya), tinggal diklik untuk langsung membuka
+// "Kunjungan Baru" dengan jenis kunjungan & TTV-nya sudah terisi.
+// ===========================================================================
+export function doctorKunjunganHariIni() {
+  const doc = getDoctor();
+  return `
+  <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, checkins: [],
+    async load() {
+      this.loading = true;
+      try {
+        const semua = await window.__store.getCheckinsToday();
+        this.checkins = semua
+          .filter(c => !c.medical_record_id && (!c.doctor_id || c.doctor_id === '${doc?.id || ''}'))
+          .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+      } catch (e) { this.checkins = []; }
+      this.loading = false;
+    },
+    mulai(patientId) { window.location.hash = '#/doctor/emr/' + patientId + '/new'; }
+  }" x-init="load()" class="min-h-screen bg-wash">
+    ${doctorSidebar('kunjungan')}
+    <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
+      ${doctorHeader(doc)}
+      <main class="p-4 lg:p-6 max-w-4xl mx-auto">
+        <h2 class="text-xl font-bold text-gray-800">Kunjungan Hari Ini</h2>
+        <p class="text-[12.5px] text-muted leading-relaxed">Pasien yang sudah didaftarkan kedatangannya oleh admin, untuk Anda atau belum ditentukan dokternya. Klik untuk langsung memeriksa.</p>
+
+        <div class="mt-4 bg-white rounded-2xl border border-slate-100 divide-y divide-slate-100 overflow-hidden">
+          <template x-if="loading"><p class="p-6 text-center text-slate-400 text-sm">Memuat&hellip;</p></template>
+          <template x-if="!loading && checkins.length === 0"><p class="p-6 text-center text-slate-400 text-sm">Tidak ada pasien menunggu saat ini.</p></template>
+          <template x-for="c in checkins" :key="c.id">
+            <button type="button" @click="mulai(c.patient_id)" class="w-full text-left p-4 flex items-center gap-3 hover:bg-slate-50 transition">
+              <span class="px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0" :class="c.payment_type === 'bpjs' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'" x-text="c.payment_type === 'bpjs' ? 'BPJS' : 'UMUM'"></span>
+              <span class="flex-1 min-w-0">
+                <span class="block text-[13.5px] font-semibold text-ink" x-text="(window.__store.getPatient(c.patient_id) || {}).full_name || 'Pasien'"></span>
+                <span class="block text-[11px] text-slate-400" x-text="[c.td ? 'TD ' + c.td : '', c.nadi ? 'Nadi ' + c.nadi : '', c.suhu ? 'Suhu ' + c.suhu : '', c.notes || ''].filter(Boolean).join(' · ')" x-show="c.td || c.nadi || c.suhu || c.notes" x-cloak></span>
+              </span>
+              <span class="ms text-[20px] text-slate-300">chevron_right</span>
+            </button>
+          </template>
+        </div>
+      </main>
+    </div>
+  </div>`;
+}
+
 // Jumlah tugas terbuka yang didelegasikan ke akun ini — jadi lencana di menu
 // "Tugas Saya". Dibungkus try/catch supaya sidebar tetap tampil kalau tabel
 // tasks belum ada (SQL-nya belum dijalankan).
@@ -2950,6 +3002,7 @@ function doctorSidebar(active) {
   try { rmHutang = doc ? store.rmDebtCount(doc.id) : 0; } catch (e) { rmHutang = 0; }
   const items = [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view', href: '#/doctor/dashboard' },
+    { id: 'kunjungan', label: 'Kunjungan Hari Ini', icon: 'how_to_reg', href: '#/doctor/kunjungan' },
     { id: 'patients', label: 'Pasien', icon: 'groups', href: '#/doctor/patients' },
     { id: 'emr', label: 'Rekam Medis', icon: 'clinical_notes', href: '#/doctor/records' },
     { id: 'prescriptions', label: 'E-Resep', icon: 'prescriptions', href: '#/doctor/prescriptions' },
