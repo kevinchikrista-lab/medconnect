@@ -43,6 +43,8 @@ export async function editSKD(certId, onSaved) {
   const body = isSehat
     ? field('e_bb', 'Berat Badan (kg)') + field('e_tb', 'Tinggi Badan (cm)')
       + field('e_td', 'Tekanan Darah (mmHg)') + field('e_nadi', 'Nadi (x/mnt)')
+      + field('e_goldar', 'Golongan Darah', { type: 'select', options: ['A', 'B', 'AB', 'O'] })
+      + field('e_buta', 'Pemeriksaan Buta Warna', { type: 'select', options: ['Normal', 'Buta warna parsial (defisiensi merah-hijau)', 'Buta warna total'] })
       + field('e_kep', 'Dipergunakan untuk (keperluan)', { full: true })
       + field('e_kes', 'Kesimpulan', { full: true })
     : isRujukan
@@ -84,7 +86,7 @@ export async function editSKD(certId, onSaved) {
   set('e_name', cert.patient_name); set('e_rm', d.no_rm); set('e_birth', d.tgl_lahir);
   set('e_gender', d.gender); set('e_ldate', d.letter_date); set('e_addr', d.alamat);
   set('e_doc', cert.doctor_name || d.doctor_name); set('e_sip', d.doctor_sip);
-  if (isSehat) { set('e_bb', d.berat_badan); set('e_tb', d.tinggi_badan); set('e_td', d.tekanan_darah); set('e_nadi', d.nadi); set('e_kep', d.keperluan); set('e_kes', d.kesimpulan); }
+  if (isSehat) { set('e_bb', d.berat_badan); set('e_tb', d.tinggi_badan); set('e_td', d.tekanan_darah); set('e_nadi', d.nadi); set('e_goldar', d.golongan_darah); set('e_buta', d.buta_warna); set('e_kep', d.keperluan); set('e_kes', d.kesimpulan); }
   else if (isRujukan) {
     const vt = d.vital || {};
     set('e_tujuan_dokter', d.tujuan_dokter); set('e_tujuan_faskes', d.tujuan_faskes);
@@ -105,7 +107,7 @@ export async function editSKD(certId, onSaved) {
       no_rm: val('e_rm'), tgl_lahir: val('e_birth'), gender: val('e_gender'), alamat: val('e_addr'),
       letter_date: val('e_ldate'), doctor_name: val('e_doc'), doctor_sip: val('e_sip'),
     });
-    if (isSehat) { nd.berat_badan = val('e_bb'); nd.tinggi_badan = val('e_tb'); nd.tekanan_darah = val('e_td'); nd.nadi = val('e_nadi'); nd.keperluan = val('e_kep'); nd.kesimpulan = val('e_kes'); }
+    if (isSehat) { nd.berat_badan = val('e_bb'); nd.tinggi_badan = val('e_tb'); nd.tekanan_darah = val('e_td'); nd.nadi = val('e_nadi'); nd.golongan_darah = val('e_goldar'); nd.buta_warna = val('e_buta'); nd.keperluan = val('e_kep'); nd.kesimpulan = val('e_kes'); }
     else if (isRujukan) {
       nd.tujuan_dokter = val('e_tujuan_dokter'); nd.tujuan_faskes = val('e_tujuan_faskes');
       nd.anamnesis = val('e_anam'); nd.pemeriksaan = val('e_periksa'); nd.penunjang = val('e_penunjang');

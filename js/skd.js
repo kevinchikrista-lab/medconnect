@@ -121,6 +121,8 @@ export async function createSKD(opts) {
     tinggi_badan: isSehat ? (opts.tinggi_badan || '') : '',
     tekanan_darah: isSehat ? (opts.tekanan_darah || '') : '',
     nadi: isSehat ? (opts.nadi || '') : '',
+    golongan_darah: isSehat ? (opts.golongan_darah || '') : '',
+    buta_warna: isSehat ? (opts.buta_warna || '') : '',
     diagnosis: isSehat ? '' : (opts.diagnosis || ''),
     rest_days: (isSehat || isRujukan) ? '' : (opts.rest_days || ''),
     from_date: (isSehat || isRujukan) ? '' : (opts.from_date || ''),
@@ -292,6 +294,8 @@ function writeLetter(w, cert) {
       <tr><td class="k">Tinggi Badan</td><td class="s">:</td><td class="v">${esc(d.tinggi_badan) || '-'} ${d.tinggi_badan ? 'CM' : ''}</td></tr>
       <tr><td class="k">Tekanan Darah</td><td class="s">:</td><td class="v">${esc(d.tekanan_darah) || '-'} ${d.tekanan_darah ? 'MMHG' : ''}</td></tr>
       <tr><td class="k">Nadi</td><td class="s">:</td><td class="v">${esc(d.nadi) || '-'} ${d.nadi ? 'X/MIN' : ''}</td></tr>
+      <tr><td class="k">Golongan Darah</td><td class="s">:</td><td class="v">${esc(d.golongan_darah) || '-'}</td></tr>
+      <tr><td class="k">Pemeriksaan Buta Warna</td><td class="s">:</td><td class="v">${esc(d.buta_warna) || '-'}</td></tr>
       <tr><td class="k">Dipergunakan untuk</td><td class="s">:</td><td class="v">${esc((d.keperluan || '-')).toUpperCase()}</td></tr>
     </table>
     <p class="lead">Dari hasil pemeriksaan, saya menyatakan kondisi pasien dengan data diri di atas dalam kondisi:</p>

@@ -1237,6 +1237,7 @@ export function adminPatientDetail(params) {
     skd: { letter_date: '${new Date().toISOString().split('T')[0]}',
       birth_date: '${patient.birth_date || ''}', gender: '${q(patient.gender||'')}', address: '${q(patient.address||'')}',
       berat_badan: '${q(latestVs.bb||'')}', tinggi_badan: '${q(latestVs.tb||'')}', tekanan_darah: '${q(latestVs.td||'')}', nadi: '${q(latestVs.nadi||'')}',
+      golongan_darah: '${q(patient.blood_type||'')}', buta_warna: '',
       keperluan: '', kesimpulan: 'SEHAT FISIK DAN MENTAL',
       diagnosis: '${q(records[0] && records[0].diagnosis || '')}', rest_days: '', from_date: '${new Date().toISOString().split('T')[0]}', to_date: '' },
     vaxOpen: false, vaxSaving: false, vaxMsg: '', vaxDoctorId: '${doctors[0]?.id || ''}',
@@ -1524,6 +1525,8 @@ export function adminPatientDetail(params) {
                 <div><label class="block text-xs text-gray-600 mb-1">Tinggi Badan (CM)</label><input type="text" x-model="skd.tinggi_badan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
                 <div><label class="block text-xs text-gray-600 mb-1">Tekanan Darah (MMHG)</label><input type="text" x-model="skd.tekanan_darah" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="120/80"></div>
                 <div><label class="block text-xs text-gray-600 mb-1">Nadi (X/MIN)</label><input type="text" x-model="skd.nadi" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Golongan Darah</label><select x-model="skd.golongan_darah" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">&mdash; pilih &mdash;</option><option>A</option><option>B</option><option>AB</option><option>O</option></select></div>
+                <div><label class="block text-xs text-gray-600 mb-1">Pemeriksaan Buta Warna</label><select x-model="skd.buta_warna" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"><option value="">&mdash; pilih &mdash;</option><option>Normal</option><option>Buta warna parsial (defisiensi merah-hijau)</option><option>Buta warna total</option></select></div>
               </div>
               <div><label class="block text-xs text-gray-600 mb-1">Dipergunakan untuk</label><input type="text" x-model="skd.keperluan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="cth: Melamar pekerjaan"></div>
               <div><label class="block text-xs text-gray-600 mb-1">Kesimpulan</label><input type="text" x-model="skd.kesimpulan" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
