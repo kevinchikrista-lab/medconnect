@@ -2325,7 +2325,7 @@ export function adminSatusehat() {
   const persen = k.kunjungan.total ? Math.round((k.kunjungan.siap / k.kunjungan.total) * 100) : 0;
 
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, buka: ${k.bagian.findIndex(b => b.kurang > 0)} }" class="min-h-screen bg-wash">
+  <div x-data="{ sideOpen: window.innerWidth > 1024, buka: ${k.bagian.findIndex(b => b.kurang > 0)}, tesLoading: false, tesHasil: null, tesError: '', async tesSandbox() { this.tesLoading = true; this.tesError = ''; this.tesHasil = null; const r = await window.__store.tesSatusehatSandbox(); this.tesLoading = false; if (r && r.error) { this.tesError = r.error + (r.detail ? ' (' + r.detail + ')' : ''); } else { this.tesHasil = r; } } }" class="min-h-screen bg-wash">
     ${adminSidebar('satusehat')}
     <div class="transition-all duration-300" :class="sideOpen ? 'lg:ml-64' : 'ml-0'">
       ${adminHeader()}
@@ -2348,14 +2348,29 @@ export function adminSatusehat() {
         <div class="mt-4 space-y-3">${kartu}</div>
 
         <div class="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
+          <h3 class="font-bold text-[13.5px] text-ink">Tes Koneksi SATUSEHAT Sandbox</h3>
+          <p class="text-[11.5px] text-muted leading-relaxed mt-1">Tidak mengirim data pasien apa pun. Cuma membuktikan client_id &amp; client_secret Sandbox yang tersimpan di Supabase itu benar dan bisa dipakai login ke SATUSEHAT.</p>
+          <button type="button" @click="tesSandbox()" :disabled="tesLoading"
+            class="mt-3 px-4 py-2 rounded-lg text-[12.5px] font-semibold text-white bg-brand-dark disabled:opacity-60">
+            <span x-show="!tesLoading">Tes Koneksi Sekarang</span>
+            <span x-show="tesLoading" x-cloak>Menghubungi SATUSEHAT&hellip;</span>
+          </button>
+          <div x-show="tesHasil" x-cloak class="mt-3 p-3 rounded-lg bg-green-50 border border-green-200 text-[12.5px] text-green-800">
+            <p class="font-bold">Terhubung.</p>
+            <p class="mt-0.5">Organization ID <span x-text="tesHasil && tesHasil.organisasi && tesHasil.organisasi.id"></span> &mdash; <span x-text="tesHasil && tesHasil.organisasi && tesHasil.organisasi.nama"></span></p>
+          </div>
+          <div x-show="tesError" x-cloak class="mt-3 p-3 rounded-lg bg-red-50 border border-red-200 text-[12.5px] text-red-800" x-text="tesError"></div>
+        </div>
+
+        <div class="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
           <h3 class="font-bold text-[13.5px] text-ink">Yang belum bisa dikerjakan dari sini</h3>
-          <p class="text-[11.5px] text-muted leading-relaxed mt-1">Tiga hal berikut keluar atas nama klinik, bukan atas nama aplikasi, jadi harus diurus pemilik klinik:</p>
+          <p class="text-[11.5px] text-muted leading-relaxed mt-1">Hal-hal berikut keluar atas nama klinik, bukan atas nama aplikasi, jadi harus diurus pemilik klinik:</p>
           <ol class="mt-2 space-y-1.5 text-[12.5px] text-slate-700 list-decimal list-inside">
             <li>Kode faskes dari <span class="font-medium">registrasifasyankes.kemkes.go.id</span></li>
             <li>Pendaftaran MedConnect sebagai Sistem RME di portal SATUSEHAT</li>
-            <li>client_id &amp; client_secret (sandbox dulu, produksi kemudian)</li>
+            <li>client_id &amp; client_secret Production (Sandbox sudah ada &mdash; dites di kotak di atas)</li>
           </ol>
-          <p class="text-[11.5px] text-muted leading-relaxed mt-2">Selama ketiganya belum ada, halaman ini tetap berguna: yang dilengkapi di sini juga dipakai klaim BPJS dan rekap bulanan.</p>
+          <p class="text-[11.5px] text-muted leading-relaxed mt-2">Selama semuanya belum lengkap, halaman ini tetap berguna: yang dilengkapi di sini juga dipakai klaim BPJS dan rekap bulanan.</p>
         </div>
       </main>
     </div>

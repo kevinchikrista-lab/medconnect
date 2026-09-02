@@ -3117,6 +3117,14 @@ class Store {
     };
   }
 
+  // Tes koneksi ke SATUSEHAT Sandbox. Tidak mengirim data pasien apa pun --
+  // cuma membuktikan client_id/client_secret yang disimpan di Supabase itu
+  // benar-benar bisa dipakai login dan membaca kembali data organisasi
+  // klinik sendiri. Kredensialnya sendiri tidak pernah lewat sini; itu
+  // tersimpan di Supabase, dibaca oleh Edge Function-nya sendiri.
+  async tesSatusehatSandbox() {
+    return supabase.invoke('satusehat-sandbox-test');
+  }
 
   getUpcomingAppointments(patientId) {
     const today = todayLocal();
