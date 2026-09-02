@@ -1572,20 +1572,57 @@ class Store {
   // ---- Kedatangan pasien (BPJS / Umum) ------------------------------------
   // Didaftarkan ADMIN saat pasien datang, SEBELUM dokter memeriksa. Dokter
   // membaca ini (lihat createRecord di atas), tidak memilihnya sendiri.
-  async createCheckin({ patient_id, payment_type, doctor_id, notes }) {
+  async createCheckin({ patient_id, payment_type, doctor_id, notes, td, nadi, suhu }) {
     if (!patient_id) return { error: 'Pilih pasien terlebih dahulu.' };
     if (payment_type !== 'bpjs' && payment_type !== 'umum') return { error: 'Pilih jenis kunjungan: BPJS atau Umum.' };
     const user = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
     const rec = {
       id: generateId(), patient_id, visit_date: todayLocal(), payment_type,
       doctor_id: doctor_id || null, medical_record_id: null, notes: notes || '',
+      td: td || '', nadi: nadi || '', suhu: suhu || '',
       created_by: (user || {}).id || null, created_at: new Date().toISOString(),
     };
     if (!this.data.patient_checkins) this.data.patient_checkins = [];
     this.data.patient_checkins.unshift(rec);
     this._save();
     await this._syncInsert('patient_checkins', rec);
+    // Dokter yang dituju diberi tahu ada pasien menunggu -- tanpa ini,
+    // pendaftaran kedatangan cuma tercatat di layar admin dan dokternya
+    // tidak pernah tahu kecuali kebetulan membuka halaman pasien itu sendiri.
+    if (rec.doctor_id) {
+      const dok = this.getDoctor(rec.doctor_id);
+      const pasien = this.getPatient(patient_id);
+      if (dok && dok.user_id) {
+        this.addNotification(dok.user_id, 'Pasien Menunggu',
+          `${(pasien || {}).full_name || 'Pasien'} sudah datang (${payment_type === 'bpjs' ? 'BPJS' : 'Umum'}) dan menunggu diperiksa.`, 'system');
+      }
+    }
     return rec;
+  }
+
+  // Superadmin/pemilik klinik bisa menyunting kedatangan yang sudah
+  // didaftarkan -- ganti dokter tujuan, jenis kunjungan, TTV, atau catatan.
+  // Kalau dokter tujuannya BERUBAH, dokter yang baru diberi tahu juga
+  // (dokter lama tidak -- suratnya sudah tidak lagi untuknya).
+  async updateCheckin(id, patch) {
+    const c = (this.data.patient_checkins || []).find(x => x.id === id);
+    if (!c) return { error: 'Kedatangan tidak ditemukan.' };
+    if (patch.payment_type && patch.payment_type !== 'bpjs' && patch.payment_type !== 'umum') {
+      return { error: 'Pilih jenis kunjungan: BPJS atau Umum.' };
+    }
+    const dokterBerubah = 'doctor_id' in patch && patch.doctor_id !== c.doctor_id;
+    Object.assign(c, patch);
+    this._save();
+    if (!CONFIG.DEMO_MODE) { try { await supabase.update('patient_checkins', id, patch); } catch (e) { return { error: e.message || 'Gagal menyimpan.' }; } }
+    if (dokterBerubah && c.doctor_id) {
+      const dok = this.getDoctor(c.doctor_id);
+      const pasien = this.getPatient(c.patient_id);
+      if (dok && dok.user_id) {
+        this.addNotification(dok.user_id, 'Pasien Menunggu',
+          `${(pasien || {}).full_name || 'Pasien'} dialihkan ke Anda (${c.payment_type === 'bpjs' ? 'BPJS' : 'Umum'}) dan menunggu diperiksa.`, 'system');
+      }
+    }
+    return c;
   }
 
   async getCheckinsToday() {

@@ -2278,16 +2278,24 @@ export function adminKunjunganHariIni() {
   window.__ckDoctors = (store.data.doctors || []).filter(d => d.full_name).map(d => ({ id: d.id, full_name: d.full_name }));
 
   return `
-  <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, checkins: [], modalOpen: false, pickSearch: '', saving: false, msg: '',
-    form: { patient_id: '', patient_name: '', payment_type: 'umum', doctor_id: '', notes: '' },
+  <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, checkins: [], modalOpen: false, editingId: null, pickSearch: '', saving: false, msg: '',
+    form: { patient_id: '', patient_name: '', payment_type: 'umum', doctor_id: '', notes: '', td: '', nadi: '', suhu: '' },
     get pickList() { const s = (this.pickSearch || '').toLowerCase(); const all = window.__ckPatients || []; return s ? all.filter(p => (p.full_name + ' ' + p.rm_number).toLowerCase().includes(s)) : all; },
     async load() { this.loading = true; try { this.checkins = await window.__store.getCheckinsToday(); } catch (e) { this.checkins = []; } this.loading = false; },
-    openModal() { this.form = { patient_id: '', patient_name: '', payment_type: 'umum', doctor_id: '', notes: '' }; this.pickSearch = ''; this.msg = ''; this.modalOpen = true; },
+    openModal() { this.editingId = null; this.form = { patient_id: '', patient_name: '', payment_type: 'umum', doctor_id: '', notes: '', td: '', nadi: '', suhu: '' }; this.pickSearch = ''; this.msg = ''; this.modalOpen = true; },
+    openEdit(c) {
+      this.editingId = c.id;
+      const p = window.__store.getPatient(c.patient_id) || {};
+      this.form = { patient_id: c.patient_id, patient_name: p.full_name || 'Pasien', payment_type: c.payment_type,
+        doctor_id: c.doctor_id || '', notes: c.notes || '', td: c.td || '', nadi: c.nadi || '', suhu: c.suhu || '' };
+      this.msg = ''; this.modalOpen = true;
+    },
     pick(p) { this.form.patient_id = p.id; this.form.patient_name = p.full_name; },
     async submit() {
       if (!this.form.patient_id) { this.msg = 'Pilih pasien terlebih dahulu.'; return; }
       this.saving = true; this.msg = '';
-      const r = await window.__store.createCheckin(this.form);
+      const payload = { payment_type: this.form.payment_type, doctor_id: this.form.doctor_id || null, notes: this.form.notes, td: this.form.td, nadi: this.form.nadi, suhu: this.form.suhu };
+      const r = this.editingId ? await window.__store.updateCheckin(this.editingId, payload) : await window.__store.createCheckin({ patient_id: this.form.patient_id, ...payload });
       this.saving = false;
       if (r && r.error) { this.msg = r.error; return; }
       this.modalOpen = false;
@@ -2317,9 +2325,10 @@ export function adminKunjunganHariIni() {
               <span class="px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0" :class="c.payment_type === 'bpjs' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'" x-text="c.payment_type === 'bpjs' ? 'BPJS' : 'UMUM'"></span>
               <span class="flex-1 min-w-0">
                 <a :href="'#/admin/patients/' + c.patient_id" class="text-[13.5px] font-semibold text-ink hover:underline" x-text="(window.__store.getPatient(c.patient_id) || {}).full_name || 'Pasien'"></a>
-                <span class="block text-[11px] text-slate-400" x-text="c.notes || ''" x-show="c.notes" x-cloak></span>
+                <span class="block text-[11px] text-slate-400" x-text="[c.td ? 'TD ' + c.td : '', c.nadi ? 'Nadi ' + c.nadi : '', c.suhu ? 'Suhu ' + c.suhu : '', c.notes || ''].filter(Boolean).join(' · ')" x-show="c.td || c.nadi || c.suhu || c.notes" x-cloak></span>
               </span>
               <span class="px-2 py-0.5 rounded-full text-[10.5px] font-bold shrink-0" :class="c.medical_record_id ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-800'" x-text="c.medical_record_id ? 'Sudah ditangani' : 'Menunggu dokter'"></span>
+              <button type="button" @click="openEdit(c)" class="text-[11.5px] font-semibold text-brand-dark hover:underline shrink-0">Edit</button>
               <button type="button" @click="batal(c.id)" x-show="!c.medical_record_id" x-cloak class="text-[11.5px] font-semibold text-red-600 hover:underline shrink-0">Batalkan</button>
             </div>
           </template>
@@ -2330,7 +2339,7 @@ export function adminKunjunganHariIni() {
     <div x-show="modalOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @click.self="modalOpen=false">
       <div class="bg-white rounded-3xl w-full max-w-md p-5 max-h-[85vh] flex flex-col">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="font-semibold text-gray-800">Tandai Kedatangan</h3>
+          <h3 class="font-semibold text-gray-800" x-text="editingId ? 'Edit Kedatangan' : 'Tandai Kedatangan'"></h3>
           <button @click="modalOpen=false" class="text-gray-400 hover:text-gray-700">&times;</button>
         </div>
         <template x-if="!form.patient_id">
@@ -2351,7 +2360,7 @@ export function adminKunjunganHariIni() {
           <div class="space-y-3">
             <div class="p-2.5 rounded-lg bg-slate-50 flex items-center justify-between gap-2">
               <span class="text-sm font-semibold text-gray-800" x-text="form.patient_name"></span>
-              <button type="button" @click="form.patient_id=''" class="text-[11.5px] font-semibold text-brand-dark hover:underline shrink-0">Ganti</button>
+              <button type="button" @click="form.patient_id=''" x-show="!editingId" class="text-[11.5px] font-semibold text-brand-dark hover:underline shrink-0">Ganti</button>
             </div>
             <div>
               <label class="block text-xs text-gray-600 mb-1">Jenis Kunjungan</label>
@@ -2365,6 +2374,15 @@ export function adminKunjunganHariIni() {
                 <option value="">&mdash; belum ditentukan &mdash;</option>
                 <template x-for="d in (window.__ckDoctors || [])" :key="d.id"><option :value="d.id" x-text="d.full_name"></option></template>
               </select>
+              <p class="text-[11px] text-slate-400 mt-1">Dokter yang dipilih mendapat notifikasi ada pasien menunggu.</p>
+            </div>
+            <div>
+              <label class="block text-xs text-gray-600 mb-1">TTV Sederhana (opsional)</label>
+              <div class="grid grid-cols-3 gap-2">
+                <input type="text" x-model="form.td" placeholder="TD (120/80)" class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+                <input type="text" x-model="form.nadi" placeholder="Nadi (x/mnt)" class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+                <input type="text" x-model="form.suhu" placeholder="Suhu (&deg;C)" class="w-full px-2.5 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">
+              </div>
             </div>
             <div><label class="block text-xs text-gray-600 mb-1">Catatan (opsional)</label>
               <input type="text" x-model="form.notes" placeholder="cth: keluhan singkat" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">

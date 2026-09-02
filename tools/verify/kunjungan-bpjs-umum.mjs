@@ -67,6 +67,34 @@ const checkinBatal = await store.createCheckin({ patient_id: 'p_3', payment_type
 await store.cancelCheckin(checkinBatal.id);
 ok('cancelCheckin menghapusnya dari daftar', () => !(store.data.patient_checkins || []).some(x => x.id === checkinBatal.id));
 
+// TTV sederhana ikut tersimpan di kedatangannya.
+const checkinTtv = await store.createCheckin({ patient_id: 'p_4', payment_type: 'umum', td: '120/80', nadi: '88', suhu: '36.7' });
+ok('TTV (td/nadi/suhu) tersimpan di kedatangan', () => checkinTtv.td === '120/80' && checkinTtv.nadi === '88' && checkinTtv.suhu === '36.7');
+
+console.log('\n=== (1b) NOTIFIKASI KE DOKTER TUJUAN (dinamis) ===');
+
+const sebelumNotif = (store.data.notifications || []).length;
+await store.createCheckin({ patient_id: 'p_5', payment_type: 'bpjs', doctor_id: 'd_1' });
+ok('dokter tujuan diberi notifikasi saat kedatangan didaftarkan', () => {
+  const setelah = store.data.notifications || [];
+  return setelah.length > sebelumNotif && setelah.some(n => n.user_id === 'u_doc1' && /menunggu/i.test(n.message || ''));
+});
+
+// Superadmin menyunting kedatangan: ganti dokter tujuan, jenis kunjungan,
+// dan TTV -- dokter yang BARU diberi tahu, bukan cuma dicatat diam-diam.
+const checkinEdit = await store.createCheckin({ patient_id: 'p_1', payment_type: 'umum' });
+const sebelumNotif2 = (store.data.notifications || []).length;
+const hasilEdit = await store.updateCheckin(checkinEdit.id, { payment_type: 'bpjs', doctor_id: 'd_1', td: '110/70', nadi: '80', suhu: '36.5' });
+ok('updateCheckin berhasil mengubah data kedatangan', () => hasilEdit && !hasilEdit.error);
+ok('perubahan payment_type & TTV benar-benar tersimpan', () => {
+  const c = (store.data.patient_checkins || []).find(x => x.id === checkinEdit.id);
+  return c && c.payment_type === 'bpjs' && c.td === '110/70' && c.nadi === '80' && c.suhu === '36.5';
+});
+ok('mengganti dokter tujuan lewat edit ikut mengirim notifikasi', () => {
+  const setelah = store.data.notifications || [];
+  return setelah.length > sebelumNotif2 && setelah.some(n => n.user_id === 'u_doc1' && /dialihkan|menunggu/i.test(n.message || ''));
+});
+
 console.log('\n=== (2) HALAMAN ADMIN & RUTE (statis) ===');
 
 const adminSrc = readFileSync('../../js/pages/admin.js', 'utf8');
@@ -83,11 +111,24 @@ ok('menu sidebar "Kunjungan Hari Ini" ada, menuju #/admin/kunjungan',
 ok('rute /admin/kunjungan terdaftar ke adminKunjunganHariIni', () => /router\.add\('\/admin\/kunjungan', \(\) => render\(adminKunjunganHariIni\)\)/.test(appSrc));
 ok('adminKunjunganHariIni diimpor dari pages/admin.js', () => /adminKunjunganHariIni.*\} from '\.\/pages\/admin\.js'/.test(appSrc));
 
-console.log('\n=== (3) BADGE DI HALAMAN DOKTER (statis) ===');
-ok('halaman dokter memuat kedatangan pasien ini saat dibuka (cekKedatangan di x-init)',
-   () => /x-init="[^"]*cekKedatangan\(\)/.test(doctorSrc));
-ok('badge "Kunjungan BPJS" / "Kunjungan Umum" ditampilkan',
+console.log('\n=== (3) BADGE & EDIT (statis) ===');
+ok('tombol Edit ada di daftar kedatangan admin (superadmin bisa ubah data)',
+   () => /openEdit\(c\)/.test(adminSrc) && adminSrc.includes('>Edit<'));
+ok('form admin punya input TTV (td/nadi/suhu)',
+   () => /x-model="form\.td"/.test(adminSrc) && /x-model="form\.nadi"/.test(adminSrc) && /x-model="form\.suhu"/.test(adminSrc));
+ok('updateCheckin dipanggil saat menyunting (bukan createCheckin lagi)',
+   () => /editingId \? await window\.__store\.updateCheckin/.test(adminSrc));
+
+ok('halaman dokter (EMR & Kunjungan Baru) SAMA-SAMA memuat kedatangan hari ini saat dibuka',
+   () => (doctorSrc.match(/x-init="[^"]*cekKedatangan\(\)/g) || []).length >= 2);
+ok('badge "Kunjungan BPJS" / "Kunjungan Umum" ditampilkan di halaman rekam medis',
    () => doctorSrc.includes("'Kunjungan BPJS' : 'Kunjungan Umum'"));
+ok('badge BPJS/Umum juga ditampilkan di formulir Kunjungan Baru',
+   () => /kedatangan && \(kedatangan\.payment_type === 'bpjs' \? 'BPJS' : 'Umum'\)/.test(doctorSrc));
+ok('TTV dari kedatangan mengisi form vital_signs TAPI hanya kalau masih kosong (tidak menimpa isian dokter)',
+   () => /if \(this\.kedatangan\.td && !this\.form\.vital_signs\.td\)/.test(doctorSrc)
+      && /if \(this\.kedatangan\.nadi && !this\.form\.vital_signs\.nadi\)/.test(doctorSrc)
+      && /if \(this\.kedatangan\.suhu && !this\.form\.vital_signs\.suhu\)/.test(doctorSrc));
 
 console.log('\n' + (fails ? `❌ ${fails} gagal` : '✅ semua lolos'));
 process.exit(fails ? 1 : 0);
