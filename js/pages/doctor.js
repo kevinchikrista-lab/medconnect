@@ -250,7 +250,18 @@ function oldRecordsPanelInner() {
             <template x-for="(v,k) in selectedOld.vital_signs" :key="k"><span x-show="v" class="px-1.5 py-0.5 rounded bg-gray-50 border border-gray-200 text-xs text-gray-600" x-text="k.toUpperCase()+': '+v"></span></template>
           </div>
         </div>
-        <div x-show="selectedOld.therapy"><p class="text-xs text-gray-400 font-medium">Terapi</p><p class="text-gray-700 whitespace-pre-line" x-text="selectedOld.therapy"></p></div>
+        <div x-show="selectedOld.therapy"><p class="text-xs text-gray-400 font-medium">Terapi Non-Farmakologis</p><p class="text-gray-700 whitespace-pre-line" x-text="selectedOld.therapy"></p></div>
+        <div x-show="(selectedOld.prescriptions || []).length > 0">
+          <p class="text-xs text-gray-400 font-medium mb-1">Terapi Farmakologis (E-Resep)</p>
+          <template x-for="rx in (selectedOld.prescriptions || [])" :key="rx.rx_number">
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-2 mb-1.5">
+              <p class="text-xs font-medium text-gray-700" x-text="(rx.rx_number || '(tanpa nomor)') + (rx.pharmacy_name ? ' — ' + rx.pharmacy_name : '') + ' · ' + rx.status_label"></p>
+              <template x-for="(i, idx) in rx.items" :key="idx">
+                <p class="text-xs text-gray-600 mt-0.5" x-text="'• ' + (i.is_compound ? (i.display_name + ' (Racikan): ' + i.compound_details) : (i.drug_name + ' ' + i.dosage)) + ' — ' + i.frequency + ' ' + i.time + ' (' + i.quantity + ' ' + i.unit + ')'"></p>
+              </template>
+            </div>
+          </template>
+        </div>
         <div x-show="selectedOld.follow_up_date"><p class="text-xs text-gray-400 font-medium">Kontrol Berikutnya</p><p class="text-gray-700" x-text="fmtOldDate(selectedOld.follow_up_date) + (selectedOld.follow_up_notes ? ' — '+selectedOld.follow_up_notes : '')"></p></div>
         <div x-show="selectedOld.notes"><p class="text-xs text-gray-400 font-medium">Catatan</p><p class="text-gray-700 whitespace-pre-line" x-text="selectedOld.notes"></p></div>
       </div>
@@ -1330,6 +1341,21 @@ export function doctorEMRNew(params) {
     examination: r.examination || '', therapy: r.therapy || '', follow_up_date: r.follow_up_date || '',
     follow_up_notes: r.follow_up_notes || '', notes: r.notes || '',
     vital_signs: r.vital_signs || {},
+    // Terapi non-farmakologis (di atas) cuma kalimat bebas -- obat yang
+    // sungguhan diresepkan hidup di e-resep, tabel terpisah. Tanpa ini,
+    // panel "Riwayat Rekam Medis" yang dibaca dokter sebelum memutuskan
+    // terapi kunjungan baru tidak pernah menyebut obat apa yang sudah
+    // pernah diberikan.
+    prescriptions: store.getPrescriptionsByRecord(r.id).map(rx => ({
+      rx_number: rx.rx_number || '', pharmacy_name: (store.getPharmacy(rx.pharmacy_id) || {}).name || '',
+      status_label: CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status || '',
+      items: store.getPrescriptionItems(rx.id).map(i => ({
+        drug_name: i.drug_name || '', display_name: i.display_name || i.drug_name || '',
+        dosage: i.dosage || '', frequency: i.frequency || '', time: i.time || '',
+        quantity: i.quantity || '', unit: i.unit || '', is_compound: !!i.is_compound,
+        compound_details: i.compound_details || '',
+      })),
+    })),
   }));
   return `
   <div x-data="{
