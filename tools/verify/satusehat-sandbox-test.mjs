@@ -31,6 +31,16 @@ ok('store.tesSatusehatSandbox() memanggil supabase.invoke dengan nama fungsi yan
 ok('supabase.invoke() memanggil endpoint functions/v1/<nama>, bukan rest/v1',
    () => /invoke\(fn, body = \{\}\)/.test(supabaseSrc) && /functions\/v1\/\$\{fn\}/.test(supabaseSrc));
 
+// Prefer: return=representation cuma dipahami PostgREST. Edge Function tidak
+// mendaftarkannya di Access-Control-Allow-Headers, jadi kalau invoke() masih
+// mengirimnya, pre-flight CORS gagal dan browser membatalkan requestnya --
+// munculnya cuma "Failed to fetch" tanpa pesan error apa pun dari kode kita.
+ok('invoke() TIDAK mengirim header Prefer (bikin CORS pre-flight gagal, "Failed to fetch")', () => {
+  const i = supabaseSrc.indexOf('async invoke(fn');
+  const akhir = supabaseSrc.indexOf('\n  },', i);
+  return i !== -1 && akhir !== -1 && /noPrefer\s*:\s*true/.test(supabaseSrc.slice(i, akhir));
+});
+
 ok('halaman admin memanggil window.__store.tesSatusehatSandbox() (bukan supabase.invoke langsung)',
    () => /window\.__store\.tesSatusehatSandbox\(\)/.test(adminSrc));
 

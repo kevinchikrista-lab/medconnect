@@ -4,13 +4,19 @@ const SUPA_URL = CONFIG.SUPABASE_URL;
 const SUPA_KEY = CONFIG.SUPABASE_ANON_KEY;
 const TIMEOUT_MS = 6000;
 
-function headers(token) {
+// Prefer: return=representation cuma dipahami PostgREST (rest/v1/...) --
+// Edge Function (functions/v1/...) tidak mengenalnya, dan mengirim header
+// yang tidak diminta membuat pre-flight CORS-nya minta izin untuk header
+// itu. Kalau Edge Function-nya tidak mendaftarkan header itu di
+// Access-Control-Allow-Headers, browser membatalkan requestnya sebelum
+// sempat terkirim -- munculnya cuma "Failed to fetch" tanpa penjelasan.
+function headers(token, opts = {}) {
   const h = {
     'apikey': SUPA_KEY,
     'Authorization': `Bearer ${token || SUPA_KEY}`,
     'Content-Type': 'application/json',
-    'Prefer': 'return=representation',
   };
+  if (!opts.noPrefer) h['Prefer'] = 'return=representation';
   return h;
 }
 
@@ -49,8 +55,9 @@ function refreshSession() {
 // Fetch with the current session token; on 401 (expired access token),
 // refreshes once and retries the same request before giving up.
 async function authedFetch(url, options = {}, isRetry = false) {
+  const { noPrefer, ...rest } = options;
   const token = sessionStorage.getItem('sb_token') || SUPA_KEY;
-  const res = await fetchWithTimeout(url, { ...options, headers: headers(token) });
+  const res = await fetchWithTimeout(url, { ...rest, headers: headers(token, { noPrefer }) });
   if (res.status === 401 && !isRetry) {
     const newToken = await refreshSession();
     if (newToken) return authedFetch(url, options, true);
@@ -162,7 +169,7 @@ export const supabase = {
   async invoke(fn, body = {}) {
     try {
       const res = await authedFetch(`${SUPA_URL}/functions/v1/${fn}`, {
-        method: 'POST', body: JSON.stringify(body)
+        method: 'POST', body: JSON.stringify(body), noPrefer: true
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) return { error: json.error || `Gagal memanggil ${fn} (${res.status})` };
