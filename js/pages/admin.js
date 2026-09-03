@@ -1387,6 +1387,7 @@ export function adminPatientDetail(params) {
         <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Riwayat Rekam Medis (${records.length})</h3>
         ${records.length === 0 ? '<div class="bg-white rounded-3xl border border-slate-100 p-8 text-center text-gray-400 text-sm">Belum ada rekam medis</div>' : records.map(r => {
           const doctor = store.getDoctor(r.doctor_id);
+          const rxList = store.getPrescriptionsByRecord(r.id);
           return `<div class="bg-white border border-slate-100 rounded-3xl mb-3 overflow-hidden" x-data="{open:false}">
             <div class="p-4 cursor-pointer hover:bg-gray-50 transition flex items-center justify-between" @click="open=!open">
               <div><p class="font-medium text-gray-800">${formatDate(r.visit_date)}</p><p class="text-sm text-gray-500">${r.diagnosis || '-'}${doctor ? ' — '+doctor.full_name : ''}</p></div>
@@ -1396,7 +1397,21 @@ export function adminPatientDetail(params) {
               <div><span class="font-semibold text-gray-700">Anamnesis:</span> <span class="text-gray-600">${r.anamnesis || '-'}</span></div>
               <div><span class="font-semibold text-gray-700">Pemeriksaan Fisik:</span> <span class="text-gray-600 whitespace-pre-line">${r.examination || '-'}</span></div>
               ${r.vital_signs ? `<div class="flex flex-wrap gap-2">${Object.entries(r.vital_signs).filter(([k,v])=>v).map(([k,v])=>`<span class="px-2 py-1 rounded bg-white border border-gray-200 text-xs">${k.toUpperCase()}: ${v}</span>`).join('')}</div>` : ''}
-              <div><span class="font-semibold text-gray-700">Terapi:</span> <span class="text-gray-600">${r.therapy || '-'}</span></div>
+              <div><span class="font-semibold text-gray-700">Terapi Non-Farmakologis:</span> <span class="text-gray-600">${r.therapy || '-'}</span></div>
+              <div>
+                <span class="font-semibold text-gray-700">Terapi Farmakologis (E-Resep):</span>
+                ${rxList.length === 0 ? '<span class="text-gray-400"> belum ada e-resep untuk kunjungan ini</span>' : `<div class="mt-1.5 space-y-1.5">${rxList.map(rx => {
+                  const rxPharmacy = store.getPharmacy(rx.pharmacy_id);
+                  const rxItems = store.getPrescriptionItems(rx.id);
+                  return `<div class="bg-white border border-gray-100 rounded-lg p-2">
+                    <p class="text-xs font-medium text-gray-700">${escHtml(rx.rx_number || '(tanpa nomor)')}${rxPharmacy ? ' — ' + escHtml(rxPharmacy.name) : ''} · ${escHtml(CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status || '')}</p>
+                    <div class="mt-1 space-y-0.5">${rxItems.map(i => i.is_compound
+                      ? `<p class="text-xs text-gray-600">• ${escHtml(i.display_name || i.drug_name)} (Racikan): ${escHtml(i.compound_details || '-')}</p>`
+                      : `<p class="text-xs text-gray-600">• ${escHtml(i.drug_name)} ${escHtml(i.dosage||'')} — ${escHtml(i.frequency||'')} ${escHtml(i.time||'')} (${escHtml(String(i.quantity||'-'))} ${escHtml(i.unit||'')})</p>`
+                    ).join('')}</div>
+                  </div>`;
+                }).join('')}</div>`}
+              </div>
               ${r.follow_up_date ? `<div><span class="font-semibold text-gray-700">Kontrol:</span> <span class="text-blue-700">${formatDate(r.follow_up_date)}</span></div>` : ''}
             </div>
           </div>`;
