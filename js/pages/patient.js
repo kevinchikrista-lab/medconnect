@@ -297,16 +297,27 @@ export function patientHistory() {
         ${records.length === 0 ? '<div class="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">Belum ada riwayat kunjungan</div>' :
         records.map(r => {
           const doctor = store.getDoctor(r.doctor_id);
-          const rxCount = store.data.prescriptions.filter(rx => rx.record_id === r.id).length;
+          const rxList = store.getPrescriptionsByRecord(r.id);
           return `<div class="bg-white border border-slate-100 rounded-3xl mb-3 overflow-hidden" x-data="{open:false}">
             <div class="p-4 cursor-pointer" @click="open=!open">
               <div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center"><svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></div><div><p class="font-medium text-gray-800 text-sm">${formatDate(r.visit_date)}</p><p class="text-xs text-gray-500">${doctor?.full_name || ''}</p></div></div><svg class="w-5 h-5 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg></div>
-              <div class="flex gap-2 mt-2"><span class="px-2 py-0.5 rounded text-xs bg-teal-50 text-teal-700">${r.diagnosis}</span>${rxCount > 0 ? `<span class="px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-700">${rxCount} resep</span>` : ''}${r.follow_up_date ? `<span class="px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">Kontrol ${formatDate(r.follow_up_date)}</span>` : ''}</div>
+              <div class="flex gap-2 mt-2"><span class="px-2 py-0.5 rounded text-xs bg-teal-50 text-teal-700">${r.diagnosis}</span>${rxList.length > 0 ? `<span class="px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-700">${rxList.length} resep</span>` : ''}${r.follow_up_date ? `<span class="px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">Kontrol ${formatDate(r.follow_up_date)}</span>` : ''}</div>
             </div>
             <div x-show="open" x-cloak class="border-t border-gray-100 p-4 bg-gray-50/50 text-sm space-y-3">
               <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Keluhan</h5><p class="text-gray-600 text-sm">${r.anamnesis}</p></div>
               <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Diagnosis</h5><p class="text-gray-800 font-medium">${r.diagnosis}</p></div>
               <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Terapi Non-Farmakologis</h5><p class="text-gray-600 text-sm">${r.therapy || '-'}</p></div>
+              ${rxList.length > 0 ? `<div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Terapi Farmakologis (E-Resep)</h5><div class="space-y-1.5">${rxList.map(rx => {
+                const rxPharmacy = store.getPharmacy(rx.pharmacy_id);
+                const rxItems = store.getPrescriptionItems(rx.id);
+                return `<div class="bg-white border border-gray-100 rounded-lg p-2">
+                  <p class="text-xs font-medium text-gray-700">${escHtml(rx.rx_number || '(tanpa nomor)')}${rxPharmacy ? ' — ' + escHtml(rxPharmacy.name) : ''} · ${escHtml(CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status || '')}</p>
+                  <div class="mt-1 space-y-0.5">${rxItems.map(i => i.is_compound
+                    ? `<p class="text-xs text-gray-600">• ${escHtml(i.display_name || i.drug_name)} (Racikan): ${escHtml(i.compound_details || '-')}</p>`
+                    : `<p class="text-xs text-gray-600">• ${escHtml(i.drug_name)} ${escHtml(i.dosage||'')} — ${escHtml(i.frequency||'')} ${escHtml(i.time||'')} (${escHtml(String(i.quantity||'-'))} ${escHtml(i.unit||'')})</p>`
+                  ).join('')}</div>
+                </div>`;
+              }).join('')}</div></div>` : ''}
             </div>
           </div>`;
         }).join('')}

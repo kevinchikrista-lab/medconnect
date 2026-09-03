@@ -1892,24 +1892,37 @@ export function doctorPrescriptionNew(params) {
       return this.allergyTerms.find(t => hay.includes(t)) || '';
     },
     get allergyConflicts() { return this.items.map((it,i)=>({i, term: this.drugAllergyHit(it)})).filter(x=>x.term); },
+    // Riwayat pengobatan sebelumnya, per OBAT -- bukan per resep. Dokter
+    // sering cuma perlu satu-dua obat dari kunjungan lama (mis. lanjutkan
+    // Amlodipine-nya saja, bukan seluruh resep waktu itu), dan menambahkan
+    // (bukan menimpa) supaya obat yang sudah diketik untuk kunjungan ini
+    // tidak hilang begitu memilih dari riwayat.
     copyOpen: false, copyLoading: false, copyList: [],
     openCopy() {
       this.copyOpen = true; this.copyLoading = true;
       const list = window.__store.getPrescriptionsByPatient('${patient.id}') || [];
       this.copyList = list.map(function(rx) {
         const its = window.__store.getPrescriptionItems(rx.id) || [];
-        return { id: rx.id, rx_number: rx.rx_number, created_at: rx.created_at, summary: its.map(function(i){ return i.drug_name; }).filter(Boolean).join(', ') };
+        return { id: rx.id, rx_number: rx.rx_number, created_at: rx.created_at,
+          items: its.map(function(i) {
+            return { drug_name: i.drug_name || '', dosage: i.dosage || '', quantity: i.quantity || '', unit: i.unit || 'Tablet', frequency: i.frequency || '3 x 1', time: i.time || 'Sesudah makan (PC)', duration: i.duration || '', instructions: i.instructions || '', is_compound: !!i.is_compound, compound_details: i.compound_details || '', display_name: i.display_name || '', dipilih: false };
+          })
+        };
       });
       this.copyLoading = false;
     },
-    useCopy(rxId) {
-      const its = window.__store.getPrescriptionItems(rxId) || [];
-      if (!its.length) { alert('Resep ini tidak memiliki data obat untuk disalin.'); return; }
-      this.items = its.map(function(i) {
-        return { drug_name: i.drug_name || '', dosage: i.dosage || '', quantity: i.quantity || '', unit: i.unit || 'Tablet', frequency: i.frequency || '3 x 1', time: i.time || 'Sesudah makan (PC)', duration: i.duration || '', instructions: i.instructions || '', is_compound: !!i.is_compound, compound_details: i.compound_details || '', display_name: i.display_name || '' };
-      });
+    get adaDipilihDariRiwayat() { return this.copyList.some(function(rx){ return rx.items.some(function(i){ return i.dipilih; }); }); },
+    tambahkanDariRiwayat() {
+      const terpilih = [];
+      this.copyList.forEach(function(rx) { rx.items.forEach(function(i) { if (i.dipilih) { const c = Object.assign({}, i); delete c.dipilih; terpilih.push(c); } }); });
+      if (!terpilih.length) return;
+      // Baris pertama yang masih sepenuhnya kosong (form baru, belum ada yang
+      // diketik) diganti oleh obat yang dipilih, bukan dibiarkan menganggur
+      // di antaranya sebagai baris kosong yang harus dihapus manual.
+      const formMasihKosong = this.items.length === 1 && !this.items[0].drug_name && !this.items[0].compound_details;
+      this.items = (formMasihKosong ? [] : this.items).concat(terpilih);
       this.copyOpen = false;
-      window.__showToast && window.__showToast('Disalin', its.length + ' obat disalin dari resep lama. Sesuaikan bila perlu lalu kirim.');
+      window.__showToast && window.__showToast('Ditambahkan', terpilih.length + ' obat ditambahkan dari riwayat. Sesuaikan bila perlu lalu kirim.');
     },
     fmtRxDate(d) { if (!d) return '-'; const dt = new Date(d); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); },
     async send() {
@@ -1934,28 +1947,37 @@ export function doctorPrescriptionNew(params) {
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-xl font-bold text-gray-800">Buat E-Resep</h2>
           <div class="flex gap-2">
-            <button @click="openCopy()" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Salin dari Resep Lama</button>
+            <button @click="openCopy()" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition">Ambil dari Riwayat Pengobatan</button>
             <button @click="send()" :disabled="sending || sent || items.some(i=>!i.drug_name) || (rxTarget==='apotek' && delivery_method==='delivery' && !delivery_address.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!sending && !sent" x-text="rxTarget==='luar' ? 'Simpan Resep Luar' : 'Kirim ke Apotek'"></span><span x-show="sending" x-cloak>Menyimpan...</span><span x-show="sent" x-cloak>Tersimpan!</span></button>
           </div>
         </div>
 
-        <!-- Modal: pilih resep lama untuk disalin -->
+        <!-- Modal: ambil obat dari riwayat pengobatan sebelumnya, per obat -->
         <div x-show="copyOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" @click.self="copyOpen=false">
-          <div class="bg-white rounded-3xl w-full max-w-lg p-5 max-h-[80vh] flex flex-col">
+          <div class="bg-white rounded-3xl w-full max-w-lg p-5 max-h-[85vh] flex flex-col">
             <div class="flex items-center justify-between mb-3">
-              <h3 class="font-semibold text-gray-800">Salin dari Resep Lama</h3>
+              <h3 class="font-semibold text-gray-800">Ambil dari Riwayat Pengobatan</h3>
               <button @click="copyOpen=false" class="text-gray-400 hover:text-gray-700"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
             </div>
-            <p class="text-xs text-gray-500 mb-3">Obat pada resep terpilih akan disalin ke form ini (tanggal kunjungan tetap hari ini). Anda bisa menyesuaikan sebelum mengirim.</p>
+            <p class="text-xs text-gray-500 mb-3">Centang obat yang mau dipakai lagi. Ditambahkan ke resep ini (yang sudah diketik tidak hilang) — bisa lebih dari satu resep lama sekaligus.</p>
             <div x-show="copyLoading" class="text-center text-gray-400 text-sm py-6">Memuat riwayat resep...</div>
             <template x-if="!copyLoading && copyList.length===0"><p class="text-center text-gray-400 text-sm py-6">Pasien ini belum punya riwayat resep.</p></template>
-            <div class="overflow-y-auto space-y-2">
+            <div class="overflow-y-auto flex-1 space-y-3">
               <template x-for="rx in copyList" :key="rx.id">
-                <button @click="useCopy(rx.id)" class="w-full text-left px-3 py-2.5 rounded-xl border border-gray-100 hover:bg-teal-50 hover:border-teal-200 transition">
-                  <div class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-gray-800" x-text="fmtRxDate(rx.created_at)"></span><span class="text-xs text-gray-400" x-text="rx.rx_number"></span></div>
-                  <p class="text-xs text-gray-500 mt-0.5 line-clamp-2" x-text="rx.summary || '(tanpa detail obat)'"></p>
-                </button>
+                <div class="border border-gray-100 rounded-xl p-2.5">
+                  <div class="flex items-center justify-between gap-2 mb-1.5 px-0.5"><span class="text-xs font-semibold text-gray-700" x-text="fmtRxDate(rx.created_at)"></span><span class="text-xs text-gray-400" x-text="rx.rx_number"></span></div>
+                  <template x-for="(it, idx) in rx.items" :key="idx">
+                    <label class="flex items-start gap-2 px-1.5 py-1.5 rounded-lg hover:bg-teal-50 cursor-pointer">
+                      <input type="checkbox" x-model="it.dipilih" class="mt-0.5 w-4 h-4 rounded border-gray-300 text-teal-600">
+                      <span class="text-xs text-gray-700 flex-1 min-w-0" x-text="it.is_compound ? (it.display_name + ' (Racikan): ' + it.compound_details) : (it.drug_name + ' ' + it.dosage + ' — ' + it.frequency + ' ' + it.time)"></span>
+                    </label>
+                  </template>
+                </div>
               </template>
+            </div>
+            <div class="flex gap-2 justify-end pt-3 mt-1 border-t border-gray-100">
+              <button @click="copyOpen=false" class="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200">Batal</button>
+              <button @click="tambahkanDariRiwayat()" :disabled="!adaDipilihDariRiwayat" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)">Tambahkan yang Dicentang</button>
             </div>
           </div>
         </div>

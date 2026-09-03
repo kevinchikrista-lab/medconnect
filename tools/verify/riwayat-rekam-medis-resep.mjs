@@ -66,5 +66,24 @@ ok('racikan dibedakan dari obat biasa saat dirender (compound_details ikut ditam
 ok('label "Terapi" lama diganti jadi "Terapi Non-Farmakologis" supaya tidak dikira mencakup obat',
    () => doctorSrc.includes('Terapi Non-Farmakologis</p><p class="text-gray-700 whitespace-pre-line" x-text="selectedOld.therapy"'));
 
+console.log('\n=== (3) RIWAYAT REKAM MEDIS DI HALAMAN ADMIN (dinamis, admin.js sungguhan) ===');
+
+const A = await import('../../js/pages/admin.js');
+const adminHtml = A.adminPatientDetail({ patientId: 'p_1' });
+ok('e-resep mr_1 (nomor & apotek) tercetak di halaman admin', () => adminHtml.includes('R-2026-0142') && adminHtml.includes('Apotek Sehat Farma'));
+ok('obat biasa (Amoxicillin, dosis, aturan pakai) tercetak di halaman admin', () => adminHtml.includes('Amoxicillin') && adminHtml.includes('500mg') && adminHtml.includes('3 x 1'));
+ok('obat racikan (dengan compound_details) tercetak di halaman admin', () => adminHtml.includes('Obat Batuk Pilek 3x1 kapsul') && adminHtml.includes('Codein'));
+ok('label lama "Terapi:" diganti "Terapi Non-Farmakologis:" di halaman admin', () => adminHtml.includes('Terapi Non-Farmakologis:'));
+
+console.log('\n=== (4) RIWAYAT REKAM MEDIS DI HALAMAN PASIEN (dinamis, patient.js sungguhan) ===');
+
+sessionStorage.setItem('medconnect_user', JSON.stringify({ id: 'u_pat1', role: 'patient' }));
+const P = await import('../../js/pages/patient.js');
+const patientHtml = P.patientHistory();
+ok('e-resep mr_1 (nomor & apotek) tercetak di halaman riwayat pasien', () => patientHtml.includes('R-2026-0142') && patientHtml.includes('Apotek Sehat Farma'));
+ok('obat biasa (Amoxicillin, dosis, aturan pakai) tercetak di halaman riwayat pasien', () => patientHtml.includes('Amoxicillin') && patientHtml.includes('500mg') && patientHtml.includes('3 x 1'));
+ok('obat racikan (dengan compound_details) tercetak di halaman riwayat pasien', () => patientHtml.includes('Obat Batuk Pilek 3x1 kapsul') && patientHtml.includes('Codein'));
+ok('badge "resep" masih memakai jumlah e-resep sungguhan (getPrescriptionsByRecord), bukan hitungan lama', () => /const rxList = store\.getPrescriptionsByRecord\(r\.id\)/.test(readFileSync('../../js/pages/patient.js', 'utf8')));
+
 console.log('\n' + (fails ? `❌ ${fails} gagal` : '✅ semua lolos'));
 process.exit(fails ? 1 : 0);
