@@ -572,9 +572,13 @@ export function pharmacyPrescriptions() {
     doctorName(id) { return window.__store.getDoctor(id)?.full_name || ''; },
     // Kontak pasien + keluarga/wali — apotek perlu ini untuk konfirmasi obat
     // siap diambil / pengiriman, terutama pasien anak yang tak pegang HP.
+    // Alamat ikut disertakan: pasien yang mengambil sendiri sering ditanya
+    // alamat sebagai konfirmasi identitas, dan pengiriman non-'delivery'
+    // (mis. dititip lewat kurir sendiri) tetap butuh alamatnya walau
+    // delivery_address kosong.
     patientContact(id) {
       const p = window.__store.getPatient(id) || {};
-      return { phone: p.phone || '', famName: p.family_name || '', famPhone: p.family_phone || '', famRel: p.family_relation || '' };
+      return { phone: p.phone || '', famName: p.family_name || '', famPhone: p.family_phone || '', famRel: p.family_relation || '', address: p.address || '' };
     },
     // ---- Kabari pasien lewat WhatsApp ----
     // Hanya saat obatnya memang sudah siap. Tombol yang selalu bisa ditekan
@@ -695,6 +699,7 @@ export function pharmacyPrescriptions() {
                           <template x-if="patientContact(rx.patient_id).famPhone"><span> &mdash; <a :href="'tel:'+patientContact(rx.patient_id).famPhone" class="font-medium text-blue-700 hover:underline" x-text="patientContact(rx.patient_id).famPhone"></a></span></template>
                         </p>
                       </template>
+                      <p><span class="text-slate-500">Alamat:</span> <span class="font-medium whitespace-pre-line" x-text="patientContact(rx.patient_id).address || '-'"></span></p>
                     </div>
                     <!-- Kabari lewat WhatsApp. Muncul hanya saat obatnya sudah
                          siap / sedang dikirim; isi pesannya mengikuti cara
@@ -748,9 +753,14 @@ export function pharmacyPrescriptions() {
                   <template x-if="rx.notes">
                     <div class="rounded-xl border border-amber-200 bg-amber-50 p-3"><p class="text-xs font-semibold text-amber-800 mb-1">Catatan untuk Apoteker</p><p class="text-sm text-amber-900 whitespace-pre-line leading-relaxed" x-text="(rx.notes||'').trim()"></p></div>
                   </template>
-                  <template x-if="rx.service_fee_enabled">
-                    <div class="rounded-xl border border-green-200 bg-green-50 p-3 flex items-center justify-between"><p class="text-xs font-semibold text-green-800">💰 Jasa Dokter — mohon ditarik dari pasien</p><p class="text-sm font-bold text-green-900" x-text="'Rp ' + (rx.service_fee || 0).toLocaleString('id-ID')"></p></div>
-                  </template>
+                  <!-- SELALU ditampilkan, termasuk saat Rp 0 -- apotek perlu
+                       kepastian jasanya memang nol, bukan cuma belum terlihat
+                       datanya (dua hal yang beda tapi sama-sama "tidak ada
+                       angka" kalau baris ini disembunyikan). -->
+                  <div class="rounded-xl border p-3 flex items-center justify-between" :class="rx.service_fee_enabled && rx.service_fee > 0 ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-slate-50'">
+                    <p class="text-xs font-semibold" :class="rx.service_fee_enabled && rx.service_fee > 0 ? 'text-green-800' : 'text-slate-500'" x-text="rx.service_fee_enabled && rx.service_fee > 0 ? '💰 Jasa Dokter — mohon ditarik dari pasien' : 'Jasa Dokter'"></p>
+                    <p class="text-sm font-bold" :class="rx.service_fee_enabled && rx.service_fee > 0 ? 'text-green-900' : 'text-slate-500'" x-text="'Rp ' + (rx.service_fee_enabled ? (rx.service_fee || 0) : 0).toLocaleString('id-ID')"></p>
+                  </div>
                   <template x-if="rx.status === 'rejected' && rx.reject_reason">
                     <div class="rounded-xl border border-red-200 bg-red-50 p-3"><p class="text-xs font-semibold text-red-800 mb-1">Alasan Ditolak</p><p class="text-sm text-red-900 whitespace-pre-line leading-relaxed" x-text="(rx.reject_reason||'').trim()"></p></div>
                   </template>
