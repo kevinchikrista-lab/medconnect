@@ -1824,7 +1824,12 @@ export function doctorPrescriptions() {
             const pharmacy = store.getPharmacy(rx.pharmacy_id);
             const items = store.getPrescriptionItems(rx.id);
             const statusColors = { sent:'bg-blue-100 text-blue-700', received:'bg-indigo-100 text-indigo-700', preparing:'bg-amber-100 text-amber-700', ready:'bg-green-100 text-green-700', completed:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-700', cancelled:'bg-gray-100 text-gray-500' };
-            const canEdit = rx.status === 'sent' || rx.status === 'rejected';
+            // Sama dengan BISA_DISUNTING di store.updatePrescription -- resep
+            // yang sudah di-ACC (preparing/ready) tetap boleh disunting,
+            // apotek akan diminta ACC ulang. Yang sudah dikirim/selesai
+            // ('delivering'/'completed') tidak lagi, karena obatnya sudah
+            // di tangan pasien.
+            const canEdit = ['sent', 'rejected', 'preparing', 'ready'].includes(rx.status);
             return `<div class="p-4 hover:bg-gray-50 transition ${rx.status === 'cancelled' ? 'opacity-60' : ''}" x-data="{open:false}">
               <div class="flex items-center justify-between cursor-pointer" @click="open=!open">
                 <div class="flex items-center gap-3">
@@ -2107,6 +2112,7 @@ export function doctorPrescriptionEdit(params) {
   const patient = store.getPatient(rx.patient_id);
   const existingItems = store.getPrescriptionItems(rx.id);
   const pharmacies = store.getPharmacies();
+  const sudahDiaccApotek = ['preparing', 'ready'].includes(rx.status);
   window.__editRxItems = existingItems.map(i => ({drug_name:i.drug_name,dosage:i.dosage,quantity:i.quantity,unit:i.unit,frequency:i.frequency,time:i.time,duration:i.duration,instructions:i.instructions,is_compound:!!i.is_compound,compound_details:i.compound_details||'',display_name:i.display_name||''}));
   window.__allergyTerms = ((patient && patient.allergies) || '').split(/[,;\n]+/).map(s => s.trim().toLowerCase()).filter(t => t && t !== '-' && t.length >= 3);
 
@@ -2150,7 +2156,7 @@ export function doctorPrescriptionEdit(params) {
           </div>
         </div>
         <div x-show="error" x-cloak class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium" x-text="error"></div>
-        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2"><svg class="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg><p class="text-sm text-amber-800">Anda sedang mengedit resep yang sudah dikirim. Perubahan akan dikirim ulang ke apotek.</p></div>
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2"><svg class="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg><p class="text-sm text-amber-800">${sudahDiaccApotek ? 'Resep ini SUDAH DITERIMA apotek dan mungkin sedang disiapkan. Menyimpan perubahan akan mengirim notifikasi ke apotek dan meminta mereka memeriksa & menerima ulang versi terbaru.' : 'Anda sedang mengedit resep yang sudah dikirim. Perubahan akan dikirim ulang ke apotek.'}</p></div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-1">Daftar Obat</h4>
           <p class="text-xs text-gray-500 mb-4">Alergi pasien: <span class="font-semibold ${patient && patient.allergies && patient.allergies !== '-' ? 'text-red-600' : 'text-gray-600'}">${(patient && patient.allergies) || '-'}</span></p>
