@@ -1864,6 +1864,14 @@ export function doctorPrescriptions() {
                 <span class="px-2 py-1 rounded-full text-xs font-medium ${rx.rx_target === 'luar' ? 'bg-amber-100 text-amber-700' : (statusColors[rx.status] || 'bg-gray-100')}">${rx.rx_target === 'luar' ? 'Resep Luar' : (CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status)}</span>
               </div>
               <div x-show="open" x-cloak class="mt-3 pl-13 text-sm space-y-2">
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p class="text-xs font-semibold text-slate-700 mb-1.5">Kontak Pasien</p>
+                  <div class="text-sm text-slate-800 space-y-0.5">
+                    <p><span class="text-slate-500">No. HP Pasien:</span> ${patient?.phone ? `<a href="tel:${escHtml(patient.phone)}" class="font-medium text-blue-700 hover:underline">${escHtml(patient.phone)}</a>` : '<span class="text-slate-400">-</span>'}</p>
+                    ${(patient?.family_phone || patient?.family_name) ? `<p><span class="text-slate-500">Keluarga / Wali:</span> <span class="font-medium">${escHtml(patient.family_name || '-')}</span>${patient.family_relation ? `<span class="text-slate-500"> (${escHtml(patient.family_relation)})</span>` : ''}${patient.family_phone ? ` &mdash; <a href="tel:${escHtml(patient.family_phone)}" class="font-medium text-blue-700 hover:underline">${escHtml(patient.family_phone)}</a>` : ''}</p>` : ''}
+                    <p><span class="text-slate-500">Alamat:</span> <span class="font-medium whitespace-pre-line">${escHtml(patient?.address || '-')}</span></p>
+                  </div>
+                </div>
                 ${items.map(i => i.is_compound ? `
                 <div class="rounded-lg border border-purple-200 bg-purple-50/60 p-2.5">
                   <div class="flex items-center gap-2 mb-1"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white tracking-wide">RACIKAN</span><span class="font-medium text-gray-800">${escHtml(i.drug_name)}</span></div>
@@ -1871,7 +1879,13 @@ export function doctorPrescriptions() {
                   <p class="text-xs text-gray-500 mt-1">${i.frequency} ${i.time} — ${i.quantity} ${i.unit}</p>
                 </div>` : `<div class="flex items-center gap-2 py-1 text-gray-600"><span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>${escHtml(i.drug_name)} ${escHtml(i.dosage)} — ${escHtml(i.frequency)} ${escHtml(i.time)} (${escHtml(String(i.quantity))} ${escHtml(i.unit)})</div>`).join('')}
                 ${rx.notes ? `<p class="mt-2 text-xs text-gray-500 italic whitespace-pre-line">Catatan: ${escHtml(rx.notes)}</p>` : ''}
-                ${rx.service_fee_enabled ? `<p class="mt-1 text-xs font-semibold text-green-700">💰 Jasa Dokter: Rp ${Number(rx.service_fee || 0).toLocaleString('id-ID')}</p>` : ''}
+                <!-- SELALU ditampilkan, termasuk saat Rp 0 -- sama seperti di
+                     halaman apotek, supaya dokter juga bisa memastikan
+                     jasanya memang nol, bukan cuma belum terlihat angkanya. -->
+                <div class="rounded-lg border p-2.5 flex items-center justify-between ${rx.service_fee_enabled && rx.service_fee > 0 ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-slate-50'}">
+                  <p class="text-xs font-semibold ${rx.service_fee_enabled && rx.service_fee > 0 ? 'text-green-800' : 'text-slate-500'}">${rx.service_fee_enabled && rx.service_fee > 0 ? '💰 Jasa Dokter — mohon ditarik dari pasien' : 'Jasa Dokter'}</p>
+                  <p class="text-sm font-bold ${rx.service_fee_enabled && rx.service_fee > 0 ? 'text-green-900' : 'text-slate-500'}">Rp ${Number(rx.service_fee_enabled ? (rx.service_fee || 0) : 0).toLocaleString('id-ID')}</p>
+                </div>
                 ${rx.cancel_reason ? `<p class="mt-1 text-xs text-red-500 italic">Alasan batal: ${escHtml(rx.cancel_reason)}</p>` : ''}
                 <div class="mt-3 pt-3 border-t border-gray-100"><button onclick="window.__printResep && window.__printResep('${rx.id}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition inline-flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg> Cetak Kertas Resep</button></div>
                 ${canEdit ? `<div class="flex gap-2 mt-3 pt-3 border-t border-gray-100">
