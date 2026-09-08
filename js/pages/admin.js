@@ -1394,6 +1394,7 @@ export function adminPatientDetail(params) {
               <svg class="w-5 h-5 text-gray-400 transition" :class="open && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </div>
             <div x-show="open" x-cloak class="border-t border-gray-100 p-4 bg-gray-50/50 text-sm space-y-2">
+              ${r.location ? `<div><span class="font-semibold text-gray-700">Lokasi:</span> <span class="text-gray-600">${escHtml(r.location)}${r.location_detail ? ' — ' + escHtml(r.location_detail) : ''}</span></div>` : ''}
               <div><span class="font-semibold text-gray-700">Anamnesis:</span> <span class="text-gray-600">${r.anamnesis || '-'}</span></div>
               <div><span class="font-semibold text-gray-700">Pemeriksaan Fisik:</span> <span class="text-gray-600 whitespace-pre-line">${r.examination || '-'}</span></div>
               ${r.vital_signs ? `<div class="flex flex-wrap gap-2">${Object.entries(r.vital_signs).filter(([k,v])=>v).map(([k,v])=>`<span class="px-2 py-1 rounded bg-white border border-gray-200 text-xs">${k.toUpperCase()}: ${v}</span>`).join('')}</div>` : ''}

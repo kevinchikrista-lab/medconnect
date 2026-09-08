@@ -103,7 +103,7 @@ const KOLOM_VAX_BARU = ['off_schedule', 'off_schedule_reason', 'off_schedule_not
 // Kolom yang baru ditambahkan supabase-satusehat-pondasi.sql. Sama seperti di
 // atas: kalau migrasinya belum dijalankan, baris tetap tersimpan tanpa kolom
 // ini — bukan gagal seluruhnya.
-const KOLOM_RM_BARU = ['diagnosis_code', 'payment_type'];
+const KOLOM_RM_BARU = ['diagnosis_code', 'payment_type', 'location_detail'];
 
 // Parses the published Google Sheet CSV for home care BMHP/Jasa prices.
 // Handles quoted fields (commas inside item names) and looks columns up by
@@ -1034,6 +1034,7 @@ class Store {
       this.loadTasks().catch(() => {});
       this.loadVaxPlanReminders().catch(() => {});
       this.loadCustomIcd().catch(() => {});
+      this.loadPatientAddresses().catch(() => {});
       try {
         const me = JSON.parse(sessionStorage.getItem('medconnect_user') || 'null');
         // Penerima berbagi juga perlu memuatnya — RLS di server yang menyaring
@@ -1566,7 +1567,67 @@ class Store {
     // dijalankan) tidak boleh menggagalkan rekam medis yang baru saja
     // berhasil tersimpan.
     if (kedatangan) this._tandaiKedatanganSelesai(kedatangan.id, newRecord.id);
+    this._maybeSaveHomeCareAddress(newRecord);
     return newRecord;
+  }
+
+  // Kunjungan Home Care: alamat yang diketik dokter (location_detail) kalau
+  // BERBEDA dari alamat yang sudah dikenal, disimpan sebagai alamat TAMBAHAN
+  // pasien -- supaya kunjungan berikutnya tinggal dipilih, dan ada riwayat
+  // "pernah home care ke mana" (dibaca dari rekam medisnya sendiri, lihat
+  // getPatientAddresses). Dipakai baik saat rekam medis baru dibuat maupun
+  // saat disunting (lokasinya bisa diubah jadi Home Care belakangan).
+  // Kegagalan menyimpan alamatnya tidak boleh menggagalkan rekam medis yang
+  // baru saja berhasil tersimpan.
+  _maybeSaveHomeCareAddress(record) {
+    if (String(record.location || '').trim().toLowerCase() === 'home care' && (record.location_detail || '').trim()) {
+      this.addPatientAddress(record.patient_id, record.location_detail).catch(() => {});
+    }
+  }
+
+  // ---- Alamat pasien (utama & tambahan) -----------------------------------
+  // patients.address tetap alamat UTAMA/pertama, tidak pernah disentuh di
+  // sini. Tabel patient_addresses hanya menampung alamat TAMBAHAN yang
+  // muncul lewat kunjungan Home Care -- supaya dokter bisa memilih dari
+  // riwayat, bukan mengetik ulang alamat yang sama tiap kali.
+  getPatientAddresses(patientId) {
+    const patient = this.getPatient(patientId);
+    const utama = (patient && patient.address || '').trim();
+    const tambahan = (this.data.patient_addresses || [])
+      .filter(a => a.patient_id === patientId)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+      .map(a => a.address)
+      .filter(addr => addr && addr.trim().toLowerCase() !== utama.toLowerCase());
+    // Alamat tambahan bisa berulang (home care ke tempat yang sama beberapa
+    // kali) -- disaring supaya daftar pilihannya tidak menampilkan baris yang
+    // sama dua kali.
+    const unikTambahan = [...new Set(tambahan)];
+    return (utama ? [utama] : []).concat(unikTambahan);
+  }
+
+  // Dimuat terpisah dari Promise.all utama di loadFromSupabase (lihat
+  // loadLocations di atas) -- kalau migrasinya belum dijalankan, tabel ini
+  // belum ada, dan tabel yang belum ada tidak boleh menggagalkan seluruh
+  // pemuatan data lain.
+  async loadPatientAddresses() {
+    if (CONFIG.DEMO_MODE) return;
+    try {
+      const rows = await supabase.select('patient_addresses');
+      if (Array.isArray(rows) && rows.length) { this.data.patient_addresses = rows; this._save(); }
+    } catch (e) { /* tabel belum dibuat */ }
+  }
+
+  async addPatientAddress(patientId, address) {
+    const alamat = String(address || '').trim();
+    if (!patientId || !alamat) return { skipped: true };
+    const sudahAda = this.getPatientAddresses(patientId).some(a => a.trim().toLowerCase() === alamat.toLowerCase());
+    if (sudahAda) return { skipped: true };
+    const rec = { id: generateId(), patient_id: patientId, address: alamat, created_at: new Date().toISOString() };
+    if (!this.data.patient_addresses) this.data.patient_addresses = [];
+    this.data.patient_addresses.push(rec);
+    this._save();
+    await this._syncInsert('patient_addresses', rec);
+    return { success: true, address: rec };
   }
 
   // ---- Kedatangan pasien (BPJS / Umum) ------------------------------------
@@ -3134,7 +3195,22 @@ class Store {
     if (!r) return { error: 'Rekam medis tidak ditemukan' };
     Object.assign(r, updates);
     this._save();
-    if (!CONFIG.DEMO_MODE) supabase.update('medical_records', recordId, updates).catch(() => {});
+    this._maybeSaveHomeCareAddress(r);
+    // location_detail bisa jadi kolom yang migrasinya belum jalan --
+    // Postgres menolak SELURUH baris begitu ada satu kolom yang tidak
+    // dikenal, jadi tanpa jalur cadangan ini SEMUA suntingan (anamnesis,
+    // diagnosis, dst) ikut gagal tersimpan ke server hanya gara-gara satu
+    // kolom baru, bukan cuma kolom itu sendiri.
+    if (!CONFIG.DEMO_MODE) {
+      supabase.update('medical_records', recordId, updates).then(res => {
+        if (res && res.error && 'location_detail' in updates) {
+          const { location_detail, ...tanpaLokasiDetail } = updates;
+          console.warn('Update rekam medis ditolak — mencoba ulang tanpa kolom location_detail. Jalankan migrasi supabase-homecare-address.sql agar kolom ini ikut tersimpan.', res.error);
+          return supabase.update('medical_records', recordId, tanpaLokasiDetail);
+        }
+        return res;
+      }).catch(() => {});
+    }
     return { success: true };
   }
 
