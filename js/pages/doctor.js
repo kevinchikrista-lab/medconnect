@@ -2989,17 +2989,45 @@ export function doctorCrm() {
 // atau belum ditentukan dokternya), tinggal diklik untuk langsung membuka
 // "Kunjungan Baru" dengan jenis kunjungan & TTV-nya sudah terisi.
 // ===========================================================================
+// Digabung dari DUA sumber -- kedatangan yang didaftarkan admin (BPJS/Umum +
+// TTV, sudah disaring: belum ditangani, untuk dokter ini atau belum
+// ditentukan) DAN jadwal appointment/booking hari ini (yang sama dengan
+// "Antrean Pasien Hari Ini" di dashboard, sudah disaring: bukan yang selesai).
+// Satu pasien bisa muncul di kedua sumber (didaftarkan admin DAN sudah punya
+// jadwal) -- digabung jadi SATU baris, bukan dua baris untuk orang yang sama.
+// Dipisah jadi fungsi murni (bukan ditulis langsung di dalam x-data) supaya
+// bisa diuji sungguhan, bukan cuma dicocokkan lewat regex.
+export function mergeKunjunganHariIni(daftarCheckin, appts) {
+  const map = new Map();
+  (daftarCheckin || []).forEach(c => map.set(c.patient_id, {
+    patient_id: c.patient_id, payment_type: c.payment_type, td: c.td, nadi: c.nadi, suhu: c.suhu,
+    notes: c.notes || '', time_slot: '', queue_number: '', sortKey: '1' + (c.created_at || ''),
+  }));
+  (appts || []).forEach(a => {
+    const ada = map.get(a.patient_id);
+    if (ada) { ada.time_slot = a.time_slot; ada.queue_number = a.queue_number; ada.sortKey = '0' + a.time_slot; if (!ada.notes) ada.notes = a.notes; }
+    else map.set(a.patient_id, { patient_id: a.patient_id, payment_type: '', td: '', nadi: '', suhu: '', notes: a.notes || '', time_slot: a.time_slot, queue_number: a.queue_number, sortKey: '0' + a.time_slot });
+  });
+  // Yang punya jadwal jam tertentu tampil dulu berurutan sesuai jamnya; yang
+  // cuma kedatangan tanpa jadwal menyusul di bawahnya sesuai urutan
+  // didaftarkan.
+  return Array.from(map.values()).sort((x, y) => x.sortKey.localeCompare(y.sortKey));
+}
+
 export function doctorKunjunganHariIni() {
   const doc = getDoctor();
+  window.__kunjunganAppts = store.getAppointmentsByDoctor(doc?.id, todayLocal())
+    .filter(a => a.status !== 'completed')
+    .map(a => ({ patient_id: a.patient_id, time_slot: a.time_slot || '', queue_number: a.queue_number || '', notes: a.notes || '' }));
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, checkins: [],
     async load() {
       this.loading = true;
       try {
         const semua = await window.__store.getCheckinsToday();
-        this.checkins = semua
-          .filter(c => !c.medical_record_id && (!c.doctor_id || c.doctor_id === '${doc?.id || ''}'))
-          .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+        const daftarCheckin = semua.filter(c => !c.medical_record_id && (!c.doctor_id || c.doctor_id === '${doc?.id || ''}'));
+        const appts = window.__kunjunganAppts || [];
+        this.checkins = window.__mergeKunjunganHariIni(daftarCheckin, appts);
       } catch (e) { this.checkins = []; }
       this.loading = false;
     },
@@ -3010,17 +3038,18 @@ export function doctorKunjunganHariIni() {
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-4xl mx-auto">
         <h2 class="text-xl font-bold text-gray-800">Kunjungan Hari Ini</h2>
-        <p class="text-[12.5px] text-muted leading-relaxed">Pasien yang sudah didaftarkan kedatangannya oleh admin, untuk Anda atau belum ditentukan dokternya. Klik untuk langsung memeriksa.</p>
+        <p class="text-[12.5px] text-muted leading-relaxed">Semua pasien yang perlu Anda temui hari ini — yang didaftarkan admin (BPJS/Umum) maupun yang sudah punya jadwal appointment. Klik untuk langsung memeriksa.</p>
 
         <div class="mt-4 bg-white rounded-2xl border border-slate-100 divide-y divide-slate-100 overflow-hidden">
           <template x-if="loading"><p class="p-6 text-center text-slate-400 text-sm">Memuat&hellip;</p></template>
           <template x-if="!loading && checkins.length === 0"><p class="p-6 text-center text-slate-400 text-sm">Tidak ada pasien menunggu saat ini.</p></template>
-          <template x-for="c in checkins" :key="c.id">
+          <template x-for="c in checkins" :key="c.patient_id">
             <button type="button" @click="mulai(c.patient_id)" class="w-full text-left p-4 flex items-center gap-3 hover:bg-slate-50 transition">
-              <span class="px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0" :class="c.payment_type === 'bpjs' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'" x-text="c.payment_type === 'bpjs' ? 'BPJS' : 'UMUM'"></span>
+              <span x-show="c.time_slot" x-cloak class="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)" x-text="c.queue_number || c.time_slot"></span>
+              <span x-show="c.payment_type" x-cloak class="px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0" :class="c.payment_type === 'bpjs' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'" x-text="c.payment_type === 'bpjs' ? 'BPJS' : 'UMUM'"></span>
               <span class="flex-1 min-w-0">
                 <span class="block text-[13.5px] font-semibold text-ink" x-text="(window.__store.getPatient(c.patient_id) || {}).full_name || 'Pasien'"></span>
-                <span class="block text-[11px] text-slate-400" x-text="[c.td ? 'TD ' + c.td : '', c.nadi ? 'Nadi ' + c.nadi : '', c.suhu ? 'Suhu ' + c.suhu : '', c.notes || ''].filter(Boolean).join(' · ')" x-show="c.td || c.nadi || c.suhu || c.notes" x-cloak></span>
+                <span class="block text-[11px] text-slate-400" x-text="[c.time_slot ? 'Jadwal ' + c.time_slot : '', c.td ? 'TD ' + c.td : '', c.nadi ? 'Nadi ' + c.nadi : '', c.suhu ? 'Suhu ' + c.suhu : '', c.notes || ''].filter(Boolean).join(' · ')" x-show="c.time_slot || c.td || c.nadi || c.suhu || c.notes" x-cloak></span>
               </span>
               <span class="ms text-[20px] text-slate-300">chevron_right</span>
             </button>
