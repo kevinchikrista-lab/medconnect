@@ -1326,6 +1326,11 @@ export function doctorEMRNew(params) {
   window.__peSystems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
   window.__peState = buildPeState(null).state;
   window.__peOtherInit = '';
+  // Alamat yang sudah dikenal untuk pasien ini (alamat utama + alamat
+  // tambahan dari kunjungan Home Care sebelumnya) -- dipakai untuk mengisi
+  // otomatis & memilih cepat kolom alamat Home Care di bawah, bukan
+  // mengetik ulang tiap kunjungan.
+  window.__homeCareAddrChoices = store.getPatientAddresses(patient.id);
   // Old visits for the reference panel — passed via a global (not embedded in
   // x-data) so free text (anamnesis/therapy/notes) can never break the page.
   // Bila halaman ini dibuka dari daftar Kewajiban Rekam Medis, resep/surat
@@ -1362,7 +1367,15 @@ export function doctorEMRNew(params) {
     sideOpen: window.innerWidth > 1024,
     visitType: 'consultation',
     visitDate: '${todayLocal()}',
-    form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_code:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', visit_type:'consultation' },
+    form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_code:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', location_detail:'', visit_type:'consultation' },
+    homeCareAddrChoices: window.__homeCareAddrChoices || [],
+    // Begitu Lokasi diganti ke Home Care, kolom alamatnya diisi otomatis
+    // dengan alamat pasien yang sudah dikenal (bukan dibiarkan kosong) --
+    // tapi HANYA kalau dokter belum mengetik apa pun di situ, supaya
+    // gonta-ganti pilihan Lokasi tidak menimpa alamat yang sudah diketik.
+    onLokasiBerubah() {
+      if (this.form.location === 'Home Care' && !this.form.location_detail) this.form.location_detail = this.homeCareAddrChoices[0] || '';
+    },
     ${physicalExamXData()}
     icdSearch: '', icdResults: [], icdOpen: false, icdSearch2: '', icdResults2: [], icdOpen2: false, secondaries: [],
     searchICD(q, which) {
@@ -1506,7 +1519,7 @@ export function doctorEMRNew(params) {
           </div>
 
           <div class="flex gap-2">
-            <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name) || (form.location === 'Home Care' && !form.location_detail.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${patient.id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
@@ -1537,7 +1550,19 @@ export function doctorEMRNew(params) {
               <p class="text-xs text-gray-400 mt-1" x-show="visitType==='both'">Akan membuat 2 rekam medis terpisah (konsultasi + vaksinasi) di waktu yang sama.</p>
             </div>
             <div><label class="block text-xs text-gray-500 mb-1">Tanggal Kunjungan *</label><input type="date" x-model="visitDate" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-            <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat *</label><select x-model="form.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat *</label><select x-model="form.location" @change="onLokasiBerubah()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
+            <div x-show="form.location === 'Home Care'" x-cloak class="sm:col-span-3">
+              <label class="block text-xs text-gray-500 mb-1">Alamat Home Care (rumah yang dikunjungi) *</label>
+              <input type="text" x-model="form.location_detail" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Alamat lengkap tempat kunjungan">
+              <template x-if="homeCareAddrChoices.length > 1">
+                <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <span class="text-[11px] text-gray-400">Alamat lain milik pasien:</span>
+                  <template x-for="addr in homeCareAddrChoices" :key="addr">
+                    <button type="button" @click="form.location_detail = addr" class="px-2 py-0.5 rounded-full text-[11px] border transition" :class="form.location_detail === addr ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300'" x-text="addr.length > 32 ? addr.slice(0, 32) + '…' : addr"></button>
+                  </template>
+                </div>
+              </template>
+            </div>
           </div>
         </div>
         <div class="space-y-4">
@@ -1824,7 +1849,12 @@ export function doctorPrescriptions() {
             const pharmacy = store.getPharmacy(rx.pharmacy_id);
             const items = store.getPrescriptionItems(rx.id);
             const statusColors = { sent:'bg-blue-100 text-blue-700', received:'bg-indigo-100 text-indigo-700', preparing:'bg-amber-100 text-amber-700', ready:'bg-green-100 text-green-700', completed:'bg-green-100 text-green-700', rejected:'bg-red-100 text-red-700', cancelled:'bg-gray-100 text-gray-500' };
-            const canEdit = rx.status === 'sent' || rx.status === 'rejected';
+            // Sama dengan BISA_DISUNTING di store.updatePrescription -- resep
+            // yang sudah di-ACC (preparing/ready) tetap boleh disunting,
+            // apotek akan diminta ACC ulang. Yang sudah dikirim/selesai
+            // ('delivering'/'completed') tidak lagi, karena obatnya sudah
+            // di tangan pasien.
+            const canEdit = ['sent', 'rejected', 'preparing', 'ready'].includes(rx.status);
             return `<div class="p-4 hover:bg-gray-50 transition ${rx.status === 'cancelled' ? 'opacity-60' : ''}" x-data="{open:false}">
               <div class="flex items-center justify-between cursor-pointer" @click="open=!open">
                 <div class="flex items-center gap-3">
@@ -1834,6 +1864,14 @@ export function doctorPrescriptions() {
                 <span class="px-2 py-1 rounded-full text-xs font-medium ${rx.rx_target === 'luar' ? 'bg-amber-100 text-amber-700' : (statusColors[rx.status] || 'bg-gray-100')}">${rx.rx_target === 'luar' ? 'Resep Luar' : (CONFIG.PRESCRIPTION_STATUS_LABELS[rx.status] || rx.status)}</span>
               </div>
               <div x-show="open" x-cloak class="mt-3 pl-13 text-sm space-y-2">
+                <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p class="text-xs font-semibold text-slate-700 mb-1.5">Kontak Pasien</p>
+                  <div class="text-sm text-slate-800 space-y-0.5">
+                    <p><span class="text-slate-500">No. HP Pasien:</span> ${patient?.phone ? `<a href="tel:${escHtml(patient.phone)}" class="font-medium text-blue-700 hover:underline">${escHtml(patient.phone)}</a>` : '<span class="text-slate-400">-</span>'}</p>
+                    ${(patient?.family_phone || patient?.family_name) ? `<p><span class="text-slate-500">Keluarga / Wali:</span> <span class="font-medium">${escHtml(patient.family_name || '-')}</span>${patient.family_relation ? `<span class="text-slate-500"> (${escHtml(patient.family_relation)})</span>` : ''}${patient.family_phone ? ` &mdash; <a href="tel:${escHtml(patient.family_phone)}" class="font-medium text-blue-700 hover:underline">${escHtml(patient.family_phone)}</a>` : ''}</p>` : ''}
+                    <p><span class="text-slate-500">Alamat:</span> <span class="font-medium whitespace-pre-line">${escHtml(patient?.address || '-')}</span></p>
+                  </div>
+                </div>
                 ${items.map(i => i.is_compound ? `
                 <div class="rounded-lg border border-purple-200 bg-purple-50/60 p-2.5">
                   <div class="flex items-center gap-2 mb-1"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white tracking-wide">RACIKAN</span><span class="font-medium text-gray-800">${escHtml(i.drug_name)}</span></div>
@@ -1841,7 +1879,13 @@ export function doctorPrescriptions() {
                   <p class="text-xs text-gray-500 mt-1">${i.frequency} ${i.time} — ${i.quantity} ${i.unit}</p>
                 </div>` : `<div class="flex items-center gap-2 py-1 text-gray-600"><span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>${escHtml(i.drug_name)} ${escHtml(i.dosage)} — ${escHtml(i.frequency)} ${escHtml(i.time)} (${escHtml(String(i.quantity))} ${escHtml(i.unit)})</div>`).join('')}
                 ${rx.notes ? `<p class="mt-2 text-xs text-gray-500 italic whitespace-pre-line">Catatan: ${escHtml(rx.notes)}</p>` : ''}
-                ${rx.service_fee_enabled ? `<p class="mt-1 text-xs font-semibold text-green-700">💰 Jasa Dokter: Rp ${Number(rx.service_fee || 0).toLocaleString('id-ID')}</p>` : ''}
+                <!-- SELALU ditampilkan, termasuk saat Rp 0 -- sama seperti di
+                     halaman apotek, supaya dokter juga bisa memastikan
+                     jasanya memang nol, bukan cuma belum terlihat angkanya. -->
+                <div class="rounded-lg border p-2.5 flex items-center justify-between ${rx.service_fee_enabled && rx.service_fee > 0 ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-slate-50'}">
+                  <p class="text-xs font-semibold ${rx.service_fee_enabled && rx.service_fee > 0 ? 'text-green-800' : 'text-slate-500'}">${rx.service_fee_enabled && rx.service_fee > 0 ? '💰 Jasa Dokter — mohon ditarik dari pasien' : 'Jasa Dokter'}</p>
+                  <p class="text-sm font-bold ${rx.service_fee_enabled && rx.service_fee > 0 ? 'text-green-900' : 'text-slate-500'}">Rp ${Number(rx.service_fee_enabled ? (rx.service_fee || 0) : 0).toLocaleString('id-ID')}</p>
+                </div>
                 ${rx.cancel_reason ? `<p class="mt-1 text-xs text-red-500 italic">Alasan batal: ${escHtml(rx.cancel_reason)}</p>` : ''}
                 <div class="mt-3 pt-3 border-t border-gray-100"><button onclick="window.__printResep && window.__printResep('${rx.id}')" class="px-3 py-1.5 rounded-lg text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition inline-flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg> Cetak Kertas Resep</button></div>
                 ${canEdit ? `<div class="flex gap-2 mt-3 pt-3 border-t border-gray-100">
@@ -2107,6 +2151,7 @@ export function doctorPrescriptionEdit(params) {
   const patient = store.getPatient(rx.patient_id);
   const existingItems = store.getPrescriptionItems(rx.id);
   const pharmacies = store.getPharmacies();
+  const sudahDiaccApotek = ['preparing', 'ready'].includes(rx.status);
   window.__editRxItems = existingItems.map(i => ({drug_name:i.drug_name,dosage:i.dosage,quantity:i.quantity,unit:i.unit,frequency:i.frequency,time:i.time,duration:i.duration,instructions:i.instructions,is_compound:!!i.is_compound,compound_details:i.compound_details||'',display_name:i.display_name||''}));
   window.__allergyTerms = ((patient && patient.allergies) || '').split(/[,;\n]+/).map(s => s.trim().toLowerCase()).filter(t => t && t !== '-' && t.length >= 3);
 
@@ -2150,7 +2195,7 @@ export function doctorPrescriptionEdit(params) {
           </div>
         </div>
         <div x-show="error" x-cloak class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium" x-text="error"></div>
-        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2"><svg class="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg><p class="text-sm text-amber-800">Anda sedang mengedit resep yang sudah dikirim. Perubahan akan dikirim ulang ke apotek.</p></div>
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 flex items-center gap-2"><svg class="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg><p class="text-sm text-amber-800">${sudahDiaccApotek ? 'Resep ini SUDAH DITERIMA apotek dan mungkin sedang disiapkan. Menyimpan perubahan akan mengirim notifikasi ke apotek dan meminta mereka memeriksa & menerima ulang versi terbaru.' : 'Anda sedang mengedit resep yang sudah dikirim. Perubahan akan dikirim ulang ke apotek.'}</p></div>
         <div class="bg-white border border-slate-100 rounded-3xl p-4 mb-4">
           <h4 class="font-semibold text-gray-800 mb-1">Daftar Obat</h4>
           <p class="text-xs text-gray-500 mb-4">Alergi pasien: <span class="font-semibold ${patient && patient.allergies && patient.allergies !== '-' ? 'text-red-600' : 'text-gray-600'}">${(patient && patient.allergies) || '-'}</span></p>
@@ -2240,6 +2285,9 @@ export function doctorEMREdit(params) {
     ? [record.location].concat(activeLocations)
     : activeLocations;
   window.__icd10 = store.icdAll(ICD10);
+  // Sama seperti di doctorEMRNew: alamat yang sudah dikenal untuk pasien ini,
+  // dipakai kolom alamat Home Care di bawah.
+  window.__homeCareAddrChoices = store.getPatientAddresses(record.patient_id);
   // Pass the existing record into Alpine via a global instead of embedding each
   // field inside the x-data string — a newline, double-quote or backslash in
   // any free-text field (anamnesis/therapy/notes) would otherwise break the
@@ -2251,7 +2299,7 @@ export function doctorEMREdit(params) {
     // supaya menyunting rekam medis lama sekaligus melengkapinya.
     diagnosis_code: store.kodeDiagnosis(record),
     diagnosis_secondary: record.diagnosis_secondary || '',
-    therapy: record.therapy || '', location: record.location || locations[0], follow_up_date: record.follow_up_date || '',
+    therapy: record.therapy || '', location: record.location || locations[0], location_detail: record.location_detail || '', follow_up_date: record.follow_up_date || '',
     follow_up_notes: record.follow_up_notes || '', notes: record.notes || ''
   };
   window.__emrSecondaries = parseSecondaries(record.diagnosis_secondary);
@@ -2263,6 +2311,10 @@ export function doctorEMREdit(params) {
   <div x-data="{
     sideOpen: window.innerWidth > 1024, saving: false, saved: false,
     form: JSON.parse(JSON.stringify(window.__emrEdit)),
+    homeCareAddrChoices: window.__homeCareAddrChoices || [],
+    onLokasiBerubah() {
+      if (this.form.location === 'Home Care' && !this.form.location_detail) this.form.location_detail = this.homeCareAddrChoices[0] || '';
+    },
     ${physicalExamXData()}
     icdSearch: window.__emrEdit.diagnosis, icdResults: [], icdOpen: false,
     icdSearch2: '', icdResults2: [], icdOpen2: false, secondaries: JSON.parse(JSON.stringify(window.__emrSecondaries)),
@@ -2337,14 +2389,26 @@ export function doctorEMREdit(params) {
         <div class="flex items-center justify-between mb-6">
           <div><h2 class="text-xl font-bold text-gray-800">Edit Rekam Medis</h2><p class="text-sm text-gray-500">${patient?.full_name || ''} — ${formatDate(record.visit_date)}</p></div>
           <div class="flex gap-2">
-            <button @click="saveEdit()" :disabled="saving || saved || !form.anamnesis || !form.diagnosis" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveEdit()" :disabled="saving || saved || !form.anamnesis || !form.diagnosis || (form.location === 'Home Care' && !form.location_detail.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${record.patient_id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
         <div class="space-y-4">
           <div class="bg-white border border-slate-100 rounded-3xl p-4">
             <div class="grid sm:grid-cols-2 gap-3">
-              <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat</label><select x-model="form.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
+              <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat</label><select x-model="form.location" @change="onLokasiBerubah()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
+              <div x-show="form.location === 'Home Care'" x-cloak class="sm:col-span-2">
+                <label class="block text-xs text-gray-500 mb-1">Alamat Home Care (rumah yang dikunjungi) *</label>
+                <input type="text" x-model="form.location_detail" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Alamat lengkap tempat kunjungan">
+                <template x-if="homeCareAddrChoices.length > 1">
+                  <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span class="text-[11px] text-gray-400">Alamat lain milik pasien:</span>
+                    <template x-for="addr in homeCareAddrChoices" :key="addr">
+                      <button type="button" @click="form.location_detail = addr" class="px-2 py-0.5 rounded-full text-[11px] border transition" :class="form.location_detail === addr ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300'" x-text="addr.length > 32 ? addr.slice(0, 32) + '…' : addr"></button>
+                    </template>
+                  </div>
+                </template>
+              </div>
               <div><label class="block text-xs text-gray-500 mb-1">Jadwal Kontrol</label><input type="date" x-model="form.follow_up_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
             </div>
           </div>
@@ -2983,17 +3047,45 @@ export function doctorCrm() {
 // atau belum ditentukan dokternya), tinggal diklik untuk langsung membuka
 // "Kunjungan Baru" dengan jenis kunjungan & TTV-nya sudah terisi.
 // ===========================================================================
+// Digabung dari DUA sumber -- kedatangan yang didaftarkan admin (BPJS/Umum +
+// TTV, sudah disaring: belum ditangani, untuk dokter ini atau belum
+// ditentukan) DAN jadwal appointment/booking hari ini (yang sama dengan
+// "Antrean Pasien Hari Ini" di dashboard, sudah disaring: bukan yang selesai).
+// Satu pasien bisa muncul di kedua sumber (didaftarkan admin DAN sudah punya
+// jadwal) -- digabung jadi SATU baris, bukan dua baris untuk orang yang sama.
+// Dipisah jadi fungsi murni (bukan ditulis langsung di dalam x-data) supaya
+// bisa diuji sungguhan, bukan cuma dicocokkan lewat regex.
+export function mergeKunjunganHariIni(daftarCheckin, appts) {
+  const map = new Map();
+  (daftarCheckin || []).forEach(c => map.set(c.patient_id, {
+    patient_id: c.patient_id, payment_type: c.payment_type, td: c.td, nadi: c.nadi, suhu: c.suhu,
+    notes: c.notes || '', time_slot: '', queue_number: '', sortKey: '1' + (c.created_at || ''),
+  }));
+  (appts || []).forEach(a => {
+    const ada = map.get(a.patient_id);
+    if (ada) { ada.time_slot = a.time_slot; ada.queue_number = a.queue_number; ada.sortKey = '0' + a.time_slot; if (!ada.notes) ada.notes = a.notes; }
+    else map.set(a.patient_id, { patient_id: a.patient_id, payment_type: '', td: '', nadi: '', suhu: '', notes: a.notes || '', time_slot: a.time_slot, queue_number: a.queue_number, sortKey: '0' + a.time_slot });
+  });
+  // Yang punya jadwal jam tertentu tampil dulu berurutan sesuai jamnya; yang
+  // cuma kedatangan tanpa jadwal menyusul di bawahnya sesuai urutan
+  // didaftarkan.
+  return Array.from(map.values()).sort((x, y) => x.sortKey.localeCompare(y.sortKey));
+}
+
 export function doctorKunjunganHariIni() {
   const doc = getDoctor();
+  window.__kunjunganAppts = store.getAppointmentsByDoctor(doc?.id, todayLocal())
+    .filter(a => a.status !== 'completed')
+    .map(a => ({ patient_id: a.patient_id, time_slot: a.time_slot || '', queue_number: a.queue_number || '', notes: a.notes || '' }));
   return `
   <div x-data="{ sideOpen: window.innerWidth > 1024, loading: true, checkins: [],
     async load() {
       this.loading = true;
       try {
         const semua = await window.__store.getCheckinsToday();
-        this.checkins = semua
-          .filter(c => !c.medical_record_id && (!c.doctor_id || c.doctor_id === '${doc?.id || ''}'))
-          .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+        const daftarCheckin = semua.filter(c => !c.medical_record_id && (!c.doctor_id || c.doctor_id === '${doc?.id || ''}'));
+        const appts = window.__kunjunganAppts || [];
+        this.checkins = window.__mergeKunjunganHariIni(daftarCheckin, appts);
       } catch (e) { this.checkins = []; }
       this.loading = false;
     },
@@ -3004,17 +3096,18 @@ export function doctorKunjunganHariIni() {
       ${doctorHeader(doc)}
       <main class="p-4 lg:p-6 max-w-4xl mx-auto">
         <h2 class="text-xl font-bold text-gray-800">Kunjungan Hari Ini</h2>
-        <p class="text-[12.5px] text-muted leading-relaxed">Pasien yang sudah didaftarkan kedatangannya oleh admin, untuk Anda atau belum ditentukan dokternya. Klik untuk langsung memeriksa.</p>
+        <p class="text-[12.5px] text-muted leading-relaxed">Semua pasien yang perlu Anda temui hari ini — yang didaftarkan admin (BPJS/Umum) maupun yang sudah punya jadwal appointment. Klik untuk langsung memeriksa.</p>
 
         <div class="mt-4 bg-white rounded-2xl border border-slate-100 divide-y divide-slate-100 overflow-hidden">
           <template x-if="loading"><p class="p-6 text-center text-slate-400 text-sm">Memuat&hellip;</p></template>
           <template x-if="!loading && checkins.length === 0"><p class="p-6 text-center text-slate-400 text-sm">Tidak ada pasien menunggu saat ini.</p></template>
-          <template x-for="c in checkins" :key="c.id">
+          <template x-for="c in checkins" :key="c.patient_id">
             <button type="button" @click="mulai(c.patient_id)" class="w-full text-left p-4 flex items-center gap-3 hover:bg-slate-50 transition">
-              <span class="px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0" :class="c.payment_type === 'bpjs' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'" x-text="c.payment_type === 'bpjs' ? 'BPJS' : 'UMUM'"></span>
+              <span x-show="c.time_slot" x-cloak class="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)" x-text="c.queue_number || c.time_slot"></span>
+              <span x-show="c.payment_type" x-cloak class="px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0" :class="c.payment_type === 'bpjs' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'" x-text="c.payment_type === 'bpjs' ? 'BPJS' : 'UMUM'"></span>
               <span class="flex-1 min-w-0">
                 <span class="block text-[13.5px] font-semibold text-ink" x-text="(window.__store.getPatient(c.patient_id) || {}).full_name || 'Pasien'"></span>
-                <span class="block text-[11px] text-slate-400" x-text="[c.td ? 'TD ' + c.td : '', c.nadi ? 'Nadi ' + c.nadi : '', c.suhu ? 'Suhu ' + c.suhu : '', c.notes || ''].filter(Boolean).join(' · ')" x-show="c.td || c.nadi || c.suhu || c.notes" x-cloak></span>
+                <span class="block text-[11px] text-slate-400" x-text="[c.time_slot ? 'Jadwal ' + c.time_slot : '', c.td ? 'TD ' + c.td : '', c.nadi ? 'Nadi ' + c.nadi : '', c.suhu ? 'Suhu ' + c.suhu : '', c.notes || ''].filter(Boolean).join(' · ')" x-show="c.time_slot || c.td || c.nadi || c.suhu || c.notes" x-cloak></span>
               </span>
               <span class="ms text-[20px] text-slate-300">chevron_right</span>
             </button>

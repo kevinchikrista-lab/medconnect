@@ -5,7 +5,7 @@ import { loginPage, registerPage, forgotPasswordPage, resetPasswordPage } from '
 import { tasksPage } from './pages/tasks.js';
 import { notesPage } from './pages/notes.js';
 import { adminVaksin, adminVaxSchedule, adminDashboard, adminUsers, adminUsersData, adminServices, adminArticles, adminBookings, adminCalendar, adminConsultations, adminConsultationDetail, adminHomeCareNew, adminHomeCareHistory, adminHomeCareEdit, adminRecap, adminReminders, adminPatients, adminPatientDetail, adminBugs, adminCrm, adminStock, adminLocations, adminTasks, adminUmroh, adminSatusehat, adminKunjunganHariIni } from './pages/admin.js';
-import { doctorVaksin, doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorRmDebt, doctorCrm, doctorKunjunganHariIni } from './pages/doctor.js';
+import { doctorVaksin, doctorDashboard, doctorPatients, doctorRecords, doctorEMR, doctorEMRNew, doctorEMREdit, doctorPrescriptions, doctorPrescriptionNew, doctorPrescriptionEdit, doctorCalendar, doctorHomeCareNew, doctorHomeCareHistory, doctorHomeCareEdit, doctorChatList, doctorChatThread, doctorChatStart, doctorSKDApproval, doctorRmDebt, doctorCrm, doctorKunjunganHariIni, mergeKunjunganHariIni } from './pages/doctor.js';
 import { patientDashboard, patientHistory, patientPrescriptions, patientServices, patientBooking, patientProfile, patientChatList, patientChatThread, patientChatStart } from './pages/patient.js';
 import { pharmacyDashboard, pharmacyPrescriptions, pharmacyCertificates, pharmacyInventory } from './pages/pharmacy.js';
 import { notificationsPage } from './pages/notifications.js';
@@ -25,6 +25,7 @@ window.__generateSKD = issueSKD; // backward-compatible alias
 window.__printSKD = printSKDById;
 window.__editSKD = editSKD;
 window.__printResep = printResepById;
+window.__mergeKunjunganHariIni = mergeKunjunganHariIni;
 window.__renderSKDInto = renderSKDInto;
 window.__skdLoadingDoc = SKD_LOADING_DOC;
 window.__logWaReminder = (table, id) => store.logWaReminder(table, id);

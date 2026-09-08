@@ -95,6 +95,14 @@ function buildResepDetails(rx, patient, doctor, items) {
     tgl_lahir: (patient && patient.birth_date) || '',
     gender: (patient && patient.gender) || '',
     alamat: (patient && patient.address) || '',
+    // Apotek luar (rx_target 'luar') cuma punya lembar ini -- tidak ada
+    // akses ke dashboard apotek dalam yang sudah menampilkan kontak & jasa.
+    // Tanpa kontak di sini, apotek luar tidak ada cara menghubungi pasien
+    // kalau ada obat yang perlu dikonfirmasi/tidak tersedia.
+    phone: (patient && patient.phone) || '',
+    family_name: (patient && patient.family_name) || '',
+    family_phone: (patient && patient.family_phone) || '',
+    family_relation: (patient && patient.family_relation) || '',
     berat_badan: vs.bb || '',
     tinggi_badan: vs.tb || '',
     // Tempat praktik saat resep ditulis (Klinik / Home Care / Telemedicine) —
@@ -209,6 +217,20 @@ function writeResep(w, cert) {
   const age = calcAge(d.tgl_lahir);
   const isLuar = (d.rx_target || 'apotek') === 'luar';
   const items = d.items || [];
+  // Kontak pasien/wali dan jasa dokter -- apotek LUAR cuma punya lembar ini
+  // untuk menghubungi pasien atau memastikan jasanya (lihat komentar di
+  // buildResepDetails). Jasa SELALU dicetak walau Rp 0, dengan alasan yang
+  // sama seperti di dashboard apotek: nol yang tidak dicetak terbaca seperti
+  // datanya belum ada, bukan seperti kepastian tidak ada jasa.
+  const kontakBagian = [];
+  if (d.phone) kontakBagian.push('HP: ' + esc(d.phone));
+  if (d.family_phone || d.family_name) {
+    kontakBagian.push('Wali' + (d.family_relation ? ' (' + esc(d.family_relation) + ')' : '') + ': '
+      + esc(d.family_name || '-') + (d.family_phone ? ' - ' + esc(d.family_phone) : ''));
+  }
+  const kontakTxt = kontakBagian.length ? kontakBagian.join(' &nbsp;|&nbsp; ') : '-';
+  const jasaAda = !!d.service_fee_enabled && (d.service_fee || 0) > 0;
+  const jasaTxt = 'Rp ' + (jasaAda ? (d.service_fee || 0) : 0).toLocaleString('id-ID') + (jasaAda ? ' (mohon ditarik dari pasien)' : '');
   // Kop surat mengikuti tempat praktik resep ini. Kalau tempatnya terdaftar di
   // master Lokasi Praktik DAN alamatnya diisi, alamat itu yang dicetak; kalau
   // tidak (mis. Home Care / Telemedicine yang alamatnya kosong), jatuh kembali
@@ -356,6 +378,8 @@ function writeResep(w, cert) {
       <tr><td class="k">Jenis Kelamin</td><td class="s">:</td><td class="v">${esc(d.gender || '-')}</td></tr>
       <tr><td class="k">Berat Badan</td><td class="s">:</td><td class="v">${d.berat_badan ? esc(d.berat_badan) + ' kg' : '-'}${d.tinggi_badan ? ' &nbsp;|&nbsp; TB: ' + esc(d.tinggi_badan) + ' cm' : ''}</td></tr>
       <tr><td class="k">Alamat</td><td class="s">:</td><td class="v">${esc(d.alamat || '-')}</td></tr>
+      <tr><td class="k">Kontak</td><td class="s">:</td><td class="v">${kontakTxt}</td></tr>
+      <tr><td class="k">Jasa Dokter</td><td class="s">:</td><td class="v">${jasaTxt}</td></tr>
     </table></div>
 
     <div class="rx-list">
@@ -437,6 +461,10 @@ export async function printResepById(rxId) {
     tgl_lahir: (patient && patient.birth_date) || '',
     gender: (patient && patient.gender) || '',
     alamat: (patient && patient.address) || '',
+    phone: (patient && patient.phone) || '',
+    family_name: (patient && patient.family_name) || '',
+    family_phone: (patient && patient.family_phone) || '',
+    family_relation: (patient && patient.family_relation) || '',
     berat_badan: vs.bb || '',
     tinggi_badan: vs.tb || '',
     practice_place: (linked && linked.location) || '',
