@@ -128,6 +128,12 @@ ok('form Kunjungan Baru menampilkan kolom alamat khusus saat lokasi = Home Care'
    () => /form\.location\s*===\s*'Home Care'/.test(doctorSrc) && doctorSrc.includes('location_detail'));
 ok('kolom alamat Home Care punya pilihan dari alamat pasien yang sudah dikenal (getPatientAddresses)',
    () => doctorSrc.includes('getPatientAddresses'));
+ok('kolom alamat terisi otomatis begitu Lokasi diganti ke Home Care (bukan dibiarkan kosong)',
+   () => (doctorSrc.match(/onLokasiBerubah\(\) \{\s*\n\s*if \(this\.form\.location === 'Home Care' && !this\.form\.location_detail\) this\.form\.location_detail = this\.homeCareAddrChoices\[0\] \|\| '';/g) || []).length === 2);
+ok('tombol simpan (baru & edit) dikunci selama kunjungan Home Care belum diisi alamatnya',
+   () => (doctorSrc.match(/form\.location === 'Home Care' && !form\.location_detail\.trim\(\)/g) || []).length === 2);
+ok('form Kunjungan Baru & Edit SAMA-SAMA punya kolom alamat Home Care (bukan cuma salah satu)',
+   () => (doctorSrc.match(/Alamat Home Care \(rumah yang dikunjungi\)/g) || []).length === 2);
 
 console.log('\n' + (fails ? `❌ ${fails} gagal` : '✅ semua lolos'));
 process.exit(fails ? 1 : 0);

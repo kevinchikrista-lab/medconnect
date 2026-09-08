@@ -1326,6 +1326,11 @@ export function doctorEMRNew(params) {
   window.__peSystems = CONFIG.PHYSICAL_EXAM_SYSTEMS || [];
   window.__peState = buildPeState(null).state;
   window.__peOtherInit = '';
+  // Alamat yang sudah dikenal untuk pasien ini (alamat utama + alamat
+  // tambahan dari kunjungan Home Care sebelumnya) -- dipakai untuk mengisi
+  // otomatis & memilih cepat kolom alamat Home Care di bawah, bukan
+  // mengetik ulang tiap kunjungan.
+  window.__homeCareAddrChoices = store.getPatientAddresses(patient.id);
   // Old visits for the reference panel — passed via a global (not embedded in
   // x-data) so free text (anamnesis/therapy/notes) can never break the page.
   // Bila halaman ini dibuka dari daftar Kewajiban Rekam Medis, resep/surat
@@ -1362,7 +1367,15 @@ export function doctorEMRNew(params) {
     sideOpen: window.innerWidth > 1024,
     visitType: 'consultation',
     visitDate: '${todayLocal()}',
-    form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_code:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', visit_type:'consultation' },
+    form: { anamnesis:'', examination:'', diagnosis:'', diagnosis_code:'', diagnosis_secondary:'', therapy:'', follow_up_date:'', follow_up_notes:'', vital_signs: {td:'',nadi:'',suhu:'',rr:'',spo2:'',bb:'',tb:''}, notes:'', location:'${locations[0]}', location_detail:'', visit_type:'consultation' },
+    homeCareAddrChoices: window.__homeCareAddrChoices || [],
+    // Begitu Lokasi diganti ke Home Care, kolom alamatnya diisi otomatis
+    // dengan alamat pasien yang sudah dikenal (bukan dibiarkan kosong) --
+    // tapi HANYA kalau dokter belum mengetik apa pun di situ, supaya
+    // gonta-ganti pilihan Lokasi tidak menimpa alamat yang sudah diketik.
+    onLokasiBerubah() {
+      if (this.form.location === 'Home Care' && !this.form.location_detail) this.form.location_detail = this.homeCareAddrChoices[0] || '';
+    },
     ${physicalExamXData()}
     icdSearch: '', icdResults: [], icdOpen: false, icdSearch2: '', icdResults2: [], icdOpen2: false, secondaries: [],
     searchICD(q, which) {
@@ -1506,7 +1519,7 @@ export function doctorEMRNew(params) {
           </div>
 
           <div class="flex gap-2">
-            <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name)" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveRecord()" :disabled="saving || saved || (visitType!=='vaccination' && (!form.anamnesis || !form.diagnosis)) || ((visitType==='vaccination'||visitType==='both') && !vaxForm.vaccine_name) || (form.location === 'Home Care' && !form.location_detail.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Rekam Medis</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${patient.id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
@@ -1537,7 +1550,19 @@ export function doctorEMRNew(params) {
               <p class="text-xs text-gray-400 mt-1" x-show="visitType==='both'">Akan membuat 2 rekam medis terpisah (konsultasi + vaksinasi) di waktu yang sama.</p>
             </div>
             <div><label class="block text-xs text-gray-500 mb-1">Tanggal Kunjungan *</label><input type="date" x-model="visitDate" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
-            <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat *</label><select x-model="form.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
+            <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat *</label><select x-model="form.location" @change="onLokasiBerubah()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
+            <div x-show="form.location === 'Home Care'" x-cloak class="sm:col-span-3">
+              <label class="block text-xs text-gray-500 mb-1">Alamat Home Care (rumah yang dikunjungi) *</label>
+              <input type="text" x-model="form.location_detail" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Alamat lengkap tempat kunjungan">
+              <template x-if="homeCareAddrChoices.length > 1">
+                <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                  <span class="text-[11px] text-gray-400">Alamat lain milik pasien:</span>
+                  <template x-for="addr in homeCareAddrChoices" :key="addr">
+                    <button type="button" @click="form.location_detail = addr" class="px-2 py-0.5 rounded-full text-[11px] border transition" :class="form.location_detail === addr ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300'" x-text="addr.length > 32 ? addr.slice(0, 32) + '…' : addr"></button>
+                  </template>
+                </div>
+              </template>
+            </div>
           </div>
         </div>
         <div class="space-y-4">
@@ -2246,6 +2271,9 @@ export function doctorEMREdit(params) {
     ? [record.location].concat(activeLocations)
     : activeLocations;
   window.__icd10 = store.icdAll(ICD10);
+  // Sama seperti di doctorEMRNew: alamat yang sudah dikenal untuk pasien ini,
+  // dipakai kolom alamat Home Care di bawah.
+  window.__homeCareAddrChoices = store.getPatientAddresses(record.patient_id);
   // Pass the existing record into Alpine via a global instead of embedding each
   // field inside the x-data string — a newline, double-quote or backslash in
   // any free-text field (anamnesis/therapy/notes) would otherwise break the
@@ -2257,7 +2285,7 @@ export function doctorEMREdit(params) {
     // supaya menyunting rekam medis lama sekaligus melengkapinya.
     diagnosis_code: store.kodeDiagnosis(record),
     diagnosis_secondary: record.diagnosis_secondary || '',
-    therapy: record.therapy || '', location: record.location || locations[0], follow_up_date: record.follow_up_date || '',
+    therapy: record.therapy || '', location: record.location || locations[0], location_detail: record.location_detail || '', follow_up_date: record.follow_up_date || '',
     follow_up_notes: record.follow_up_notes || '', notes: record.notes || ''
   };
   window.__emrSecondaries = parseSecondaries(record.diagnosis_secondary);
@@ -2269,6 +2297,10 @@ export function doctorEMREdit(params) {
   <div x-data="{
     sideOpen: window.innerWidth > 1024, saving: false, saved: false,
     form: JSON.parse(JSON.stringify(window.__emrEdit)),
+    homeCareAddrChoices: window.__homeCareAddrChoices || [],
+    onLokasiBerubah() {
+      if (this.form.location === 'Home Care' && !this.form.location_detail) this.form.location_detail = this.homeCareAddrChoices[0] || '';
+    },
     ${physicalExamXData()}
     icdSearch: window.__emrEdit.diagnosis, icdResults: [], icdOpen: false,
     icdSearch2: '', icdResults2: [], icdOpen2: false, secondaries: JSON.parse(JSON.stringify(window.__emrSecondaries)),
@@ -2343,14 +2375,26 @@ export function doctorEMREdit(params) {
         <div class="flex items-center justify-between mb-6">
           <div><h2 class="text-xl font-bold text-gray-800">Edit Rekam Medis</h2><p class="text-sm text-gray-500">${patient?.full_name || ''} — ${formatDate(record.visit_date)}</p></div>
           <div class="flex gap-2">
-            <button @click="saveEdit()" :disabled="saving || saved || !form.anamnesis || !form.diagnosis" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
+            <button @click="saveEdit()" :disabled="saving || saved || !form.anamnesis || !form.diagnosis || (form.location === 'Home Care' && !form.location_detail.trim())" class="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style="background:linear-gradient(135deg,#2b7ee0,#0f4c9e)"><span x-show="!saving && !saved">Simpan Perubahan</span><span x-show="saving" x-cloak>Menyimpan...</span><span x-show="saved" x-cloak>Tersimpan!</span></button>
             <a href="#/doctor/emr/${record.patient_id}" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200">Batal</a>
           </div>
         </div>
         <div class="space-y-4">
           <div class="bg-white border border-slate-100 rounded-3xl p-4">
             <div class="grid sm:grid-cols-2 gap-3">
-              <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat</label><select x-model="form.location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
+              <div><label class="block text-xs text-gray-500 mb-1">Lokasi / Tempat</label><select x-model="form.location" @change="onLokasiBerubah()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}<option>Lainnya</option></select></div>
+              <div x-show="form.location === 'Home Care'" x-cloak class="sm:col-span-2">
+                <label class="block text-xs text-gray-500 mb-1">Alamat Home Care (rumah yang dikunjungi) *</label>
+                <input type="text" x-model="form.location_detail" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50" placeholder="Alamat lengkap tempat kunjungan">
+                <template x-if="homeCareAddrChoices.length > 1">
+                  <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span class="text-[11px] text-gray-400">Alamat lain milik pasien:</span>
+                    <template x-for="addr in homeCareAddrChoices" :key="addr">
+                      <button type="button" @click="form.location_detail = addr" class="px-2 py-0.5 rounded-full text-[11px] border transition" :class="form.location_detail === addr ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-300'" x-text="addr.length > 32 ? addr.slice(0, 32) + '…' : addr"></button>
+                    </template>
+                  </div>
+                </template>
+              </div>
               <div><label class="block text-xs text-gray-500 mb-1">Jadwal Kontrol</label><input type="date" x-model="form.follow_up_date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400/50"></div>
             </div>
           </div>
