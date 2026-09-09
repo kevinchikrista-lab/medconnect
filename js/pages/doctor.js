@@ -864,7 +864,15 @@ export function doctorEMR(params) {
                   </div>
                   `).join('')}
                   ${(() => {
-                    const lastDose = doses[doses.length-1];
+                    // Dosis TERAKHIR yang sudah diberikan ditentukan dari
+                    // dose_number TERBESAR -- BUKAN elemen terakhir array
+                    // (yang urutannya mengikuti date_given via getVaccinations,
+                    // dan bisa salah kalau ada dosis yang tanggal pemberiannya
+                    // tercatat tidak berurutan, mis. salah ketik tanggal dosis
+                    // pertama jadi lebih baru dari dosis kedua). Tanpa ini,
+                    // sistem terus-menerus meminta dosis yang sama berulang
+                    // alih-alih maju ke dosis berikutnya.
+                    const lastDose = doses.reduce((max, d) => (d.dose_number > max.dose_number ? d : max), doses[0]);
                     const totalD = doses[0]?.total_doses || 1;
                     const isBooster = doses[0]?.vax_mode === 'booster';
                     const nextDoseNum = lastDose.dose_number + 1;
@@ -939,10 +947,20 @@ export function doctorEMR(params) {
                             }, 400);
                           }
                         }">
-                          <p class="text-sm font-semibold text-amber-800 mb-3">💉 ${label}</p>
+                          <p class="text-sm font-semibold text-amber-800 mb-3" x-text="'💉 ' + (af.vax_mode === 'booster' ? 'Berikan Booster' : 'Berikan Dosis ' + af.dose_number + '/' + af.total_doses)"></p>
                           <div class="grid grid-cols-2 lg:grid-cols-3 gap-2">
                             <div><label class="block text-xs text-gray-500 mb-1">Vaksin</label><input type="text" x-model="af.vaccine_name" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm bg-gray-50" readonly></div>
                             <div><label class="block text-xs text-gray-500 mb-1">Merk</label><input type="text" x-model="af.vaccine_brand" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>
+                            <!-- Nomor dosis & total dosis TERISI OTOMATIS dari
+                                 dosis terakhir yang tercatat, tapi tetap bisa
+                                 disunting di sini -- kalau deteksi otomatisnya
+                                 meleset (mis. data lama tanggalnya tidak
+                                 berurutan), dokter tinggal betulkan angkanya
+                                 sendiri sebelum menyimpan, tanpa harus edit
+                                 dosis lama satu-satu dulu.
+                            -->
+                            <div><label class="block text-xs text-gray-500 mb-1">Dosis Ke- *</label><input type="number" x-model.number="af.dose_number" min="1" class="w-full px-2 py-1.5 border border-amber-300 rounded text-sm bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>
+                            ${!isBooster ? `<div><label class="block text-xs text-gray-500 mb-1">Total Dosis *</label><input type="number" x-model.number="af.total_doses" min="1" class="w-full px-2 py-1.5 border border-amber-300 rounded text-sm bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>` : ''}
                             <div><label class="block text-xs text-gray-500 mb-1">Tanggal Pemberian *</label><input type="date" x-model="af.date_given" class="w-full px-2 py-1.5 border border-amber-300 rounded text-sm bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>
                             <div><label class="block text-xs text-gray-500 mb-1">Batch Number *</label><input type="text" x-model="af.batch_number" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50" placeholder="Batch no."></div>
                             <div><label class="block text-xs text-gray-500 mb-1">Lokasi</label><select x-model="af.location" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}</select></div>
