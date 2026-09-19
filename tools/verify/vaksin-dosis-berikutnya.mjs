@@ -65,7 +65,7 @@ ok('ada kolom "Dosis Ke-" yang bisa disunting di formulir pemberian dosis baru (
 ok('ada kolom "Total Dosis" yang bisa disunting juga (jaga-jaga kalau total dosisnya sendiri perlu dikoreksi)',
    () => html.includes('Total Dosis *') && html.includes('x-model.number="af.total_doses"'));
 ok('judul formulir ikut bereaksi ke perubahan af.dose_number (reaktif, bukan teks statis yang tidak ikut berubah kalau disunting)',
-   () => html.includes("x-text=\"'💉 ' + (af.vax_mode === 'booster' ? 'Berikan Booster' : 'Berikan Dosis ' + af.dose_number + '/' + af.total_doses)\""));
+   () => html.includes("x-text=\"'💉 ' + (af.vax_mode === 'booster' ? 'Berikan Booster' : 'Berikan Dosis ' + af.dose_number + '/' + af.total_doses) + (af.external ? ' (di tempat lain)' : '')\""));
 
 console.log('\n=== REGRESI: SERI YANG SUDAH BERURUTAN (HPV p_3) TETAP BENAR (dinamis) ===');
 
@@ -76,6 +76,58 @@ ok('untuk pasien dengan urutan tanggal yang SUDAH benar (HPV p_3, dosis 1 lalu 2
 // Bersihkan data uji -- berkas verify lain memakai vaksinasi demo yang sama.
 store.data.vaccinations = store.data.vaccinations.filter(v => v.id !== 'vtest_1' && v.id !== 'vtest_2');
 ok('data uji berhasil dibersihkan', () => !store.data.vaccinations.some(v => v.id === 'vtest_1' || v.id === 'vtest_2'));
+
+console.log('\n=== ISI DOSIS TIDAK BERURUTAN — DOSIS 3 DULU, 1 & 2 MENYUSUL (dinamis, HTML sungguhan) ===');
+
+// Persis skenario yang diminta dr. Kevin: dosis ke-3 sempat dicatat duluan
+// (mis. diketahui dari kartu vaksinasi anak), dosis 1 & 2-nya belum ada sama
+// sekali di sistem. Keduanya harus muncul sebagai kartu TERPISAH yang bisa
+// diisi kapan saja -- bukan cuma satu slot "next" yang menganggap
+// pengisiannya selalu berurutan.
+store.data.vaccinations.push({
+  id: 'vtest_3', patient_id: 'p_4', vaccine_name: 'Hepatitis B', vaccine_brand: 'Engerix B',
+  vax_mode: 'series', dose_number: 3, total_doses: 3, date_given: '2026-08-01', next_dose_date: '',
+  batch_number: 'GR9001', administered_by: 'd_1', location: 'Klinik Utama Prima', notes: '',
+});
+const htmlP4 = doctorEMR({ patientId: 'p_4' });
+
+ok('muncul kartu terpisah "Berikan Dosis 1/3" untuk dosis pertama yang belum tercatat',
+   () => htmlP4.includes('Berikan Dosis 1/3') && htmlP4.includes('Dosis Pertama (1/3)'));
+ok('muncul kartu terpisah "Berikan Dosis 2/3" untuk dosis kedua yang belum tercatat',
+   () => htmlP4.includes('Berikan Dosis 2/3') && htmlP4.includes('Dosis ke-2 (2/3)'));
+ok('TIDAK ada kartu "Berikan Dosis 4/3" -- dosis 3 sudah tercatat, totalnya cuma 3',
+   () => !htmlP4.includes('Berikan Dosis 4/3'));
+ok('kedua slot yang belum tercatat (dosis 1 & 2, bukan langsung sesudah dosis tertinggi) ditandai "Belum tercatat", bukan tanggal jadwal palsu',
+   () => (htmlP4.match(/Belum tercatat/g) || []).length >= 2);
+
+// Kalau seri itu sudah lengkap (1, 2, 3 dari 3), tidak ada kartu tersisa
+// sama sekali -- baik dosis 1/2/3 atau slot lain.
+store.data.vaccinations.push(
+  { id: 'vtest_4', patient_id: 'p_4', vaccine_name: 'Hepatitis B', vaccine_brand: 'Engerix B', vax_mode: 'series', dose_number: 1, total_doses: 3, date_given: '2026-01-01', next_dose_date: '', batch_number: 'GR9002', administered_by: 'd_1', location: 'Klinik Utama Prima', notes: '' },
+  { id: 'vtest_5', patient_id: 'p_4', vaccine_name: 'Hepatitis B', vaccine_brand: 'Engerix B', vax_mode: 'series', dose_number: 2, total_doses: 3, date_given: '2026-04-01', next_dose_date: '', batch_number: 'GR9003', administered_by: 'd_1', location: 'Klinik Utama Prima', notes: '' },
+);
+const htmlP4Lengkap = doctorEMR({ patientId: 'p_4' });
+ok('begitu seri lengkap (1, 2, 3 dari 3), tidak ada kartu "Berikan Dosis" tersisa',
+   () => !htmlP4Lengkap.includes('Berikan Dosis 1/3') && !htmlP4Lengkap.includes('Berikan Dosis 2/3') && !htmlP4Lengkap.includes('Berikan Dosis 4/3'));
+
+console.log('\n=== DIBERIKAN DI TEMPAT LAIN — TOGGLE & PENYIMPANANNYA (statis + dinamis) ===');
+
+ok('setiap kartu "Berikan Dosis" punya toggle "Diberikan di tempat lain"',
+   () => (htmlP4.match(/Diberikan di <b>tempat lain<\/b>/g) || []).length === 2);
+ok('lokasi berubah jadi kolom teks bebas (bukan pilihan tempat sendiri) begitu ditandai di tempat lain',
+   () => htmlP4.includes('Tempat Vaksinasi (Puskesmas/Klinik Lain)'));
+ok('Batch Number tidak lagi wajib kalau ditandai di tempat lain (label & syarat tombol ikut berubah)',
+   () => htmlP4.includes("x-text=\"af.external ? 'Batch Number (kalau tahu)' : 'Batch Number *'\"")
+      && htmlP4.includes('(!af.external && !af.batch_number)'));
+ok('dosis yang ditandai di tempat lain disimpan dengan approval_status/vax_source yang benar (bukan seolah-olah kami yang menyuntik)',
+   () => htmlP4.includes("vaxPayload.approval_status = 'external';") && htmlP4.includes("vaxPayload.vax_source = 'luar';") && htmlP4.includes("vaxPayload.administered_by = '';"));
+ok('dosis di tempat lain TIDAK membuat rekam medis kunjungan palsu di klinik ini',
+   () => htmlP4.includes('if (!eksternal) {') && /if \(!eksternal\) \{\s*\n\s*window\.__store\.createRecord/.test(htmlP4));
+
+// Bersihkan data uji.
+store.data.vaccinations = store.data.vaccinations.filter(v => !['vtest_3','vtest_4','vtest_5'].includes(v.id));
+ok('data uji dosis-tidak-berurutan berhasil dibersihkan',
+   () => !store.data.vaccinations.some(v => ['vtest_3','vtest_4','vtest_5'].includes(v.id)));
 
 console.log('\n=== SUMBER KODE (statis) ===');
 const doctorSrc = readFileSync('../../js/pages/doctor.js', 'utf8');

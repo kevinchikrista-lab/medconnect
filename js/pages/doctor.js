@@ -869,32 +869,56 @@ export function doctorEMR(params) {
                     // (yang urutannya mengikuti date_given via getVaccinations,
                     // dan bisa salah kalau ada dosis yang tanggal pemberiannya
                     // tercatat tidak berurutan, mis. salah ketik tanggal dosis
-                    // pertama jadi lebih baru dari dosis kedua). Tanpa ini,
-                    // sistem terus-menerus meminta dosis yang sama berulang
-                    // alih-alih maju ke dosis berikutnya.
+                    // pertama jadi lebih baru dari dosis kedua).
                     const lastDose = doses.reduce((max, d) => (d.dose_number > max.dose_number ? d : max), doses[0]);
-                    const totalD = doses[0]?.total_doses || 1;
+                    const totalD = Math.max(1, ...doses.map(d => Number(d.total_doses) || 1));
                     const isBooster = doses[0]?.vax_mode === 'booster';
-                    const nextDoseNum = lastDose.dose_number + 1;
-                    const hasNext = isBooster ? !!lastDose.next_dose_date : (lastDose.dose_number < totalD);
-                    if (!hasNext) return '';
-
-                    const scheduledDate = lastDose.next_dose_date || '';
                     const brand = lastDose.vaccine_brand || '';
                     const activeLocs = store.getLocationNames();
                     const loc = lastDose.location || activeLocs[0];
                     const boosterInterval = doses[0]?.booster_interval_months || 12;
-                    const label = isBooster ? 'Berikan Booster' : `Berikan Dosis ${nextDoseNum}/${totalD}`;
                     // Tempat dosis sebelumnya ikut jadi opsi walau sudah dihapus
                     // dari master, supaya nilai awal select-nya tetap cocok.
                     const locations = (loc && !activeLocs.includes(loc)) ? [loc].concat(activeLocs) : activeLocs;
 
-                    return `<div class="p-3 rounded-lg bg-amber-50 border border-amber-200" x-data="{showForm:false}">
+                    // Booster tidak berhenti di angka tetap -- selalu SATU slot
+                    // "berikutnya", ditentukan dari next_dose_date dosis
+                    // terakhir. Seri (bukan booster) sebaliknya: SEMUA nomor
+                    // dosis yang belum tercatat ditampilkan, masing-masing
+                    // sebagai kartu terpisah -- bukan cuma satu "dosis
+                    // berikutnya" yang mengasumsikan pengisiannya selalu
+                    // berurutan. Dokter sering baru sempat mencatat dosis
+                    // belakangan (mis. dosis 3 dicatat duluan, dosis 1 & 2
+                    // menyusul dari riwayat orang tua/kartu KIA) -- dengan
+                    // cuma satu slot "next" dihitung dari dosis tertinggi,
+                    // dosis yang bolong di TENGAH tidak pernah punya jalan
+                    // untuk diisi.
+                    let slots;
+                    if (isBooster) {
+                      slots = lastDose.next_dose_date ? [{ doseNum: lastDose.dose_number + 1, scheduledDate: lastDose.next_dose_date }] : [];
+                    } else {
+                      const sudahAda = new Set(doses.map(d => d.dose_number));
+                      slots = [];
+                      for (let n = 1; n <= totalD; n++) {
+                        if (sudahAda.has(n)) continue;
+                        // Jadwal cuma bermakna untuk slot yang persis satu
+                        // sesudah dosis tertinggi yang sudah diberikan --
+                        // dosis yang bolong di tengah (backfill) tidak pernah
+                        // punya next_dose_date yang mengacu ke situ.
+                        slots.push({ doseNum: n, scheduledDate: n === lastDose.dose_number + 1 ? (lastDose.next_dose_date || '') : '' });
+                      }
+                    }
+                    if (!slots.length) return '';
+
+                    return slots.map(({ doseNum, scheduledDate }) => {
+                      const label = isBooster ? 'Berikan Booster' : `Berikan Dosis ${doseNum}/${totalD}`;
+                      const judulSlot = isBooster ? 'Booster Berikutnya' : ('Dosis ' + (doseNum === 1 ? 'Pertama' : 'ke-'+doseNum) + ' (' + doseNum + '/' + totalD + ')');
+                      return `<div class="p-3 rounded-lg bg-amber-50 border border-amber-200" x-data="{showForm:false}">
                       <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-full flex items-center justify-center bg-amber-400 text-white text-xs font-bold">${isBooster ? '→' : nextDoseNum}</div>
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center bg-amber-400 text-white text-xs font-bold">${isBooster ? '→' : doseNum}</div>
                         <div class="flex-1">
-                          <p class="text-sm font-medium text-amber-800">${isBooster ? 'Booster Berikutnya' : 'Dosis '+nextDoseNum+'/'+totalD+' — Terjadwal'}</p>
-                          <p class="text-xs text-amber-600">Jadwal: ${formatDate(scheduledDate)}</p>
+                          <p class="text-sm font-medium text-amber-800">${judulSlot}</p>
+                          <p class="text-xs text-amber-600">${scheduledDate ? 'Jadwal: ' + formatDate(scheduledDate) : 'Belum tercatat'}</p>
                         </div>
                         <button @click="showForm=!showForm" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 transition">${label}</button>
                       </div>
@@ -904,16 +928,31 @@ export function doctorEMR(params) {
                             vaccine_name: '${qAttr(name)}',
                             vaccine_brand: '${qAttr(brand)}',
                             vax_mode: '${isBooster ? 'booster' : 'series'}',
-                            dose_number: ${isBooster ? lastDose.dose_number + 1 : nextDoseNum},
+                            dose_number: ${doseNum},
                             total_doses: ${totalD},
                             batch_number: '',
                             date_given: new Date().toLocaleDateString('en-CA'),
                             next_dose_date: '',
                             location: '${qAttr(loc)}',
                             ${isBooster ? 'booster_interval_months: '+boosterInterval+',' : ''}
-                            notes: ''
+                            notes: '',
+                            // Dosis yang diberikan di tempat lain (puskesmas/
+                            // klinik lain) -- bukan sesuatu yang kami
+                            // saksikan/lakukan sendiri, jadi ditandai
+                            // terpisah (approval_status:'external') dan
+                            // TIDAK ikut membuat kunjungan rekam medis di
+                            // klinik ini (lihat saveDose). Tempatnya diisi
+                            // bebas (bukan dipilih dari daftar tempat
+                            // praktik SENDIRI), dan Batch Number tidak
+                            // diwajibkan karena sering tidak diketahui dari
+                            // laporan orang tua/kartu KIA.
+                            external: false
                           },
                           saving: false,
+                          toggleExternal() {
+                            this.af.external = !this.af.external;
+                            this.af.location = this.af.external ? '' : '${qAttr(loc)}';
+                          },
                           saveDose() {
                             this.saving = true;
                             const self = this;
@@ -924,56 +963,73 @@ export function doctorEMR(params) {
                             self.af.next_dose_date = next.toLocaleDateString('en-CA');
                             ` : ''}
                             setTimeout(function() {
-                              window.__store.createVaccination({
-                                patient_id: '${params.patientId}',
-                                administered_by: '${getDoctor()?.id}',
-                                ...self.af
-                              });
-                              window.__store.createRecord({
-                                patient_id: '${params.patientId}',
-                                doctor_id: '${getDoctor()?.id}',
-                                visit_type: 'vaccination',
-                                location: self.af.location,
-                                anamnesis: 'Vaksinasi ' + self.af.vaccine_name + ' ' + self.af.vaccine_brand + ' Dosis ' + self.af.dose_number,
-                                diagnosis: 'Vaksinasi ' + self.af.vaccine_name,
-                                therapy: 'Pemberian vaksin ' + self.af.vaccine_brand + ' dosis ' + self.af.dose_number + ${isBooster ? "''" : "'/' + self.af.total_doses"},
-                                vital_signs: {},
-                                follow_up_date: self.af.next_dose_date,
-                                follow_up_notes: '${isBooster ? 'Booster berikutnya' : 'Vaksin dosis berikutnya'}',
-                                notes: 'Batch: ' + self.af.batch_number
-                              });
+                              const eksternal = self.af.external;
+                              const vaxPayload = { patient_id: '${params.patientId}', ...self.af };
+                              delete vaxPayload.external;
+                              if (eksternal) {
+                                vaxPayload.administered_by = '';
+                                vaxPayload.approval_status = 'external';
+                                vaxPayload.vax_source = 'luar';
+                                vaxPayload.notes = (self.af.notes ? self.af.notes + ' | ' : '') + 'Diberikan di tempat lain: ' + self.af.location + '. Dicatat atas keterangan pasien/wali.';
+                              } else {
+                                vaxPayload.administered_by = '${getDoctor()?.id}';
+                              }
+                              window.__store.createVaccination(vaxPayload);
+                              // Dosis di tempat lain BUKAN kunjungan di klinik ini --
+                              // tidak dibuatkan rekam medis kunjungan, supaya tidak
+                              // seolah-olah dokter di sini yang memeriksa/menyuntik.
+                              if (!eksternal) {
+                                window.__store.createRecord({
+                                  patient_id: '${params.patientId}',
+                                  doctor_id: '${getDoctor()?.id}',
+                                  visit_type: 'vaccination',
+                                  visit_date: self.af.date_given,
+                                  location: self.af.location,
+                                  anamnesis: 'Vaksinasi ' + self.af.vaccine_name + ' ' + self.af.vaccine_brand + ' Dosis ' + self.af.dose_number,
+                                  diagnosis: 'Vaksinasi ' + self.af.vaccine_name,
+                                  therapy: 'Pemberian vaksin ' + self.af.vaccine_brand + ' dosis ' + self.af.dose_number + ${isBooster ? "''" : "'/' + self.af.total_doses"},
+                                  vital_signs: {},
+                                  follow_up_date: self.af.next_dose_date,
+                                  follow_up_notes: '${isBooster ? 'Booster berikutnya' : 'Vaksin dosis berikutnya'}',
+                                  notes: 'Batch: ' + (self.af.batch_number || '-')
+                                });
+                              }
                               self.saving = false;
                               setTimeout(function(){ window.__rerender && window.__rerender() }, 150);
                             }, 400);
                           }
                         }">
-                          <p class="text-sm font-semibold text-amber-800 mb-3" x-text="'💉 ' + (af.vax_mode === 'booster' ? 'Berikan Booster' : 'Berikan Dosis ' + af.dose_number + '/' + af.total_doses)"></p>
+                          <p class="text-sm font-semibold text-amber-800 mb-3" x-text="'💉 ' + (af.vax_mode === 'booster' ? 'Berikan Booster' : 'Berikan Dosis ' + af.dose_number + '/' + af.total_doses) + (af.external ? ' (di tempat lain)' : '')"></p>
+                          <label class="flex items-center gap-2 text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-2 mb-2.5 cursor-pointer">
+                            <input type="checkbox" :checked="af.external" @change="toggleExternal()" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-400/50">
+                            <span>Diberikan di <b>tempat lain</b> (puskesmas/klinik lain, bukan di sini)</span>
+                          </label>
                           <div class="grid grid-cols-2 lg:grid-cols-3 gap-2">
                             <div><label class="block text-xs text-gray-500 mb-1">Vaksin</label><input type="text" x-model="af.vaccine_name" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm bg-gray-50" readonly></div>
                             <div><label class="block text-xs text-gray-500 mb-1">Merk</label><input type="text" x-model="af.vaccine_brand" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>
                             <!-- Nomor dosis & total dosis TERISI OTOMATIS dari
-                                 dosis terakhir yang tercatat, tapi tetap bisa
-                                 disunting di sini -- kalau deteksi otomatisnya
-                                 meleset (mis. data lama tanggalnya tidak
-                                 berurutan), dokter tinggal betulkan angkanya
-                                 sendiri sebelum menyimpan, tanpa harus edit
-                                 dosis lama satu-satu dulu.
+                                 slot yang diklik, tapi tetap bisa disunting --
+                                 kalau deteksi otomatisnya meleset, dokter
+                                 tinggal betulkan angkanya sendiri sebelum
+                                 menyimpan.
                             -->
                             <div><label class="block text-xs text-gray-500 mb-1">Dosis Ke- *</label><input type="number" x-model.number="af.dose_number" min="1" class="w-full px-2 py-1.5 border border-amber-300 rounded text-sm bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>
                             ${!isBooster ? `<div><label class="block text-xs text-gray-500 mb-1">Total Dosis *</label><input type="number" x-model.number="af.total_doses" min="1" class="w-full px-2 py-1.5 border border-amber-300 rounded text-sm bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>` : ''}
                             <div><label class="block text-xs text-gray-500 mb-1">Tanggal Pemberian *</label><input type="date" x-model="af.date_given" class="w-full px-2 py-1.5 border border-amber-300 rounded text-sm bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>
-                            <div><label class="block text-xs text-gray-500 mb-1">Batch Number *</label><input type="text" x-model="af.batch_number" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50" placeholder="Batch no."></div>
-                            <div><label class="block text-xs text-gray-500 mb-1">Lokasi</label><select x-model="af.location" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}</select></div>
+                            <div><label class="block text-xs text-gray-500 mb-1" x-text="af.external ? 'Batch Number (kalau tahu)' : 'Batch Number *'"></label><input type="text" x-model="af.batch_number" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50" placeholder="Batch no."></div>
+                            <template x-if="!af.external"><div><label class="block text-xs text-gray-500 mb-1">Lokasi</label><select x-model="af.location" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50">${locations.map(l=>`<option>${l}</option>`).join('')}</select></div></template>
+                            <template x-if="af.external"><div><label class="block text-xs text-gray-500 mb-1">Tempat Vaksinasi (Puskesmas/Klinik Lain) *</label><input type="text" x-model="af.location" class="w-full px-2 py-1.5 border border-blue-300 rounded text-sm bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400/50" placeholder="Nama puskesmas/klinik..."></div></template>
                             ${!isBooster ? `<div><label class="block text-xs text-gray-500 mb-1">Jadwal Dosis Berikut</label><input type="date" x-model="af.next_dose_date" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"></div>` : ''}
                             <div class="col-span-2"><label class="block text-xs text-gray-500 mb-1">Catatan KIPI</label><input type="text" x-model="af.notes" class="w-full px-2 py-1.5 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50" placeholder="Opsional"></div>
                           </div>
                           <div class="flex gap-2 mt-3">
-                            <button @click="saveDose()" :disabled="saving || !af.batch_number" class="px-4 py-2 rounded-lg text-xs font-semibold text-white disabled:opacity-50 bg-amber-500 hover:bg-amber-600 transition"><span x-show="!saving">Simpan & Catat Vaksinasi</span><span x-show="saving" x-cloak>Menyimpan...</span></button>
+                            <button @click="saveDose()" :disabled="saving || !af.date_given.trim() || !af.location.trim() || (!af.external && !af.batch_number)" class="px-4 py-2 rounded-lg text-xs font-semibold text-white disabled:opacity-50 bg-amber-500 hover:bg-amber-600 transition"><span x-show="!saving">Simpan & Catat Vaksinasi</span><span x-show="saving" x-cloak>Menyimpan...</span></button>
                             <button @click="showForm=false" class="px-4 py-2 rounded-lg text-xs font-medium text-gray-600 border border-gray-200">Batal</button>
                           </div>
                         </div>
                       </template>
                     </div>`;
+                    }).join('');
                   })()}
                 </div>
               </div>`).join('');
