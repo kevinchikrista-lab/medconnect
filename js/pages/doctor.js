@@ -848,8 +848,8 @@ export function doctorEMR(params) {
                   }">
                     <p class="text-xs font-semibold text-blue-700 mb-2">Edit Vaksinasi</p>
                     <div class="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                      <div><label class="block text-xs text-gray-500 mb-1">Dosis Ke-</label><input type="number" x-model="ef.dose_number" min="1" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
-                      <div><label class="block text-xs text-gray-500 mb-1">Total Dosis</label><input type="number" x-model="ef.total_doses" min="1" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
+                      <div><label class="block text-xs text-gray-500 mb-1">Dosis Ke-</label><input type="number" x-model.number="ef.dose_number" min="1" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
+                      <div><label class="block text-xs text-gray-500 mb-1">Total Dosis</label><input type="number" x-model.number="ef.total_doses" min="1" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
                       <div><label class="block text-xs text-gray-500 mb-1">Merk</label><input type="text" x-model="ef.vaccine_brand" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
                       <div><label class="block text-xs text-gray-500 mb-1">Batch</label><input type="text" x-model="ef.batch_number" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
                       <div><label class="block text-xs text-gray-500 mb-1">Tanggal</label><input type="date" x-model="ef.date_given" class="w-full px-2 py-1.5 border border-blue-200 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/50"></div>
@@ -864,14 +864,23 @@ export function doctorEMR(params) {
                   </div>
                   `).join('')}
                   ${(() => {
+                    // dose_number/total_doses kadang tersimpan sebagai STRING
+                    // (x-model pada <input type="number"> tanpa modifier
+                    // .number menghasilkan string, bukan angka) -- dipaksa
+                    // jadi angka di sini SEKALI di depan, supaya perbandingan
+                    // ">"/pencocokan Set di bawah tidak diam-diam salah
+                    // (mis. Set.has(3) tidak pernah cocok dengan '3' yang
+                    // tersimpan sebagai string, sehingga dosis yang sudah
+                    // diberikan tetap dianggap "belum tercatat").
+                    const dosesN = doses.map(d => ({ ...d, dose_number: Number(d.dose_number) || 0, total_doses: Number(d.total_doses) || 1 }));
                     // Dosis TERAKHIR yang sudah diberikan ditentukan dari
                     // dose_number TERBESAR -- BUKAN elemen terakhir array
                     // (yang urutannya mengikuti date_given via getVaccinations,
                     // dan bisa salah kalau ada dosis yang tanggal pemberiannya
                     // tercatat tidak berurutan, mis. salah ketik tanggal dosis
                     // pertama jadi lebih baru dari dosis kedua).
-                    const lastDose = doses.reduce((max, d) => (d.dose_number > max.dose_number ? d : max), doses[0]);
-                    const totalD = Math.max(1, ...doses.map(d => Number(d.total_doses) || 1));
+                    const lastDose = dosesN.reduce((max, d) => (d.dose_number > max.dose_number ? d : max), dosesN[0]);
+                    const totalD = Math.max(1, ...dosesN.map(d => d.total_doses));
                     const isBooster = doses[0]?.vax_mode === 'booster';
                     const brand = lastDose.vaccine_brand || '';
                     const activeLocs = store.getLocationNames();
@@ -897,7 +906,7 @@ export function doctorEMR(params) {
                     if (isBooster) {
                       slots = lastDose.next_dose_date ? [{ doseNum: lastDose.dose_number + 1, scheduledDate: lastDose.next_dose_date }] : [];
                     } else {
-                      const sudahAda = new Set(doses.map(d => d.dose_number));
+                      const sudahAda = new Set(dosesN.map(d => d.dose_number));
                       slots = [];
                       for (let n = 1; n <= totalD; n++) {
                         if (sudahAda.has(n)) continue;
@@ -1741,10 +1750,10 @@ export function doctorEMRNew(params) {
                 <div><label class="block text-xs text-gray-500 mb-1">Batch Number *</label><input type="text" x-model="vaxForm.batch_number" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50" placeholder="GRD9-2026-XX"></div>
                 <!-- Seri Dosis Fields -->
                 <template x-if="vaxForm.vax_mode==='series'">
-                  <div><label class="block text-xs text-gray-500 mb-1">Dosis Ke- *</label><input type="number" x-model="vaxForm.dose_number" min="1" @change="updateDoseSchedule()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+                  <div><label class="block text-xs text-gray-500 mb-1">Dosis Ke- *</label><input type="number" x-model.number="vaxForm.dose_number" min="1" @change="updateDoseSchedule()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
                 </template>
                 <template x-if="vaxForm.vax_mode==='series'">
-                  <div><label class="block text-xs text-gray-500 mb-1">Total Dosis *</label><input type="number" x-model="vaxForm.total_doses" min="1" max="10" @change="updateDoseSchedule()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
+                  <div><label class="block text-xs text-gray-500 mb-1">Total Dosis *</label><input type="number" x-model.number="vaxForm.total_doses" min="1" max="10" @change="updateDoseSchedule()" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/50"></div>
                 </template>
                 <!-- Booster Fields -->
                 <template x-if="vaxForm.vax_mode==='booster'">

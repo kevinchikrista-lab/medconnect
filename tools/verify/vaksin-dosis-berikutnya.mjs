@@ -110,6 +110,30 @@ const htmlP4Lengkap = doctorEMR({ patientId: 'p_4' });
 ok('begitu seri lengkap (1, 2, 3 dari 3), tidak ada kartu "Berikan Dosis" tersisa',
    () => !htmlP4Lengkap.includes('Berikan Dosis 1/3') && !htmlP4Lengkap.includes('Berikan Dosis 2/3') && !htmlP4Lengkap.includes('Berikan Dosis 4/3'));
 
+console.log('\n=== dose_number TERSIMPAN SEBAGAI STRING (bug asli, ketahuan lewat tes browser sungguhan) ===');
+
+// Ditemukan lewat pengujian browser sungguhan, BUKAN unit test: formulir
+// "Kunjungan Baru > Vaksinasi" (vaxForm.dose_number/total_doses) memakai
+// x-model TANPA modifier .number, jadi nilainya tersimpan sebagai STRING
+// ('3'), bukan angka. Set.has(3) tidak pernah cocok dengan '3' yang
+// tersimpan sebagai string -- akibatnya dosis yang SUDAH diberikan tetap
+// dianggap "belum tercatat" dan muncul lagi sebagai kartu "Berikan Dosis"
+// untuk dirinya sendiri. Data uji di atas sengaja memakai angka (number)
+// literal dan TIDAK menangkap bug ini -- kasus di bawah meniru persis
+// apa yang benar-benar tersimpan lewat UI.
+store.data.vaccinations.push({
+  id: 'vtest_str', patient_id: 'p_5', vaccine_name: 'Hepatitis B', vaccine_brand: 'Engerix B',
+  vax_mode: 'series', dose_number: '3', total_doses: '3', date_given: '2026-09-19', next_dose_date: '',
+  batch_number: 'GR-STR-1', administered_by: 'd_1', location: 'Klinik Utama Prima', notes: '',
+});
+const htmlP5 = doctorEMR({ patientId: 'p_5' });
+ok('dosis yang SUDAH diberikan (dose_number string \'3\') TIDAK muncul lagi sebagai "Berikan Dosis 3/3"',
+   () => !htmlP5.includes('Berikan Dosis 3/3'));
+ok('dosis 1 & 2 yang memang belum tercatat tetap muncul sebagai kartu terpisah, walau dose_number dosis 3 berupa string',
+   () => htmlP5.includes('Berikan Dosis 1/3') && htmlP5.includes('Berikan Dosis 2/3'));
+store.data.vaccinations = store.data.vaccinations.filter(v => v.id !== 'vtest_str');
+ok('data uji dose_number-string berhasil dibersihkan', () => !store.data.vaccinations.some(v => v.id === 'vtest_str'));
+
 console.log('\n=== DIBERIKAN DI TEMPAT LAIN — TOGGLE & PENYIMPANANNYA (statis + dinamis) ===');
 
 ok('setiap kartu "Berikan Dosis" punya toggle "Diberikan di tempat lain"',
@@ -131,8 +155,12 @@ ok('data uji dosis-tidak-berurutan berhasil dibersihkan',
 
 console.log('\n=== SUMBER KODE (statis) ===');
 const doctorSrc = readFileSync('../../js/pages/doctor.js', 'utf8');
-ok('lastDose dihitung dari dose_number TERBESAR, bukan elemen terakhir array',
-   () => doctorSrc.includes('const lastDose = doses.reduce((max, d) => (d.dose_number > max.dose_number ? d : max), doses[0]);'));
+ok('lastDose dihitung dari dose_number TERBESAR (dari dosesN yang sudah dipaksa angka), bukan elemen terakhir array',
+   () => doctorSrc.includes('const lastDose = dosesN.reduce((max, d) => (d.dose_number > max.dose_number ? d : max), dosesN[0]);'));
+ok('dose_number/total_doses dipaksa jadi angka (Number(...)) sebelum dibandingkan -- kolom ini bisa tersimpan sebagai string dari x-model tanpa modifier .number',
+   () => doctorSrc.includes("dose_number: Number(d.dose_number) || 0, total_doses: Number(d.total_doses) || 1"));
+ok('x-model dose_number/total_doses di formulir Kunjungan Baru & Edit Vaksinasi sudah pakai modifier .number (akar masalahnya, bukan cuma ditambal di pembacanya)',
+   () => (doctorSrc.match(/x-model\.number="(ef|vaxForm)\.(dose_number|total_doses)"/g) || []).length === 4);
 ok('pola lama (doses[doses.length-1]) untuk lastDose sudah tidak ada lagi',
    () => !doctorSrc.includes('const lastDose = doses[doses.length-1];'));
 
