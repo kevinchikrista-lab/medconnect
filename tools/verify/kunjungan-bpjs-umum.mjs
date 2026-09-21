@@ -153,5 +153,82 @@ const setelahD1 = (await store.getCheckinsToday()).filter(c => !c.medical_record
 ok('kedatangan untuk DOKTER LAIN yang eksplisit tidak ikut muncul di daftar dokter ini',
    () => !setelahD1.some(c => c.id === checkinDokterLain.id));
 
+console.log('\n=== (5) KUNJUNGAN HARI INI — GABUNGAN KEDATANGAN + APPOINTMENT (dinamis, mergeKunjunganHariIni sungguhan) ===');
+
+const { mergeKunjunganHariIni } = await import('../../js/pages/doctor.js');
+
+ok('mergeKunjunganHariIni diekspor sebagai fungsi murni (bisa diuji langsung)',
+   () => typeof mergeKunjunganHariIni === 'function');
+
+// Pasien hanya kedatangan (tanpa jadwal): tetap muncul, tanpa time_slot.
+const hanyaCheckin = mergeKunjunganHariIni(
+  [{ patient_id: 'px_1', payment_type: 'bpjs', td: '120/80', nadi: '', suhu: '', notes: '', created_at: '2026-09-08T01:00:00Z' }],
+  []
+);
+ok('pasien yang hanya punya kedatangan (tanpa jadwal) tetap muncul di daftar gabungan',
+   () => hanyaCheckin.length === 1 && hanyaCheckin[0].patient_id === 'px_1' && hanyaCheckin[0].payment_type === 'bpjs' && !hanyaCheckin[0].time_slot);
+
+// Pasien hanya appointment (tanpa didaftarkan admin): tetap muncul, tanpa payment_type.
+const hanyaAppt = mergeKunjunganHariIni(
+  [],
+  [{ patient_id: 'px_2', time_slot: '09:00', queue_number: 3, notes: 'Kontrol' }]
+);
+ok('pasien yang hanya punya jadwal appointment (tanpa kedatangan admin) tetap muncul di daftar gabungan',
+   () => hanyaAppt.length === 1 && hanyaAppt[0].patient_id === 'px_2' && hanyaAppt[0].time_slot === '09:00' && !hanyaAppt[0].payment_type);
+
+// Pasien yang ADA DI KEDUANYA: digabung jadi SATU baris, bukan dua baris
+// untuk orang yang sama -- payment_type/TTV dari kedatangan, time_slot/
+// queue_number dari appointment.
+const keduanya = mergeKunjunganHariIni(
+  [{ patient_id: 'px_3', payment_type: 'umum', td: '110/70', nadi: '78', suhu: '36.6', notes: '', created_at: '2026-09-08T01:00:00Z' }],
+  [{ patient_id: 'px_3', time_slot: '10:30', queue_number: 5, notes: 'Vaksinasi' }]
+);
+ok('pasien yang ada di KEDUA sumber digabung jadi satu baris, bukan dua baris terpisah',
+   () => keduanya.length === 1);
+ok('baris gabungan membawa payment_type & TTV dari kedatangan',
+   () => keduanya[0].payment_type === 'umum' && keduanya[0].td === '110/70' && keduanya[0].nadi === '78' && keduanya[0].suhu === '36.6');
+ok('baris gabungan membawa time_slot & queue_number dari appointment',
+   () => keduanya[0].time_slot === '10:30' && keduanya[0].queue_number === 5);
+
+// Catatan: kalau kedatangan belum ada catatannya, dipakai catatan dari
+// appointment supaya tidak kosong begitu saja.
+const catatanDariAppt = mergeKunjunganHariIni(
+  [{ patient_id: 'px_4', payment_type: 'bpjs', td: '', nadi: '', suhu: '', notes: '', created_at: '2026-09-08T01:00:00Z' }],
+  [{ patient_id: 'px_4', time_slot: '11:00', queue_number: 2, notes: 'Kontrol diabetes' }]
+);
+ok('catatan appointment dipakai kalau kedatangan belum punya catatan sendiri',
+   () => catatanDariAppt[0].notes === 'Kontrol diabetes');
+
+// Urutan: yang punya jadwal jam tertentu tampil dulu berurutan sesuai jamnya;
+// yang cuma kedatangan tanpa jadwal menyusul di bawahnya.
+const urutan = mergeKunjunganHariIni(
+  [
+    { patient_id: 'px_urut_checkin1', payment_type: 'bpjs', notes: '', created_at: '2026-09-08T01:00:00Z' },
+    { patient_id: 'px_urut_checkin2', payment_type: 'umum', notes: '', created_at: '2026-09-08T02:00:00Z' },
+  ],
+  [
+    { patient_id: 'px_urut_jam2', time_slot: '14:00', queue_number: 4, notes: '' },
+    { patient_id: 'px_urut_jam1', time_slot: '08:00', queue_number: 1, notes: '' },
+  ]
+);
+ok('yang punya jadwal jam tertentu tampil dulu, berurutan sesuai jamnya (08:00 sebelum 14:00)',
+   () => urutan.findIndex(x => x.patient_id === 'px_urut_jam1') < urutan.findIndex(x => x.patient_id === 'px_urut_jam2'));
+ok('yang cuma kedatangan tanpa jadwal tampil SESUDAH semua yang berjadwal',
+   () => urutan.findIndex(x => x.patient_id === 'px_urut_jam2') < urutan.findIndex(x => x.patient_id === 'px_urut_checkin1'));
+ok('di antara yang cuma kedatangan tanpa jadwal, urut sesuai waktu didaftarkan (created_at)',
+   () => urutan.findIndex(x => x.patient_id === 'px_urut_checkin1') < urutan.findIndex(x => x.patient_id === 'px_urut_checkin2'));
+
+console.log('\n=== (6) KUNJUNGAN HARI INI — SUMBER DATANYA (statis) ===');
+ok('appointment hari ini diambil lewat store.getAppointmentsByDoctor, disaring bukan yang completed',
+   () => /store\.getAppointmentsByDoctor\(doc\?\.id, todayLocal\(\)\)\s*\n\s*\.filter\(a => a\.status !== 'completed'\)/.test(doctorSrc));
+ok('halaman memakai mergeKunjunganHariIni yang sungguhan (window\\.__mergeKunjunganHariIni), bukan logika gabungan yang ditulis ulang di dalam x-data',
+   () => doctorSrc.includes('this.checkins = window.__mergeKunjunganHariIni(daftarCheckin, appts);'));
+ok('mergeKunjunganHariIni diimpor & disambungkan ke window di app.js',
+   () => appSrc.includes('mergeKunjunganHariIni') && /window\.__mergeKunjunganHariIni = mergeKunjunganHariIni;/.test(appSrc));
+ok('teks pengantar halaman menyebut KEDUA sumber (didaftarkan admin & sudah punya jadwal)',
+   () => doctorSrc.includes('yang didaftarkan admin (BPJS/Umum) maupun yang sudah punya jadwal appointment'));
+ok('badge time_slot/nomor antrean ditampilkan berdampingan dengan badge BPJS/UMUM, bukan saling menggantikan',
+   () => /x-show="c\.time_slot".*queue_number \|\| c\.time_slot/.test(doctorSrc.replace(/\n/g, ' ')));
+
 console.log('\n' + (fails ? `❌ ${fails} gagal` : '✅ semua lolos'));
 process.exit(fails ? 1 : 0);

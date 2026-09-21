@@ -304,6 +304,7 @@ export function patientHistory() {
               <div class="flex gap-2 mt-2"><span class="px-2 py-0.5 rounded text-xs bg-teal-50 text-teal-700">${r.diagnosis}</span>${rxList.length > 0 ? `<span class="px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-700">${rxList.length} resep</span>` : ''}${r.follow_up_date ? `<span class="px-2 py-0.5 rounded text-xs bg-blue-50 text-blue-700">Kontrol ${formatDate(r.follow_up_date)}</span>` : ''}</div>
             </div>
             <div x-show="open" x-cloak class="border-t border-gray-100 p-4 bg-gray-50/50 text-sm space-y-3">
+              ${r.location ? `<div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Lokasi</h5><p class="text-gray-600 text-sm">${escHtml(r.location)}${r.location_detail ? ' — ' + escHtml(r.location_detail) : ''}</p></div>` : ''}
               <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Keluhan</h5><p class="text-gray-600 text-sm">${r.anamnesis}</p></div>
               <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Diagnosis</h5><p class="text-gray-800 font-medium">${r.diagnosis}</p></div>
               <div><h5 class="font-semibold text-gray-700 text-xs uppercase mb-1">Terapi Non-Farmakologis</h5><p class="text-gray-600 text-sm">${r.therapy || '-'}</p></div>

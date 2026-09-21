@@ -378,6 +378,7 @@ export function pharmacyDashboard() {
                       <span class="font-medium text-sm text-gray-800" x-text="rx.rx_number"></span>
                       <span class="px-1.5 py-0.5 rounded text-[10px] font-bold" :class="statusBadges[rx.status] || 'bg-gray-100 text-gray-600'" x-text="statusLabels[rx.status] || rx.status"></span>
                       <template x-if="rx.delivery_method === 'delivery'"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">🚚 Dikirim</span></template>
+                      <template x-if="rx.needs_reacc"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 animate-pulse">✏️ Diubah dokter — ACC ulang</span></template>
                       <span class="text-xs text-gray-400" x-text="timeAgo(rx.created_at)"></span>
                     </div>
                     <p class="text-sm text-gray-700">Pasien: <span class="font-medium" x-text="patientName(rx.patient_id)"></span></p>
@@ -677,6 +678,7 @@ export function pharmacyPrescriptions() {
                     <span x-text="rx.rx_number + ' — ' + patientName(rx.patient_id)"></span>
                     <template x-if="rx.delivery_method === 'delivery'"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 align-middle">🚚 Dikirim</span></template>
                     <template x-if="rx.service_fee_enabled"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-100 text-green-700 align-middle">💰 Jasa Dokter</span></template>
+                    <template x-if="rx.needs_reacc"><span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 align-middle animate-pulse">✏️ Diubah dokter — ACC ulang</span></template>
                   </p>
                   <p class="text-xs text-gray-500"><span x-text="doctorName(rx.doctor_id) + ' | ' + formatDate((rx.created_at||'').split('T')[0]) + ' | ' + itemsFor(rx.id).length + ' obat'"></span></p>
                 </div>
